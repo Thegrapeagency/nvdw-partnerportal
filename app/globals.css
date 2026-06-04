@@ -1,0 +1,20 @@
+@import url('https://fonts.googleapis.com/css2?family=Raleway:wght@300;400;500;600;700&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --navy: #010341;
+  --midnight: #33357e;
+  --bordeaux: #9b3737;
+  --terracotta: #ac595a;
+  --gold: #feb72a;
+  --cream: #fef1d5;
+  --sand: #f0e4c0;
+}
+
+body {
+  font-family: 'Raleway', sans-serif;
+  background-color: var(--cream);
+  color: var(--navy);
+}
