@@ -28,42 +28,80 @@ export default function LoginPage() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--navy)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <div style={{ width: '100%', maxWidth: '420px', padding: '0 24px' }}>
-        {/* Logo area */}
-        <div style={{ textAlign: 'center', marginBottom: '40px' }}>
-          <div style={{
-            fontFamily: 'Raleway, sans-serif',
-            fontSize: '11px',
-            fontWeight: '700',
-            letterSpacing: '3px',
-            textTransform: 'uppercase',
-            color: 'var(--gold)',
-            marginBottom: '8px'
-          }}>
-            Nacht van de Wijn 2026
-          </div>
-          <div style={{
-            fontFamily: 'Raleway, sans-serif',
-            fontSize: '28px',
-            fontWeight: '800',
-            textTransform: 'uppercase',
-            color: 'var(--cream)',
-            letterSpacing: '2px'
-          }}>
-            Partner Portal
-          </div>
-        </div>
-
-        {/* Form */}
-        <form onSubmit={handleLogin} style={{
-          background: 'rgba(255,255,255,0.04)',
-          border: '1px solid rgba(255,255,255,0.1)',
-          padding: '36px',
-          borderRadius: '2px'
+    <div style={{
+      minHeight: '100vh',
+      background: 'var(--sand)',
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: '40px 24px',
+    }}>
+      {/* Header */}
+      <div style={{ textAlign: 'center', marginBottom: '48px' }}>
+        <div style={{
+          fontFamily: 'Inter, sans-serif',
+          fontSize: '10px',
+          fontWeight: '700',
+          letterSpacing: '3px',
+          textTransform: 'uppercase',
+          color: 'var(--bordeaux)',
+          marginBottom: '12px',
         }}>
+          Nacht van de Wijn — Editie 7
+        </div>
+        <div style={{
+          fontFamily: 'GoboldBlocky, Inter, sans-serif',
+          fontSize: '36px',
+          fontWeight: '900',
+          textTransform: 'uppercase',
+          letterSpacing: '0',
+          color: 'var(--navy)',
+          lineHeight: '1',
+          marginBottom: '4px',
+        }}>
+          Partner
+        </div>
+        <div style={{
+          display: 'inline-block',
+          background: 'var(--bordeaux)',
+          padding: '4px 14px 3px',
+        }}>
+          <span style={{
+            fontFamily: 'GoboldBlocky, Inter, sans-serif',
+            fontSize: '36px',
+            fontWeight: '900',
+            textTransform: 'uppercase',
+            letterSpacing: '0',
+            color: 'var(--cream)',
+            lineHeight: '1',
+          }}>Portal</span>
+        </div>
+        <div style={{ marginTop: '16px', fontSize: '13px', color: 'var(--midnight)', fontFamily: 'Fraunces, serif', fontStyle: 'italic' }}>
+          6, 7 & 8 november 2026 — Werkspoorkathedraal Utrecht
+        </div>
+      </div>
+
+      {/* Form */}
+      <div style={{
+        width: '100%',
+        maxWidth: '400px',
+        background: 'var(--cream)',
+        border: '1px solid rgba(1,3,65,0.12)',
+        padding: '36px',
+      }}>
+        <form onSubmit={handleLogin}>
           <div style={{ marginBottom: '20px' }}>
-            <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', letterSpacing: '2px', textTransform: 'uppercase', color: 'var(--sand)', marginBottom: '8px' }}>
+            <label style={{
+              display: 'block',
+              fontFamily: 'Inter, sans-serif',
+              fontSize: '10px',
+              fontWeight: '700',
+              letterSpacing: '2px',
+              textTransform: 'uppercase',
+              color: 'var(--navy)',
+              marginBottom: '8px',
+            }}>
               E-mailadres
             </label>
             <input
@@ -73,19 +111,27 @@ export default function LoginPage() {
               required
               style={{
                 width: '100%',
-                padding: '12px 14px',
-                background: 'rgba(255,255,255,0.06)',
-                border: '1px solid rgba(255,255,255,0.15)',
-                color: 'white',
+                padding: '11px 14px',
+                background: 'var(--sand)',
+                border: '1px solid rgba(1,3,65,0.2)',
+                color: 'var(--navy)',
                 fontSize: '14px',
-                fontFamily: 'Raleway, sans-serif',
+                fontFamily: 'Inter, sans-serif',
                 outline: 'none',
-                borderRadius: '2px'
               }}
             />
           </div>
           <div style={{ marginBottom: '28px' }}>
-            <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', letterSpacing: '2px', textTransform: 'uppercase', color: 'var(--sand)', marginBottom: '8px' }}>
+            <label style={{
+              display: 'block',
+              fontFamily: 'Inter, sans-serif',
+              fontSize: '10px',
+              fontWeight: '700',
+              letterSpacing: '2px',
+              textTransform: 'uppercase',
+              color: 'var(--navy)',
+              marginBottom: '8px',
+            }}>
               Wachtwoord
             </label>
             <input
@@ -95,19 +141,26 @@ export default function LoginPage() {
               required
               style={{
                 width: '100%',
-                padding: '12px 14px',
-                background: 'rgba(255,255,255,0.06)',
-                border: '1px solid rgba(255,255,255,0.15)',
-                color: 'white',
+                padding: '11px 14px',
+                background: 'var(--sand)',
+                border: '1px solid rgba(1,3,65,0.2)',
+                color: 'var(--navy)',
                 fontSize: '14px',
-                fontFamily: 'Raleway, sans-serif',
+                fontFamily: 'Inter, sans-serif',
                 outline: 'none',
-                borderRadius: '2px'
               }}
             />
           </div>
           {error && (
-            <div style={{ background: 'rgba(155,55,55,0.3)', border: '1px solid var(--bordeaux)', padding: '10px 14px', marginBottom: '20px', fontSize: '13px', color: '#ffaaaa', borderRadius: '2px' }}>
+            <div style={{
+              background: 'rgba(155,55,55,0.1)',
+              border: '1px solid var(--bordeaux)',
+              padding: '10px 14px',
+              marginBottom: '20px',
+              fontSize: '13px',
+              color: 'var(--bordeaux)',
+              fontFamily: 'Inter, sans-serif',
+            }}>
               {error}
             </div>
           )}
@@ -116,27 +169,33 @@ export default function LoginPage() {
             disabled={loading}
             style={{
               width: '100%',
-              padding: '14px',
-              background: 'var(--gold)',
-              color: 'var(--navy)',
+              padding: '13px',
+              background: 'var(--bordeaux)',
+              color: 'var(--cream)',
               border: 'none',
-              fontFamily: 'Raleway, sans-serif',
-              fontSize: '13px',
-              fontWeight: '800',
+              fontFamily: 'Inter, sans-serif',
+              fontSize: '11px',
+              fontWeight: '700',
               letterSpacing: '2px',
               textTransform: 'uppercase',
               cursor: loading ? 'not-allowed' : 'pointer',
               opacity: loading ? 0.7 : 1,
-              borderRadius: '2px'
             }}
           >
             {loading ? 'Inloggen...' : 'Inloggen'}
           </button>
         </form>
-        <p style={{ textAlign: 'center', marginTop: '20px', fontSize: '12px', color: 'rgba(255,255,255,0.3)' }}>
-          Nog geen toegang? Neem contact op met NvdW via info@nachtvandewijn.nl.
-        </p>
       </div>
+
+      <p style={{
+        marginTop: '24px',
+        fontSize: '12px',
+        color: 'rgba(1,3,65,0.4)',
+        fontFamily: 'Inter, sans-serif',
+        textAlign: 'center',
+      }}>
+        Nog geen toegang? Neem contact op via info@nachtvandewijn.nl
+      </p>
     </div>
   )
 }

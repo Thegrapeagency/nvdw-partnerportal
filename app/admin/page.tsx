@@ -161,7 +161,7 @@ export default function AdminPage() {
   }
 
   const S = {
-    page: { display: 'flex', minHeight: '100vh', background: '#f8f8f8' },
+    page: { display: 'flex', minHeight: '100vh', background: 'var(--sand)' },
     sidebar: { width: '200px', background: 'var(--navy)', flexShrink: 0 },
     sidebarTop: { padding: '24px 20px', borderBottom: '1px solid rgba(255,255,255,0.08)' },
     logo: { fontSize: '10px', fontWeight: '700', letterSpacing: '2px', textTransform: 'uppercase' as const, color: 'var(--gold)' },
@@ -172,15 +172,15 @@ export default function AdminPage() {
       borderLeft: active ? '3px solid var(--gold)' : '3px solid transparent',
       color: active ? 'var(--gold)' : 'rgba(255,255,255,0.55)',
       fontSize: '12px', fontWeight: '600', letterSpacing: '1px', textTransform: 'uppercase' as const,
-      cursor: 'pointer', border: 'none', fontFamily: 'Raleway, sans-serif'
+      cursor: 'pointer', border: 'none', fontFamily: 'Inter, sans-serif'
     }),
     main: { flex: 1, padding: '32px 40px' },
     title: { fontSize: '22px', fontWeight: '800', textTransform: 'uppercase' as const, letterSpacing: '1px', color: 'var(--navy)', marginBottom: '24px' },
-    card: { background: 'white', padding: '24px', marginBottom: '16px', borderRadius: '2px', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' },
+    card: { background: 'var(--cream)', padding: '24px', marginBottom: '16px', borderRadius: '2px', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' },
     cardTitle: { fontSize: '11px', fontWeight: '700', letterSpacing: '2px', textTransform: 'uppercase' as const, color: 'var(--bordeaux)', marginBottom: '16px' },
     label: { display: 'block', fontSize: '11px', fontWeight: '700', letterSpacing: '1px', textTransform: 'uppercase' as const, color: '#666', marginBottom: '6px', marginTop: '12px' },
-    input: { width: '100%', padding: '9px 12px', border: '1px solid #ddd', fontSize: '13px', fontFamily: 'Raleway, sans-serif', outline: 'none', borderRadius: '2px', color: 'var(--navy)' },
-    btn: { padding: '10px 20px', background: 'var(--navy)', color: 'var(--cream)', border: 'none', fontSize: '11px', fontWeight: '700', letterSpacing: '2px', textTransform: 'uppercase' as const, cursor: 'pointer', fontFamily: 'Raleway, sans-serif', borderRadius: '2px', marginTop: '16px' },
+    input: { width: '100%', padding: '9px 12px', border: '1px solid #ddd', fontSize: '13px', fontFamily: 'Inter, sans-serif', outline: 'none', borderRadius: '2px', color: 'var(--navy)' },
+    btn: { padding: '10px 20px', background: 'var(--navy)', color: 'var(--cream)', border: 'none', fontSize: '11px', fontWeight: '700', letterSpacing: '2px', textTransform: 'uppercase' as const, cursor: 'pointer', fontFamily: 'Inter, sans-serif', borderRadius: '2px', marginTop: '16px' },
     grid2: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' },
     grid3: { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' },
     table: { width: '100%', borderCollapse: 'collapse' as const, fontSize: '13px' },

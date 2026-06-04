@@ -1,7 +1,16 @@
-@import url('https://fonts.googleapis.com/css2?family=Raleway:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,300;0,400;0,600;1,300;1,400&family=Inter:wght@400;500;600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@font-face {
+  font-family: 'GoboldBlocky';
+  src: url('https://nachtvandewijn.vercel.app/assets/GoboldBlocky-merged.woff2') format('woff2');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
 
 :root {
   --navy: #010341;
@@ -11,10 +20,31 @@
   --gold: #feb72a;
   --cream: #fef1d5;
   --sand: #f0e4c0;
+  --white: #ffffff;
 }
 
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
 body {
-  font-family: 'Raleway', sans-serif;
-  background-color: var(--cream);
+  font-family: 'Fraunces', Georgia, serif;
+  background-color: var(--sand);
   color: var(--navy);
+  font-size: 15px;
+  line-height: 1.7;
+  -webkit-font-smoothing: antialiased;
+}
+
+.gobold {
+  font-family: 'GoboldBlocky', 'Inter', sans-serif;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0;
+}
+
+label, .label-text {
+  font-family: 'Inter', sans-serif;
+}
+
+input, select, textarea, button {
+  font-family: 'Inter', sans-serif;
 }
