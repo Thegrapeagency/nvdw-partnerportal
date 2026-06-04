@@ -12,6 +12,43 @@ const PAKKET_LABELS: Record<string, string> = {
   silent_disco: 'Silent Disco',
 }
 
+function TicketCodesCell({ partner, onSave }: { partner: any; onSave: (codes: string) => void }) {
+  const [editing, setEditing] = useState(false)
+  const [val, setVal] = useState((partner as any).ticket_codes || '')
+
+  const save = async () => {
+    await supabase.from('partners').update({ ticket_codes: val } as any).eq('id', partner.id)
+    onSave(val)
+    setEditing(false)
+  }
+
+  const codes = val ? val.split(',').filter(Boolean) : []
+
+  if (editing) return (
+    <div style={{ minWidth: '180px' }}>
+      <textarea
+        value={val}
+        onChange={e => setVal(e.target.value)}
+        placeholder="CODE1,CODE2,CODE3"
+        style={{ width: '100%', padding: '6px 8px', fontSize: '11px', fontFamily: 'monospace', border: '1px solid #ddd', height: '70px', resize: 'vertical' }}
+      />
+      <div style={{ display: 'flex', gap: '6px', marginTop: '4px' }}>
+        <button onClick={save} style={{ padding: '4px 10px', background: '#010341', color: 'white', border: 'none', fontSize: '10px', cursor: 'pointer' }}>Opslaan</button>
+        <button onClick={() => setEditing(false)} style={{ padding: '4px 10px', background: 'transparent', border: '1px solid #ddd', fontSize: '10px', cursor: 'pointer' }}>Annuleer</button>
+      </div>
+    </div>
+  )
+
+  return (
+    <div style={{ cursor: 'pointer' }} onClick={() => setEditing(true)}>
+      {codes.length > 0
+        ? <span style={{ fontSize: '11px', color: '#2d8a4e', fontWeight: '600' }}>{codes.length} codes</span>
+        : <span style={{ fontSize: '11px', color: '#bbb' }}>+ Toevoegen</span>
+      }
+    </div>
+  )
+}
+
 export default function AdminPage() {
   const router = useRouter()
   const [partners, setPartners] = useState<Partner[]>([])
@@ -224,7 +261,7 @@ export default function AdminPage() {
               <table style={S.table}>
                 <thead>
                   <tr>
-                    {['Bedrijf', 'Pakket', 'Avond', 'Status', 'Offerte', 'Wijnen', 'Tickets'].map(h => (
+                    {['Bedrijf', 'Pakket', 'Avond', 'Status', 'Offerte', 'Wijnen', 'Tickets', 'Ticketcodes'].map(h => (
                       <th key={h} style={S.th}>{h}</th>
                     ))}
                   </tr>
@@ -242,6 +279,13 @@ export default function AdminPage() {
                       <td style={S.td}><span style={S.badge(p.offerte_akkoord)}>{p.offerte_akkoord ? '✓' : 'Open'}</span></td>
                       <td style={S.td}>{p.gratis_tickets}</td>
                       <td style={S.td}>{p.afdracht_percentage}%</td>
+                      <td style={S.td}>
+                        <TicketCodesCell partner={p} onSave={(codes) => {
+                          setPartners(partners.map(x => x.id === p.id ? { ...x, ticket_codes: codes } as any : x))
+                          setSaveMsg('Codes opgeslagen!')
+                          setTimeout(() => setSaveMsg(''), 3000)
+                        }} />
+                      </td>
                     </tr>
                   ))}
                 </tbody>
