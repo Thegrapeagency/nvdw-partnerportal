@@ -41,6 +41,13 @@ export default function Dashboard() {
   // Vraag form state
   const [newVraag, setNewVraag] = useState({ onderwerp: '', bericht: '' })
 
+  // Catering state per avond
+  const [cateringForm, setCateringForm] = useState<Record<string, { aantal: string; dieet: string }>>({
+    vrijdag: { aantal: '0', dieet: '' },
+    zaterdag: { aantal: '0', dieet: '' },
+    zondag: { aantal: '0', dieet: '' },
+  })
+
   useEffect(() => {
     const init = async () => {
       const { data: { user } } = await supabase.auth.getUser()
@@ -59,6 +66,18 @@ export default function Dashboard() {
       ])
       setWijnen(wijnData || [])
       setCatering(cateringData || [])
+      // Initialiseer catering form vanuit bestaande data
+      if (cateringData && cateringData.length > 0) {
+        const formState: Record<string, { aantal: string; dieet: string }> = {
+          vrijdag: { aantal: '0', dieet: '' },
+          zaterdag: { aantal: '0', dieet: '' },
+          zondag: { aantal: '0', dieet: '' },
+        }
+        cateringData.forEach((c: Crewcatering) => {
+          formState[c.avond] = { aantal: c.aantal_personen.toString(), dieet: c.dieetwensen || '' }
+        })
+        setCateringForm(formState)
+      }
       setFaqItems(faqData || [])
       setVragen(vraagData || [])
       setProducten(productData || [])
@@ -381,26 +400,35 @@ export default function Dashboard() {
             <div style={S.pageTitle}>Crew Catering</div>
             <div style={S.pageSubtitle}>Diner voor je crew: €17,50 per persoon per avond. Uiterste aanvraagdatum: 31 oktober.</div>
             {avonden.map(avond => {
-              const existing = catering.find(c => c.avond === avond)
-              const [aantal, setAantal] = useState(existing?.aantal_personen?.toString() || '0')
-              const [dieet, setDieet] = useState(existing?.dieetwensen || '')
+              const form = cateringForm[avond] || { aantal: '0', dieet: '' }
               return (
                 <div key={avond} style={S.card}>
                   <div style={S.cardTitle}>{avond.charAt(0).toUpperCase() + avond.slice(1)}</div>
                   <div style={S.grid2}>
                     <div>
                       <label style={S.label}>Aantal personen</label>
-                      <input style={S.input} type="number" min="0" value={aantal} onChange={e => setAantal(e.target.value)} />
+                      <input
+                        style={S.input}
+                        type="number"
+                        min="0"
+                        value={form.aantal}
+                        onChange={e => setCateringForm({ ...cateringForm, [avond]: { ...form, aantal: e.target.value } })}
+                      />
                     </div>
                     <div>
                       <label style={S.label}>Dieetwensen</label>
-                      <input style={S.input} value={dieet} onChange={e => setDieet(e.target.value)} placeholder="bijv. vegetarisch, lactosevrij" />
+                      <input
+                        style={S.input}
+                        value={form.dieet}
+                        onChange={e => setCateringForm({ ...cateringForm, [avond]: { ...form, dieet: e.target.value } })}
+                        placeholder="bijv. vegetarisch, lactosevrij"
+                      />
                     </div>
                   </div>
                   <div style={{ marginTop: '12px', fontSize: '13px', color: '#666' }}>
-                    Totaal: €{(parseInt(aantal) * 17.5).toFixed(2)}
+                    Totaal: €{(parseInt(form.aantal || '0') * 17.5).toFixed(2)}
                   </div>
-                  <button style={S.btn} onClick={() => handleCatering(avond, parseInt(aantal), dieet)}>Opslaan</button>
+                  <button style={S.btn} onClick={() => handleCatering(avond, parseInt(form.aantal || '0'), form.dieet)}>Opslaan</button>
                 </div>
               )
             })}
