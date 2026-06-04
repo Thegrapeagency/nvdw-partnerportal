@@ -271,7 +271,10 @@ export default function Dashboard() {
         {/* WIJNLIJST */}
         {tab === 'wijnlijst' && <>
           <div style={S.pageTitle}>Wijnlijst</div>
-          <div style={S.pageDesc}>Deadline: 29 oktober 12:00 — daarna worden de prijslijsten gedrukt.</div>
+          <div style={S.pageDesc}>Vul hier je volledige wijnassortiment in inclusief prijzen.</div>
+          <div style={{ background: 'var(--cream)', border: '1px solid rgba(1,3,65,0.1)', padding: '16px 20px', marginBottom: '28px', fontSize: '13px', color: 'var(--navy)', lineHeight: '1.7' }}>
+            <strong>Let op:</strong> De wijnen en prijzen die je hier invoert worden op <strong>29 oktober om 12:00</strong> geëxporteerd. Ze worden gedrukt op de signing en geladen in de kassa. Wijzigingen na die tijd zijn niet meer mogelijk.
+          </div>
           <div style={{ borderTop: '1px solid rgba(1,3,65,0.1)', paddingTop: '28px' }}>
             {wijnen.length > 0 && <>
               <div style={S.sectionTitle}>{wijnen.length} {wijnen.length === 1 ? 'wijn' : 'wijnen'} ingevoerd</div>
