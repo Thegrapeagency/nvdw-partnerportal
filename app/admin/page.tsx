@@ -19,10 +19,97 @@ export default function AdminPage() {
   const [activeTab, setActiveTab] = useState('partners')
   const [loading, setLoading] = useState(true)
   const [saveMsg, setSaveMsg] = useState('')
+  const [exportLoading, setExportLoading] = useState(false)
   const [newPartner, setNewPartner] = useState({
     naam: '', bedrijfsnaam: '', email: '', pakket: 'own_bar', avond: 'alle', gratis_tickets: '20', afdracht_percentage: '25', barlocatie: '', notities: ''
   })
   const [antwoordMap, setAntwoordMap] = useState<Record<string, string>>({})
+
+  useEffect(() => {
+    const init = async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user || user.email !== process.env.NEXT_PUBLIC_ADMIN_EMAIL) { router.push('/'); return }
+      const [{ data: p }, { data: v }] = await Promise.all([
+        supabase.from('partners').select('*').order('created_at', { ascending: false }),
+        supabase.from('partner_vragen').select('*').order('created_at', { ascending: false }),
+      ])
+      setPartners(p || [])
+      setVragen(v || [])
+      setLoading(false)
+    }
+    init()
+  }, [router])
+
+  const handleExportTactile = async () => {
+    setExportLoading(true)
+    // Haal alle wijnlijsten op met partner info
+    const { data: wijnen } = await supabase
+      .from('wijnlijst')
+      .select('*, partners(bedrijfsnaam, pakket, avond, barlocatie)')
+      .order('partner_id')
+      .order('volgorde')
+
+    if (!wijnen || wijnen.length === 0) {
+      setSaveMsg('Geen wijnen gevonden om te exporteren.')
+      setExportLoading(false)
+      setTimeout(() => setSaveMsg(''), 3000)
+      return
+    }
+
+    // Bouw CSV op — kolommen aanpassen zodra Tactile formaat bekend is
+    const headers = [
+      'Partner',
+      'Pakket',
+      'Avond',
+      'Barlocatie',
+      'Wijn naam',
+      'Producent',
+      'Regio',
+      'Land',
+      'Druif',
+      'Jaar',
+      'Prijs half glas (€)',
+      'Prijs heel glas (€)',
+      'Prijs fles (€)',
+      'Omschrijving',
+    ]
+
+    const rows = wijnen.map((w: any) => [
+      w.partners?.bedrijfsnaam || '',
+      PAKKET_LABELS[w.partners?.pakket] || w.partners?.pakket || '',
+      w.partners?.avond || '',
+      w.partners?.barlocatie || '',
+      w.naam || '',
+      w.producent || '',
+      w.regio || '',
+      w.land || '',
+      w.druif || '',
+      w.jaar || '',
+      w.prijs_half_glas?.toFixed(2) || '',
+      w.prijs_heel_glas?.toFixed(2) || '',
+      w.prijs_fles?.toFixed(2) || '',
+      w.beschrijving || '',
+    ])
+
+    const csvContent = [headers, ...rows]
+      .map(row => row.map((cell: any) => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+      .join('\n')
+
+    // Download triggeren
+    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `NvdW2026_wijnlijst_tactile_${new Date().toISOString().slice(0, 10)}.csv`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+
+    setSaveMsg(`Export klaar — ${wijnen.length} wijnen van ${new Set(wijnen.map((w: any) => w.partner_id)).size} partners.`)
+    setExportLoading(false)
+    setTimeout(() => setSaveMsg(''), 4000)
+  }
 
   useEffect(() => {
     const init = async () => {
@@ -118,6 +205,7 @@ export default function AdminPage() {
           {[
             { id: 'partners', label: 'Partners' },
             { id: 'toevoegen', label: 'Toevoegen' },
+            { id: 'export', label: 'Tactile export' },
             { id: 'vragen', label: `Vragen ${openVragen.length > 0 ? `(${openVragen.length})` : ''}` },
           ].map(item => (
             <button key={item.id} style={S.navItem(activeTab === item.id)} onClick={() => setActiveTab(item.id)}>
@@ -209,6 +297,37 @@ export default function AdminPage() {
               <p style={{ fontSize: '12px', color: '#999', marginTop: '12px' }}>
                 Na het aanmaken moet je in Supabase Auth handmatig een gebruiker aanmaken met dit e-mailadres, zodat de partner kan inloggen.
               </p>
+            </div>
+          </>
+        )}
+
+        {activeTab === 'export' && (
+          <>
+            <div style={S.title}>Tactile export</div>
+            <div style={S.card}>
+              <div style={S.cardTitle}>Wijnlijst export</div>
+              <p style={{ fontSize: '13px', color: '#555', lineHeight: '1.7', marginBottom: '20px' }}>
+                Exporteer alle ingevulde wijnlijsten van alle partners in één CSV. 
+                Bevat per wijn: partner, pakket, avond, barlocatie, naam, producent, regio, land, druif, jaar en alle prijzen.
+                Zodra het Tactile importformaat bekend is passen we de kolomnamen in 5 minuten aan.
+              </p>
+              <div style={{ background: 'var(--sand)', padding: '16px 20px', borderRadius: '2px', marginBottom: '20px' }}>
+                <div style={{ fontSize: '11px', fontWeight: '700', letterSpacing: '2px', textTransform: 'uppercase', color: '#999', marginBottom: '8px' }}>Huidige kolommen in de export</div>
+                <div style={{ fontSize: '12px', color: 'var(--navy)', lineHeight: '2' }}>
+                  Partner · Pakket · Avond · Barlocatie · Wijn naam · Producent · Regio · Land · Druif · Jaar · Prijs half glas · Prijs heel glas · Prijs fles · Omschrijving
+                </div>
+              </div>
+              <button
+                style={{ ...S.btn, background: exportLoading ? '#999' : 'var(--gold)', color: 'var(--navy)', fontSize: '13px', padding: '14px 28px' }}
+                onClick={handleExportTactile}
+                disabled={exportLoading}
+              >
+                {exportLoading ? 'Exporteren...' : '↓ Download wijnlijst CSV'}
+              </button>
+            </div>
+            <div style={S.card}>
+              <div style={S.cardTitle}>Crewcatering export</div>
+              <p style={{ fontSize: '13px', color: '#999' }}>Komt binnenkort — export van alle crewcatering aanvragen per avond.</p>
             </div>
           </>
         )}
