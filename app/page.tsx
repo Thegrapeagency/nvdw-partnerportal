@@ -134,7 +134,7 @@ export default function LoginPage() {
           </button>
         </form>
         <p style={{ textAlign: 'center', marginTop: '20px', fontSize: '12px', color: 'rgba(255,255,255,0.3)' }}>
-          Nog geen toegang? Neem contact op met Milan.
+          Nog geen toegang? Neem contact op met NvdW via info@nachtvandewijn.nl.
         </p>
       </div>
     </div>

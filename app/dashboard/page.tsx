@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation'
 const NAV_ITEMS = [
   { id: 'home', label: 'Dashboard' },
   { id: 'offerte', label: 'Offerte' },
+  { id: 'tickets', label: 'Tickets & codes' },
   { id: 'wijnlijst', label: 'Wijnlijst' },
   { id: 'catering', label: 'Crew catering' },
   { id: 'extras', label: 'Extra bestellen' },
@@ -215,7 +216,7 @@ export default function Dashboard() {
   }
 
   if (loading) return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', color: 'var(--navy)', fontWeight: '600' }}>Laden...</div>
-  if (!partner) return <div style={{ padding: '40px', color: 'var(--navy)' }}>Geen partneraccout gevonden. Neem contact op met Milan.</div>
+  if (!partner) return <div style={{ padding: '40px', color: 'var(--navy)' }}>Geen partneraccount gevonden. Neem contact op met NvdW via info@nachtvandewijn.nl.</div>
 
   const avonden = ['vrijdag', 'zaterdag', 'zondag']
 
@@ -276,6 +277,53 @@ export default function Dashboard() {
                   <span>{item.done ? '✓' : '○'}</span> {item.label}
                 </div>
               ))}
+            </div>
+          </>
+        )}
+
+        {/* TICKETS & CODES */}
+        {activeTab === 'tickets' && (
+          <>
+            <div style={S.pageTitle}>Tickets & codes</div>
+            <div style={S.pageSubtitle}>Jouw gratis tickets en kortingscodes voor relaties.</div>
+            <div style={S.card}>
+              <div style={S.cardTitle}>Gratis toegangstickets</div>
+              <p style={{ fontSize: '13px', color: '#555', marginBottom: '16px', lineHeight: '1.7' }}>
+                Als partner ontvang je <strong>{partner.gratis_tickets} gratis toegangstickets</strong>. 
+                NvdW stuurt je deze tickets per e-mail toe zodra de ticketverkoop geopend is. 
+                Heb je ze nog niet ontvangen? Neem contact op via de contactpagina.
+              </p>
+              <div style={{ background: 'var(--sand)', padding: '16px 20px', borderRadius: '2px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                  <div style={{ fontSize: '11px', fontWeight: '700', letterSpacing: '2px', textTransform: 'uppercase', color: '#999' }}>Jouw ticketaantal</div>
+                  <div style={{ fontSize: '28px', fontWeight: '800', color: 'var(--navy)', marginTop: '4px' }}>{partner.gratis_tickets} tickets</div>
+                </div>
+                <div style={{ fontSize: '13px', color: '#666' }}>Worden per mail verstuurd</div>
+              </div>
+            </div>
+            <div style={S.card}>
+              <div style={S.cardTitle}>Kortingscode voor relaties</div>
+              <p style={{ fontSize: '13px', color: '#555', marginBottom: '16px', lineHeight: '1.7' }}>
+                Met de onderstaande code kunnen jouw relaties en klanten <strong>20% korting</strong> krijgen op hun tickets. 
+                Deel deze code gerust in je nieuwsbrief, op social media of via je website.
+              </p>
+              <div style={{ background: 'var(--navy)', padding: '20px 24px', borderRadius: '2px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                  <div style={{ fontSize: '11px', fontWeight: '700', letterSpacing: '2px', textTransform: 'uppercase', color: 'rgba(255,255,255,0.5)', marginBottom: '8px' }}>Jouw kortingscode</div>
+                  <div style={{ fontSize: '24px', fontWeight: '800', color: 'var(--gold)', letterSpacing: '4px', fontFamily: 'monospace' }}>PARTNERKORTING</div>
+                </div>
+                <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', textAlign: 'right' }}>20% korting<br/>op alle tickets</div>
+              </div>
+              <p style={{ fontSize: '12px', color: '#999', marginTop: '12px' }}>
+                Heb je behoefte aan een gepersonaliseerde code? Stuur een bericht via de contactpagina.
+              </p>
+            </div>
+            <div style={S.card}>
+              <div style={S.cardTitle}>Extra tickets bestellen</div>
+              <p style={{ fontSize: '13px', color: '#555', lineHeight: '1.7' }}>
+                Meer tickets nodig bovenop je gratis contingent? Die zijn bij te bestellen voor <strong>€5,00 per ticket</strong> via de pagina Extra bestellen.
+              </p>
+              <button style={S.btn} onClick={() => setActiveTab('extras')}>Naar extra bestellen</button>
             </div>
           </>
         )}
@@ -446,7 +494,7 @@ export default function Dashboard() {
                   <div style={{ fontWeight: '700', fontSize: '15px', color: 'var(--navy)' }}>{product.naam}</div>
                   <div style={{ fontSize: '13px', color: '#666', marginTop: '4px' }}>{product.omschrijving}</div>
                   <div style={{ fontSize: '14px', fontWeight: '700', color: 'var(--bordeaux)', marginTop: '6px' }}>
-                    {product.prijs === 0 ? 'In overleg' : `€${product.prijs.toFixed(2)} per ${product.eenheid}`}
+                    {product.prijs === 0 ? 'Prijs op aanvraag' : `€${product.prijs.toFixed(2)} per ${product.eenheid}`}
                   </div>
                 </div>
                 <button style={S.btnGold} onClick={() => handleBestelExtra(product)}>Aanvragen</button>
@@ -462,7 +510,7 @@ export default function Dashboard() {
             <div style={S.pageSubtitle}>Alle downloads voor jouw deelname.</div>
             <div style={S.card}>
               <div style={S.cardTitle}>Beschikbare documenten</div>
-              <p style={{ fontSize: '13px', color: '#999' }}>Milan uploadt hier de documenten zodra ze beschikbaar zijn: plattegrond, perskit, briefing, AV en meer.</p>
+              <p style={{ fontSize: '13px', color: '#999' }}>NvdW uploadt hier de documenten zodra ze beschikbaar zijn: plattegrond, perskit, briefing, AV en meer.</p>
             </div>
           </>
         )}
