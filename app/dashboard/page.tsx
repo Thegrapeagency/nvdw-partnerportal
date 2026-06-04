@@ -323,7 +323,7 @@ export default function Dashboard() {
         {/* CATERING */}
         {tab === 'catering' && <>
           <div style={S.pageTitle}>Crew catering</div>
-          <div style={S.pageDesc}>€17,50 per persoon per avond. Deadline: 31 oktober.</div>
+          <div style={S.pageDesc}>€19,50 per persoon per avond. Deadline: 31 oktober.</div>
           <div style={{ borderTop: '1px solid rgba(1,3,65,0.1)', paddingTop: '28px', display: 'flex', flexDirection: 'column', gap: '28px' }}>
             {['vrijdag', 'zaterdag', 'zondag'].map(avond => {
               const form = cateringForm[avond] || { aantal: '0', dieet: '' }
@@ -342,7 +342,7 @@ export default function Dashboard() {
                   </div>
                   {parseInt(form.aantal || '0') > 0 && (
                     <div style={{ fontSize: '12px', color: 'rgba(1,3,65,0.4)', marginTop: '8px' }}>
-                      Totaal: €{(parseInt(form.aantal) * 17.5).toFixed(2)}
+                      Totaal: €{(parseInt(form.aantal) * 19.5).toFixed(2)}
                     </div>
                   )}
                   <button style={{ ...S.btn, marginTop: '14px' }} onClick={() => saveCatering(avond)}>Opslaan</button>
@@ -355,7 +355,7 @@ export default function Dashboard() {
         {/* EXTRAS */}
         {tab === 'extras' && <>
           <div style={S.pageTitle}>Extra bestellen</div>
-          <div style={S.pageDesc}>Extra's bovenop je standaard pakket.</div>
+          <div style={S.pageDesc}>Alles optioneel, naar wens bij te boeken. Prijzen exclusief btw.</div>
           <div style={{ borderTop: '1px solid rgba(1,3,65,0.1)', paddingTop: '28px', display: 'flex', flexDirection: 'column', gap: '1px' }}>
             {producten.map(p => (
               <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '18px 0', borderBottom: '1px solid rgba(1,3,65,0.07)' }}>
@@ -363,7 +363,7 @@ export default function Dashboard() {
                   <div style={{ fontSize: '14px', fontWeight: '500', color: 'var(--navy)' }}>{p.naam}</div>
                   {p.omschrijving && <div style={{ fontSize: '12px', color: 'rgba(1,3,65,0.45)', marginTop: '2px' }}>{p.omschrijving}</div>}
                   <div style={{ fontSize: '13px', color: 'var(--bordeaux)', fontWeight: '500', marginTop: '4px' }}>
-                    {p.prijs === 0 ? 'Prijs op aanvraag' : `€${p.prijs.toFixed(2)} per ${p.eenheid}`}
+                    {p.prijs === 0 ? 'Prijs op aanvraag' : `€${p.prijs.toFixed(2)} per ${p.eenheid} excl. btw`}
                   </div>
                 </div>
                 <button style={S.btnOutline} onClick={() => bestelExtra(p)}>Aanvragen</button>
