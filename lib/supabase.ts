@@ -20,8 +20,37 @@ export type Partner = {
   gratis_tickets: number
   afdracht_percentage: number
   notities: string | null
+  kortingscode: string | null
   created_at: string
   updated_at: string
+}
+
+export type Admin = {
+  id: string
+  email: string
+  naam: string
+  rol: string
+  actief: boolean
+  created_at: string
+}
+
+export type PortalTekst = {
+  sleutel: string
+  label: string
+  waarde: string
+  type: string
+  groep: string
+  volgorde: number
+  updated_at: string
+}
+
+export type Document = {
+  id: string
+  naam: string
+  categorie: string
+  bestandsnaam: string
+  storage_path: string
+  created_at: string
 }
 
 export type Wijn = {
@@ -54,6 +83,7 @@ export type FAQ = {
   antwoord: string
   categorie: string
   volgorde: number
+  actief?: boolean
 }
 
 export type PartnerVraag = {
@@ -73,4 +103,6 @@ export type Product = {
   omschrijving: string | null
   prijs: number
   eenheid: string
+  actief?: boolean
+  volgorde?: number
 }

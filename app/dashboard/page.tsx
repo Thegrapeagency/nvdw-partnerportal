@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import type { Partner, Wijn, Crewcatering, FAQ, PartnerVraag, Product } from '@/lib/supabase'
+import type { Partner, Wijn, Crewcatering, FAQ, PartnerVraag, Product, PortalTekst, Document } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 
 const NAV = [
@@ -44,6 +44,8 @@ export default function Dashboard() {
   const [faqItems, setFaqItems] = useState<FAQ[]>([])
   const [vragen, setVragen] = useState<PartnerVraag[]>([])
   const [producten, setProducten] = useState<Product[]>([])
+  const [teksten, setTeksten] = useState<Record<string, string>>({})
+  const [documenten, setDocumenten] = useState<Document[]>([])
   const [msg, setMsg] = useState('')
   const [newWijn, setNewWijn] = useState({ naam: '', producent: '', regio: '', land: '', druif: '', jaar: '', prijs_half_glas: '', prijs_heel_glas: '', prijs_fles: '', beschrijving: '' })
   const [newVraag, setNewVraag] = useState({ onderwerp: '', bericht: '' })
@@ -58,14 +60,19 @@ export default function Dashboard() {
       const { data: p } = await supabase.from('partners').select('*').eq('user_id', user.id).single()
       if (!p) { setLoading(false); return }
       setPartner(p)
-      const [{ data: w }, { data: c }, { data: f }, { data: v }, { data: pr }] = await Promise.all([
+      const [{ data: w }, { data: c }, { data: f }, { data: v }, { data: pr }, { data: t }, { data: d }] = await Promise.all([
         supabase.from('wijnlijst').select('*').eq('partner_id', p.id).order('volgorde'),
         supabase.from('crewcatering').select('*').eq('partner_id', p.id),
         supabase.from('faq').select('*').eq('actief', true).order('volgorde'),
         supabase.from('partner_vragen').select('*').eq('partner_id', p.id).order('created_at', { ascending: false }),
         supabase.from('producten_catalogus').select('*').eq('actief', true).order('volgorde'),
+        supabase.from('portal_teksten').select('*'),
+        supabase.from('documenten').select('*').order('created_at', { ascending: false }),
       ])
       setWijnen(w || []); setCatering(c || []); setFaqItems(f || []); setVragen(v || []); setProducten(pr || [])
+      const tmap: Record<string, string> = {}
+      ;(t as PortalTekst[] || []).forEach(x => { tmap[x.sleutel] = x.waarde })
+      setTeksten(tmap); setDocumenten(d || [])
       if (c && c.length > 0) {
         const fs: Record<string, { aantal: string; dieet: string }> = { vrijdag: { aantal: '0', dieet: '' }, zaterdag: { aantal: '0', dieet: '' }, zondag: { aantal: '0', dieet: '' } }
         c.forEach((x: Crewcatering) => { fs[x.avond] = { aantal: x.aantal_personen.toString(), dieet: x.dieetwensen || '' } })
@@ -78,6 +85,13 @@ export default function Dashboard() {
 
   const flash = (m: string) => { setMsg(m); setTimeout(() => setMsg(''), 3000) }
   const logout = async () => { await supabase.auth.signOut(); router.push('/') }
+  const T = (k: string, fallback = '') => teksten[k] || fallback
+  const cateringPrijs = parseFloat(T('prijs_catering_pp', '19.50')) || 19.5
+
+  const downloadDoc = async (d: Document) => {
+    const { data } = await supabase.storage.from('documenten').createSignedUrl(d.storage_path, 120)
+    if (data?.signedUrl) window.open(data.signedUrl, '_blank')
+  }
 
   const addWijn = async () => {
     if (!partner || !newWijn.naam) return
@@ -173,8 +187,8 @@ export default function Dashboard() {
             <div style={S.sectionTitle}>Openstaande acties</div>
             {[
               { done: partner.offerte_akkoord, label: 'Offerte accorderen', sub: 'Ga naar Offerte' },
-              { done: wijnen.length > 0, label: 'Wijnlijst invullen', sub: 'Deadline 29 oktober 12:00' },
-              { done: catering.length > 0, label: 'Crewcatering aanvragen', sub: 'Deadline 31 oktober' },
+              { done: wijnen.length > 0, label: 'Wijnlijst invullen', sub: `Deadline ${T('deadline_wijnlijst', '29 oktober 12:00')}` },
+              { done: catering.length > 0, label: 'Crewcatering aanvragen', sub: `Deadline ${T('deadline_catering', '31 oktober')}` },
             ].map((item, i) => (
               <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '14px', padding: '14px 0', borderBottom: '1px solid rgba(1,3,65,0.07)' }}>
                 <div style={{ width: '18px', height: '18px', borderRadius: '50%', background: item.done ? 'var(--bordeaux)' : 'transparent', border: `1.5px solid ${item.done ? 'var(--bordeaux)' : 'rgba(1,3,65,0.2)'}`, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -215,11 +229,11 @@ export default function Dashboard() {
           <div style={{ borderTop: '1px solid rgba(1,3,65,0.1)', paddingTop: '28px' }}>
             <div style={S.sectionTitle}>Kortingscode voor relaties</div>
             <p style={{ fontSize: '13px', color: 'rgba(1,3,65,0.55)', marginBottom: '16px' }}>
-              Deel deze code voor 20% korting op alle tickets. Geschikt voor nieuwsbrieven en social media.
+              Deel deze code voor {T('korting_percentage', '20')}% korting op alle tickets. Geschikt voor nieuwsbrieven en social media.
             </p>
             <div style={{ padding: '14px 18px', background: 'var(--cream)', border: '1px solid rgba(1,3,65,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span style={{ fontFamily: 'monospace', fontSize: '16px', fontWeight: '600', color: 'var(--navy)', letterSpacing: '2px' }}>PARTNERKORTING</span>
-              <span style={{ fontSize: '12px', color: 'var(--bordeaux)', fontWeight: '600' }}>20% korting</span>
+              <span style={{ fontFamily: 'monospace', fontSize: '16px', fontWeight: '600', color: 'var(--navy)', letterSpacing: '2px' }}>{partner.kortingscode || T('korting_code_default', 'PARTNERKORTING')}</span>
+              <span style={{ fontSize: '12px', color: 'var(--bordeaux)', fontWeight: '600' }}>{T('korting_percentage', '20')}% korting</span>
             </div>
           </div>
         </>}
@@ -244,8 +258,8 @@ export default function Dashboard() {
           </div>
           <div style={{ marginTop: '32px', padding: '20px', background: 'var(--cream)', border: '1px solid rgba(1,3,65,0.1)' }}>
             <div style={{ fontSize: '12px', fontWeight: '600', color: 'rgba(1,3,65,0.5)', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '1px' }}>Voorwaarden</div>
-            <p style={{ fontSize: '13px', color: 'rgba(1,3,65,0.65)', lineHeight: '1.7' }}>
-              NVDW B.V. (KvK 89631935). Rollup- en spanbanners niet toegestaan. Branding via koelkasten, kleding en kleine materialen wel mogelijk. Afdracht over netto-omzet via NvdW betaalsystemen.
+            <p style={{ fontSize: '13px', color: 'rgba(1,3,65,0.65)', lineHeight: '1.7', whiteSpace: 'pre-line' }}>
+              {T('offerte_voorwaarden', 'NVDW B.V. (KvK 89631935). Rollup- en spanbanners niet toegestaan. Branding via koelkasten, kleding en kleine materialen wel mogelijk. Afdracht over netto-omzet via NvdW betaalsystemen.')}
             </p>
           </div>
           <div style={{ marginTop: '24px' }}>
@@ -273,7 +287,7 @@ export default function Dashboard() {
           <div style={S.pageTitle}>Wijnlijst</div>
           <div style={S.pageDesc}>Vul hier je volledige wijnassortiment in inclusief prijzen.</div>
           <div style={{ background: 'var(--cream)', border: '1px solid rgba(1,3,65,0.1)', padding: '16px 20px', marginBottom: '28px', fontSize: '13px', color: 'var(--navy)', lineHeight: '1.7' }}>
-            <strong>Let op:</strong> De wijnen en prijzen die je hier invoert worden op <strong>29 oktober om 12:00</strong> geëxporteerd. Ze worden gedrukt op de signing en geladen in de kassa. Wijzigingen na die tijd zijn niet meer mogelijk.
+            <strong>Let op:</strong> De wijnen en prijzen die je hier invoert worden op <strong>{T('deadline_wijnlijst', '29 oktober 12:00')}</strong> geëxporteerd. Ze worden gedrukt op de signing en geladen in de kassa. Wijzigingen na die tijd zijn niet meer mogelijk.
           </div>
           <div style={{ borderTop: '1px solid rgba(1,3,65,0.1)', paddingTop: '28px' }}>
             {wijnen.length > 0 && <>
@@ -323,7 +337,7 @@ export default function Dashboard() {
         {/* CATERING */}
         {tab === 'catering' && <>
           <div style={S.pageTitle}>Crew catering</div>
-          <div style={S.pageDesc}>€19,50 per persoon per avond. Deadline: 31 oktober.</div>
+          <div style={S.pageDesc}>€{cateringPrijs.toFixed(2).replace('.', ',')} per persoon per avond. Deadline: {T('deadline_catering', '31 oktober')}.</div>
           <div style={{ borderTop: '1px solid rgba(1,3,65,0.1)', paddingTop: '28px', display: 'flex', flexDirection: 'column', gap: '28px' }}>
             {['vrijdag', 'zaterdag', 'zondag'].map(avond => {
               const form = cateringForm[avond] || { aantal: '0', dieet: '' }
@@ -342,7 +356,7 @@ export default function Dashboard() {
                   </div>
                   {parseInt(form.aantal || '0') > 0 && (
                     <div style={{ fontSize: '12px', color: 'rgba(1,3,65,0.4)', marginTop: '8px' }}>
-                      Totaal: €{(parseInt(form.aantal) * 19.5).toFixed(2)}
+                      Totaal: €{(parseInt(form.aantal) * cateringPrijs).toFixed(2)}
                     </div>
                   )}
                   <button style={{ ...S.btn, marginTop: '14px' }} onClick={() => saveCatering(avond)}>Opslaan</button>
@@ -376,9 +390,21 @@ export default function Dashboard() {
         {tab === 'documenten' && <>
           <div style={S.pageTitle}>Documenten</div>
           <div style={S.pageDesc}>Downloads voor jouw deelname.</div>
-          <p style={{ fontSize: '13px', color: 'rgba(1,3,65,0.4)', borderTop: '1px solid rgba(1,3,65,0.1)', paddingTop: '28px' }}>
-            NvdW uploadt hier de documenten zodra ze beschikbaar zijn.
-          </p>
+          <div style={{ borderTop: '1px solid rgba(1,3,65,0.1)', paddingTop: '28px' }}>
+            {documenten.length === 0 ? (
+              <p style={{ fontSize: '13px', color: 'rgba(1,3,65,0.4)' }}>NvdW uploadt hier de documenten zodra ze beschikbaar zijn.</p>
+            ) : (
+              documenten.map(d => (
+                <div key={d.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 0', borderBottom: '1px solid rgba(1,3,65,0.07)' }}>
+                  <div>
+                    <div style={{ fontSize: '14px', fontWeight: '500', color: 'var(--navy)' }}>{d.naam}</div>
+                    <div style={{ fontSize: '12px', color: 'rgba(1,3,65,0.4)', marginTop: '2px', textTransform: 'capitalize' }}>{d.categorie}</div>
+                  </div>
+                  <button onClick={() => downloadDoc(d)} style={S.btnOutline}>Download</button>
+                </div>
+              ))
+            )}
+          </div>
         </>}
 
         {/* FAQ */}

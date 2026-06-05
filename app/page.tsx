@@ -16,8 +16,8 @@ export default function LoginPage() {
     setError('')
     const { error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) { setError('E-mail of wachtwoord klopt niet.'); setLoading(false); return }
-    const { data: { user } } = await supabase.auth.getUser()
-    if (user?.email === process.env.NEXT_PUBLIC_ADMIN_EMAIL) router.push('/admin')
+    const { data: isAdmin } = await supabase.rpc('is_admin')
+    if (isAdmin) router.push('/admin')
     else router.push('/dashboard')
   }
 
