@@ -21,8 +21,31 @@ export type Partner = {
   afdracht_percentage: number
   notities: string | null
   kortingscode: string | null
+  type: string
+  standplaats_vergoeding: number | null
+  stroom_kw: number | null
+  stroom_aansluitingen: string | null
+  gas_nodig: boolean | null
+  water_nodig: boolean | null
+  techniek_opmerkingen: string | null
   created_at: string
   updated_at: string
+}
+
+// De 14 wettelijke EU-allergenen
+export const ALLERGENEN = [
+  'Gluten', 'Schaaldieren', 'Eieren', 'Vis', "Pinda's", 'Noten',
+  'Soja', 'Melk', 'Selderij', 'Mosterd', 'Sesamzaad', 'Sulfiet', 'Lupine', 'Weekdieren',
+] as const
+
+export type MenukaartItem = {
+  id: string
+  partner_id: string
+  naam: string
+  omschrijving: string | null
+  prijs: number | null
+  allergenen: string[]
+  volgorde: number
 }
 
 export type Admin = {

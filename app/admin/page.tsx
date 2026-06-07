@@ -10,6 +10,7 @@ const PAKKET_LABELS: Record<string, string> = {
   restaurant_host: 'Restaurant Host',
   entrance_host: 'Entrance Host',
   silent_disco: 'Silent Disco',
+  foodtruck: 'Foodtruck',
 }
 
 const FAQ_CATEGORIEEN = ['logistiek', 'systemen', 'huisregels', 'catering', 'algemeen']
@@ -92,7 +93,7 @@ export default function AdminPage() {
   const [saveMsg, setSaveMsg] = useState('')
   const [exportLoading, setExportLoading] = useState(false)
   const [newPartner, setNewPartner] = useState({
-    naam: '', bedrijfsnaam: '', email: '', pakket: 'own_bar', avond: 'alle', gratis_tickets: '20', afdracht_percentage: '25', barlocatie: '', notities: ''
+    naam: '', bedrijfsnaam: '', email: '', type: 'wijn', pakket: 'own_bar', avond: 'alle', gratis_tickets: '20', afdracht_percentage: '25', standplaats_vergoeding: '', barlocatie: '', notities: ''
   })
   const [antwoordMap, setAntwoordMap] = useState<Record<string, string>>({})
   const [newProduct, setNewProduct] = useState({ naam: '', omschrijving: '', prijs: '', eenheid: 'stuk' })
@@ -138,13 +139,14 @@ export default function AdminPage() {
     if (!newPartner.naam || !newPartner.bedrijfsnaam || !newPartner.email) return
     const { data, error } = await supabase.from('partners').insert({
       naam: newPartner.naam, bedrijfsnaam: newPartner.bedrijfsnaam, email: newPartner.email,
-      pakket: newPartner.pakket, avond: newPartner.avond,
+      type: newPartner.type, pakket: newPartner.pakket, avond: newPartner.avond,
       gratis_tickets: parseInt(newPartner.gratis_tickets), afdracht_percentage: parseInt(newPartner.afdracht_percentage),
+      standplaats_vergoeding: newPartner.type === 'food' && newPartner.standplaats_vergoeding ? parseFloat(newPartner.standplaats_vergoeding) : null,
       barlocatie: newPartner.barlocatie || null, notities: newPartner.notities || null,
     }).select().single()
     if (!error && data) {
       setPartners([data, ...partners])
-      setNewPartner({ naam: '', bedrijfsnaam: '', email: '', pakket: 'own_bar', avond: 'alle', gratis_tickets: '20', afdracht_percentage: '25', barlocatie: '', notities: '' })
+      setNewPartner({ naam: '', bedrijfsnaam: '', email: '', type: 'wijn', pakket: 'own_bar', avond: 'alle', gratis_tickets: '20', afdracht_percentage: '25', standplaats_vergoeding: '', barlocatie: '', notities: '' })
       flash('Partner aangemaakt. Maak nu een login aan via de knop in het overzicht.', 6000)
       setActiveTab('partners')
     } else if (error) {
@@ -273,6 +275,24 @@ export default function AdminPage() {
     setExportLoading(false)
   }
 
+  const handleExportMenukaart = async () => {
+    setExportLoading(true)
+    const { data: items } = await supabase.from('menukaart').select('*, partners(bedrijfsnaam, avond)').order('partner_id').order('volgorde')
+    if (!items || items.length === 0) { flash('Geen gerechten gevonden om te exporteren.'); setExportLoading(false); return }
+    const headers = ['Foodtruck', 'Avond', 'Gerecht', 'Omschrijving', 'Prijs (€)', 'Allergenen']
+    const rows = items.map((m: any) => [
+      m.partners?.bedrijfsnaam || '', m.partners?.avond || '', m.naam || '', m.omschrijving || '',
+      m.prijs != null ? Number(m.prijs).toFixed(2) : '', (m.allergenen || []).join('; '),
+    ])
+    const csv = [headers, ...rows].map(r => r.map((c: any) => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n')
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a'); link.href = url; link.download = `NvdW2026_menukaart_allergenen_${new Date().toISOString().slice(0, 10)}.csv`
+    document.body.appendChild(link); link.click(); document.body.removeChild(link); URL.revokeObjectURL(url)
+    flash(`Export klaar — ${items.length} gerechten van ${new Set(items.map((m: any) => m.partner_id)).size} foodtrucks.`, 4000)
+    setExportLoading(false)
+  }
+
   const S = {
     page: { display: 'flex', minHeight: '100vh', background: 'var(--sand)' } as React.CSSProperties,
     sidebar: { width: '210px', background: 'var(--navy)', flexShrink: 0 } as React.CSSProperties,
@@ -351,12 +371,13 @@ export default function AdminPage() {
               <div style={{ overflowX: 'auto' }}>
                 <table style={S.table}>
                   <thead>
-                    <tr>{['Bedrijf', 'Pakket', 'Avond', 'Status', 'Offerte', 'Tickets', 'Afdracht', 'Ticketcodes', 'Kortingscode', 'Login'].map(h => <th key={h} style={S.th}>{h}</th>)}</tr>
+                    <tr>{['Bedrijf', 'Type', 'Pakket', 'Avond', 'Status', 'Offerte', 'Tickets', 'Afdracht', 'Ticketcodes', 'Kortingscode', 'Login'].map(h => <th key={h} style={S.th}>{h}</th>)}</tr>
                   </thead>
                   <tbody>
                     {partners.map(p => (
                       <tr key={p.id}>
                         <td style={S.td}><div style={{ fontWeight: '700' }}>{p.bedrijfsnaam}</div><div style={{ fontSize: '11px', color: '#999' }}>{p.email}</div></td>
+                        <td style={S.td}><span style={{ fontSize: '10px', fontWeight: '700', padding: '2px 8px', borderRadius: '2px', background: p.type === 'food' ? '#fff3e0' : '#ede7f6', color: p.type === 'food' ? '#e65100' : '#5e35b1' }}>{p.type === 'food' ? 'Food' : 'Wijn'}</span></td>
                         <td style={S.td}>{PAKKET_LABELS[p.pakket] || p.pakket}</td>
                         <td style={S.td}>{p.avond}</td>
                         <td style={S.td}>{p.status}</td>
@@ -402,11 +423,29 @@ export default function AdminPage() {
                   </div>
                 ))}
               </div>
+              <div style={S.grid2}>
+                <div>
+                  <label style={S.label}>Type partner</label>
+                  <select style={S.input} value={newPartner.type} onChange={e => {
+                    const type = e.target.value
+                    setNewPartner({ ...newPartner, type, pakket: type === 'food' ? 'foodtruck' : 'own_bar' })
+                  }}>
+                    <option value="wijn">Wijnpartner</option>
+                    <option value="food">Foodtruck</option>
+                  </select>
+                </div>
+                {newPartner.type === 'food' && (
+                  <div>
+                    <label style={S.label}>Standplaatsvergoeding € (excl. btw)</label>
+                    <input style={S.input} type="number" step="0.01" value={newPartner.standplaats_vergoeding} onChange={e => setNewPartner({ ...newPartner, standplaats_vergoeding: e.target.value })} placeholder="bijv. 750.00" />
+                  </div>
+                )}
+              </div>
               <div style={S.grid3}>
                 <div>
                   <label style={S.label}>Pakket</label>
                   <select style={S.input} value={newPartner.pakket} onChange={e => setNewPartner({ ...newPartner, pakket: e.target.value })}>
-                    {Object.entries(PAKKET_LABELS).map(([val, label]) => <option key={val} value={val}>{label}</option>)}
+                    {(newPartner.type === 'food' ? ['foodtruck'] : ['branded_bar', 'own_bar', 'restaurant_host', 'entrance_host', 'silent_disco']).map(val => <option key={val} value={val}>{PAKKET_LABELS[val]}</option>)}
                   </select>
                 </div>
                 <div>
@@ -615,6 +654,15 @@ export default function AdminPage() {
               </p>
               <button style={{ ...S.btn, background: exportLoading ? '#999' : 'var(--gold)', color: 'var(--navy)', fontSize: '13px', padding: '14px 28px' }} onClick={handleExportTactile} disabled={exportLoading}>
                 {exportLoading ? 'Exporteren...' : '↓ Download wijnlijst CSV'}
+              </button>
+            </div>
+            <div style={S.card}>
+              <div style={S.cardTitle}>Menukaart &amp; allergenen export</div>
+              <p style={{ fontSize: '13px', color: '#555', lineHeight: '1.7', marginBottom: '20px' }}>
+                Alle gerechten van alle foodtrucks in één CSV, inclusief prijzen en de aangevinkte allergenen per gerecht.
+              </p>
+              <button style={{ ...S.btn, background: exportLoading ? '#999' : 'var(--gold)', color: 'var(--navy)', fontSize: '13px', padding: '14px 28px' }} onClick={handleExportMenukaart} disabled={exportLoading}>
+                {exportLoading ? 'Exporteren...' : '↓ Download menukaart CSV'}
               </button>
             </div>
           </>

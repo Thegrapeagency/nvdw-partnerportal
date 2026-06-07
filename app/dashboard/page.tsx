@@ -1,24 +1,14 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import type { Partner, Wijn, Crewcatering, FAQ, PartnerVraag, Product, PortalTekst, Document } from '@/lib/supabase'
+import type { Partner, Wijn, Crewcatering, FAQ, PartnerVraag, Product, PortalTekst, Document, MenukaartItem } from '@/lib/supabase'
+import { ALLERGENEN } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
-
-const NAV = [
-  { id: 'home', label: 'Dashboard' },
-  { id: 'offerte', label: 'Offerte' },
-  { id: 'tickets', label: 'Tickets & codes' },
-  { id: 'wijnlijst', label: 'Wijnlijst' },
-  { id: 'catering', label: 'Crew catering' },
-  { id: 'extras', label: 'Extra bestellen' },
-  { id: 'documenten', label: 'Documenten' },
-  { id: 'faq', label: 'Spelregels & FAQ' },
-  { id: 'contact', label: 'Contact' },
-]
 
 const PAKKET: Record<string, string> = {
   branded_bar: 'Branded Bar', own_bar: 'Own Bar',
   restaurant_host: 'Restaurant Host', entrance_host: 'Entrance Host', silent_disco: 'Silent Disco Host',
+  foodtruck: 'Foodtruck',
 }
 
 // Shared styles
@@ -48,6 +38,9 @@ export default function Dashboard() {
   const [documenten, setDocumenten] = useState<Document[]>([])
   const [msg, setMsg] = useState('')
   const [newWijn, setNewWijn] = useState({ naam: '', producent: '', regio: '', land: '', druif: '', jaar: '', prijs_half_glas: '', prijs_heel_glas: '', prijs_fles: '', beschrijving: '' })
+  const [menu, setMenu] = useState<MenukaartItem[]>([])
+  const [newGerecht, setNewGerecht] = useState<{ naam: string; omschrijving: string; prijs: string; allergenen: string[] }>({ naam: '', omschrijving: '', prijs: '', allergenen: [] })
+  const [techForm, setTechForm] = useState({ stroom_kw: '', stroom_aansluitingen: '', gas_nodig: false, water_nodig: false, techniek_opmerkingen: '' })
   const [newVraag, setNewVraag] = useState({ onderwerp: '', bericht: '' })
   const [cateringForm, setCateringForm] = useState<Record<string, { aantal: string; dieet: string }>>({
     vrijdag: { aantal: '0', dieet: '' }, zaterdag: { aantal: '0', dieet: '' }, zondag: { aantal: '0', dieet: '' },
@@ -60,8 +53,15 @@ export default function Dashboard() {
       const { data: p } = await supabase.from('partners').select('*').eq('user_id', user.id).single()
       if (!p) { setLoading(false); return }
       setPartner(p)
-      const [{ data: w }, { data: c }, { data: f }, { data: v }, { data: pr }, { data: t }, { data: d }] = await Promise.all([
+      setTechForm({
+        stroom_kw: p.stroom_kw != null ? String(p.stroom_kw) : '',
+        stroom_aansluitingen: p.stroom_aansluitingen || '',
+        gas_nodig: !!p.gas_nodig, water_nodig: !!p.water_nodig,
+        techniek_opmerkingen: p.techniek_opmerkingen || '',
+      })
+      const [{ data: w }, { data: m }, { data: c }, { data: f }, { data: v }, { data: pr }, { data: t }, { data: d }] = await Promise.all([
         supabase.from('wijnlijst').select('*').eq('partner_id', p.id).order('volgorde'),
+        supabase.from('menukaart').select('*').eq('partner_id', p.id).order('volgorde'),
         supabase.from('crewcatering').select('*').eq('partner_id', p.id),
         supabase.from('faq').select('*').eq('actief', true).order('volgorde'),
         supabase.from('partner_vragen').select('*').eq('partner_id', p.id).order('created_at', { ascending: false }),
@@ -69,7 +69,7 @@ export default function Dashboard() {
         supabase.from('portal_teksten').select('*'),
         supabase.from('documenten').select('*').order('created_at', { ascending: false }),
       ])
-      setWijnen(w || []); setCatering(c || []); setFaqItems(f || []); setVragen(v || []); setProducten(pr || [])
+      setWijnen(w || []); setMenu(m || []); setCatering(c || []); setFaqItems(f || []); setVragen(v || []); setProducten(pr || [])
       const tmap: Record<string, string> = {}
       ;(t as PortalTekst[] || []).forEach(x => { tmap[x.sleutel] = x.waarde })
       setTeksten(tmap); setDocumenten(d || [])
@@ -109,6 +109,35 @@ export default function Dashboard() {
 
   const deleteWijn = async (id: string) => { await supabase.from('wijnlijst').delete().eq('id', id); setWijnen(wijnen.filter(w => w.id !== id)) }
 
+  const toggleAllergeen = (a: string) => {
+    setNewGerecht(g => ({ ...g, allergenen: g.allergenen.includes(a) ? g.allergenen.filter(x => x !== a) : [...g.allergenen, a] }))
+  }
+
+  const addGerecht = async () => {
+    if (!partner || !newGerecht.naam) return
+    const { data, error } = await supabase.from('menukaart').insert({
+      partner_id: partner.id, naam: newGerecht.naam, omschrijving: newGerecht.omschrijving || null,
+      prijs: newGerecht.prijs ? parseFloat(newGerecht.prijs) : null,
+      allergenen: newGerecht.allergenen, volgorde: menu.length,
+    }).select().single()
+    if (!error && data) { setMenu([...menu, data]); setNewGerecht({ naam: '', omschrijving: '', prijs: '', allergenen: [] }); flash('Gerecht toegevoegd') }
+  }
+
+  const deleteGerecht = async (id: string) => { await supabase.from('menukaart').delete().eq('id', id); setMenu(menu.filter(m => m.id !== id)) }
+
+  const saveTechniek = async () => {
+    if (!partner) return
+    const patch = {
+      stroom_kw: techForm.stroom_kw ? parseFloat(techForm.stroom_kw) : null,
+      stroom_aansluitingen: techForm.stroom_aansluitingen || null,
+      gas_nodig: techForm.gas_nodig, water_nodig: techForm.water_nodig,
+      techniek_opmerkingen: techForm.techniek_opmerkingen || null,
+    }
+    await supabase.from('partners').update(patch).eq('id', partner.id)
+    setPartner({ ...partner, ...patch })
+    flash('Technische gegevens opgeslagen')
+  }
+
   const saveCatering = async (avond: string) => {
     if (!partner) return
     const form = cateringForm[avond]
@@ -143,6 +172,21 @@ export default function Dashboard() {
 
   if (loading) return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: 'var(--sand)', fontSize: '13px', color: 'rgba(1,3,65,0.4)' }}>Laden...</div>
   if (!partner) return <div style={{ padding: '40px', background: 'var(--sand)', minHeight: '100vh', fontSize: '14px', color: 'var(--navy)' }}>Geen partneraccount gevonden. Mail naar info@nachtvandewijn.nl</div>
+
+  const isFood = partner.type === 'food'
+  const NAV = [
+    { id: 'home', label: 'Dashboard' },
+    { id: 'offerte', label: 'Offerte' },
+    { id: 'tickets', label: 'Tickets & codes' },
+    ...(isFood
+      ? [{ id: 'menukaart', label: 'Menukaart' }, { id: 'techniek', label: 'Techniek' }]
+      : [{ id: 'wijnlijst', label: 'Wijnlijst' }]),
+    { id: 'catering', label: 'Crew catering' },
+    { id: 'extras', label: 'Extra bestellen' },
+    { id: 'documenten', label: 'Documenten' },
+    { id: 'faq', label: 'Spelregels & FAQ' },
+    { id: 'contact', label: 'Contact' },
+  ]
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--sand)' }}>
@@ -187,7 +231,10 @@ export default function Dashboard() {
             <div style={S.sectionTitle}>Openstaande acties</div>
             {[
               { done: partner.offerte_akkoord, label: 'Offerte accorderen', sub: 'Ga naar Offerte' },
-              { done: wijnen.length > 0, label: 'Wijnlijst invullen', sub: `Deadline ${T('deadline_wijnlijst', '29 oktober 12:00')}` },
+              ...(isFood
+                ? [{ done: menu.length > 0, label: 'Menukaart & allergenen invullen', sub: `Deadline ${T('deadline_wijnlijst', '29 oktober 12:00')}` },
+                   { done: partner.stroom_kw != null, label: 'Technische gegevens doorgeven', sub: 'Stroom, gas en water' }]
+                : [{ done: wijnen.length > 0, label: 'Wijnlijst invullen', sub: `Deadline ${T('deadline_wijnlijst', '29 oktober 12:00')}` }]),
               { done: catering.length > 0, label: 'Crewcatering aanvragen', sub: `Deadline ${T('deadline_catering', '31 oktober')}` },
             ].map((item, i) => (
               <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '14px', padding: '14px 0', borderBottom: '1px solid rgba(1,3,65,0.07)' }}>
@@ -246,8 +293,9 @@ export default function Dashboard() {
             {[
               ['Pakket', PAKKET[partner.pakket] || partner.pakket],
               ['Avond(en)', partner.avond],
-              ['Barlocatie', partner.barlocatie || 'Wordt gecommuniceerd'],
+              [isFood ? 'Standplaats' : 'Barlocatie', partner.barlocatie || 'Wordt gecommuniceerd'],
               ['Gratis tickets', `${partner.gratis_tickets} stuks`],
+              ...(isFood && partner.standplaats_vergoeding != null ? [['Standplaatsvergoeding', `€${Number(partner.standplaats_vergoeding).toFixed(2)} excl. btw`]] : []),
               ['Afdracht', `${partner.afdracht_percentage}% van netto-omzet`],
             ].map(([l, v]) => (
               <div key={l} style={{ display: 'flex', justifyContent: 'space-between', padding: '13px 0', borderBottom: '1px solid rgba(1,3,65,0.07)' }}>
@@ -331,6 +379,91 @@ export default function Dashboard() {
               <textarea style={{ ...S.input, height: '72px', resize: 'vertical' }} value={newWijn.beschrijving} onChange={e => setNewWijn({ ...newWijn, beschrijving: e.target.value })} />
               <button style={S.btn} onClick={addWijn}>Toevoegen</button>
             </div>
+          </div>
+        </>}
+
+        {/* MENUKAART (food) */}
+        {tab === 'menukaart' && <>
+          <div style={S.pageTitle}>Menukaart</div>
+          <div style={S.pageDesc}>Vul je gerechten met prijzen in en vink per gerecht de allergenen aan.</div>
+          <div style={{ background: 'var(--cream)', border: '1px solid rgba(1,3,65,0.1)', padding: '16px 20px', marginBottom: '28px', fontSize: '13px', color: 'var(--navy)', lineHeight: '1.7' }}>
+            <strong>Let op:</strong> Allergenen invullen is wettelijk verplicht. De menukaart wordt op <strong>{T('deadline_wijnlijst', '29 oktober 12:00')}</strong> definitief gemaakt voor de signing en kassa.
+          </div>
+          <div style={{ borderTop: '1px solid rgba(1,3,65,0.1)', paddingTop: '28px' }}>
+            {menu.length > 0 && <>
+              <div style={S.sectionTitle}>{menu.length} {menu.length === 1 ? 'gerecht' : 'gerechten'} ingevoerd</div>
+              {menu.map(m => (
+                <div key={m.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '14px 0', borderBottom: '1px solid rgba(1,3,65,0.07)' }}>
+                  <div style={{ paddingRight: '14px' }}>
+                    <div style={{ fontSize: '14px', fontWeight: '500', color: 'var(--navy)' }}>{m.naam}{m.prijs != null && <span style={{ color: 'var(--bordeaux)' }}> · €{Number(m.prijs).toFixed(2)}</span>}</div>
+                    {m.omschrijving && <div style={{ fontSize: '12px', color: 'rgba(1,3,65,0.4)', marginTop: '2px' }}>{m.omschrijving}</div>}
+                    <div style={{ fontSize: '11px', color: 'rgba(1,3,65,0.55)', marginTop: '4px' }}>
+                      {m.allergenen.length > 0 ? `Allergenen: ${m.allergenen.join(', ')}` : 'Geen allergenen aangevinkt'}
+                    </div>
+                  </div>
+                  <button onClick={() => deleteGerecht(m.id)} style={S.btnOutline}>Verwijder</button>
+                </div>
+              ))}
+            </>}
+            <div style={{ marginTop: menu.length > 0 ? '36px' : '0' }}>
+              <div style={S.sectionTitle}>Gerecht toevoegen</div>
+              <div style={S.grid2}>
+                <div>
+                  <label style={S.label}>Naam *</label>
+                  <input style={S.input} value={newGerecht.naam} onChange={e => setNewGerecht({ ...newGerecht, naam: e.target.value })} placeholder="bijv. Pulled pork burger" />
+                </div>
+                <div>
+                  <label style={S.label}>Prijs (€)</label>
+                  <input style={S.input} value={newGerecht.prijs} onChange={e => setNewGerecht({ ...newGerecht, prijs: e.target.value })} placeholder="0.00" />
+                </div>
+              </div>
+              <label style={S.label}>Omschrijving</label>
+              <textarea style={{ ...S.input, height: '60px', resize: 'vertical' }} value={newGerecht.omschrijving} onChange={e => setNewGerecht({ ...newGerecht, omschrijving: e.target.value })} />
+              <label style={S.label}>Allergenen (aanvinken wat van toepassing is)</label>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '4px' }}>
+                {ALLERGENEN.map(a => {
+                  const on = newGerecht.allergenen.includes(a)
+                  return (
+                    <button key={a} type="button" onClick={() => toggleAllergeen(a)} style={{
+                      padding: '7px 12px', fontSize: '12px', cursor: 'pointer', borderRadius: '2px',
+                      border: `1px solid ${on ? 'var(--bordeaux)' : 'rgba(1,3,65,0.2)'}`,
+                      background: on ? 'var(--bordeaux)' : 'transparent',
+                      color: on ? 'var(--cream)' : 'rgba(1,3,65,0.55)', fontWeight: on ? '600' : '400',
+                    }}>{a}</button>
+                  )
+                })}
+              </div>
+              <button style={S.btn} onClick={addGerecht}>Toevoegen</button>
+            </div>
+          </div>
+        </>}
+
+        {/* TECHNIEK (food) */}
+        {tab === 'techniek' && <>
+          <div style={S.pageTitle}>Techniek</div>
+          <div style={S.pageDesc}>Laat ons weten wat je nodig hebt aan stroom, gas en water.</div>
+          <div style={{ borderTop: '1px solid rgba(1,3,65,0.1)', paddingTop: '28px' }}>
+            <div style={S.grid2}>
+              <div>
+                <label style={S.label}>Stroombehoefte (kW)</label>
+                <input style={S.input} value={techForm.stroom_kw} onChange={e => setTechForm({ ...techForm, stroom_kw: e.target.value })} placeholder="bijv. 7.5" />
+              </div>
+              <div>
+                <label style={S.label}>Aansluitingen</label>
+                <input style={S.input} value={techForm.stroom_aansluitingen} onChange={e => setTechForm({ ...techForm, stroom_aansluitingen: e.target.value })} placeholder="bijv. 1x krachtstroom 16A + 1x 230V" />
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: '28px', marginTop: '20px' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', color: 'var(--navy)', cursor: 'pointer' }}>
+                <input type="checkbox" checked={techForm.gas_nodig} onChange={e => setTechForm({ ...techForm, gas_nodig: e.target.checked })} /> Gas nodig
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', color: 'var(--navy)', cursor: 'pointer' }}>
+                <input type="checkbox" checked={techForm.water_nodig} onChange={e => setTechForm({ ...techForm, water_nodig: e.target.checked })} /> Water/afvoer nodig
+              </label>
+            </div>
+            <label style={S.label}>Opmerkingen</label>
+            <textarea style={{ ...S.input, height: '90px', resize: 'vertical' }} value={techForm.techniek_opmerkingen} onChange={e => setTechForm({ ...techForm, techniek_opmerkingen: e.target.value })} placeholder="Afmetingen truck, bijzonderheden, etc." />
+            <button style={S.btn} onClick={saveTechniek}>Opslaan</button>
           </div>
         </>}
 
