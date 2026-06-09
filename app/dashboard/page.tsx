@@ -1,8 +1,8 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import type { Partner, Wijn, Crewcatering, FAQ, PartnerVraag, Product, PortalTekst, Document, MenukaartItem } from '@/lib/supabase'
-import { ALLERGENEN } from '@/lib/supabase'
+import type { Partner, Wijn, Crewcatering, FAQ, PartnerVraag, Product, PortalTekst, Document, MenukaartItem, ActiviteitLog } from '@/lib/supabase'
+import { ALLERGENEN, LOG_TABEL_LABEL, LOG_ACTIE_LABEL } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 
 const PAKKET: Record<string, string> = {
@@ -36,6 +36,7 @@ export default function Dashboard() {
   const [producten, setProducten] = useState<Product[]>([])
   const [teksten, setTeksten] = useState<Record<string, string>>({})
   const [documenten, setDocumenten] = useState<Document[]>([])
+  const [log, setLog] = useState<ActiviteitLog[]>([])
   const [msg, setMsg] = useState('')
   const [newWijn, setNewWijn] = useState({ naam: '', producent: '', regio: '', land: '', druif: '', jaar: '', prijs_half_glas: '', prijs_heel_glas: '', prijs_fles: '', beschrijving: '' })
   const [menu, setMenu] = useState<MenukaartItem[]>([])
@@ -73,6 +74,8 @@ export default function Dashboard() {
       const tmap: Record<string, string> = {}
       ;(t as PortalTekst[] || []).forEach(x => { tmap[x.sleutel] = x.waarde })
       setTeksten(tmap); setDocumenten(d || [])
+      const { data: lg } = await supabase.from('activiteit_log').select('*').order('created_at', { ascending: false }).limit(15)
+      setLog(lg || [])
       if (c && c.length > 0) {
         const fs: Record<string, { aantal: string; dieet: string }> = { vrijdag: { aantal: '0', dieet: '' }, zaterdag: { aantal: '0', dieet: '' }, zondag: { aantal: '0', dieet: '' } }
         c.forEach((x: Crewcatering) => { fs[x.avond] = { aantal: x.aantal_personen.toString(), dieet: x.dieetwensen || '' } })
@@ -224,31 +227,68 @@ export default function Dashboard() {
         {msg && <div style={{ fontSize: '13px', color: '#2e7d32', background: '#f0faf0', padding: '10px 16px', marginBottom: '24px', border: '1px solid #c8e6c9' }}>{msg}</div>}
 
         {/* HOME */}
-        {tab === 'home' && <>
-          <div style={S.pageTitle}>Welkom terug</div>
-          <div style={S.pageDesc}>{partner.bedrijfsnaam} · {partner.avond} · {PAKKET[partner.pakket]}</div>
-          <div style={{ borderTop: '1px solid rgba(1,3,65,0.1)', paddingTop: '28px' }}>
-            <div style={S.sectionTitle}>Openstaande acties</div>
-            {[
-              { done: partner.offerte_akkoord, label: 'Offerte accorderen', sub: 'Ga naar Offerte' },
-              ...(isFood
-                ? [{ done: menu.length > 0, label: 'Menukaart & allergenen invullen', sub: `Deadline ${T('deadline_wijnlijst', '29 oktober 12:00')}` },
-                   { done: partner.stroom_kw != null, label: 'Technische gegevens doorgeven', sub: 'Stroom, gas en water' }]
-                : [{ done: wijnen.length > 0, label: 'Wijnlijst invullen', sub: `Deadline ${T('deadline_wijnlijst', '29 oktober 12:00')}` }]),
-              { done: catering.length > 0, label: 'Crewcatering aanvragen', sub: `Deadline ${T('deadline_catering', '31 oktober')}` },
-            ].map((item, i) => (
-              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '14px', padding: '14px 0', borderBottom: '1px solid rgba(1,3,65,0.07)' }}>
-                <div style={{ width: '18px', height: '18px', borderRadius: '50%', background: item.done ? 'var(--bordeaux)' : 'transparent', border: `1.5px solid ${item.done ? 'var(--bordeaux)' : 'rgba(1,3,65,0.2)'}`, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  {item.done && <span style={{ color: 'white', fontSize: '10px', lineHeight: 1 }}>✓</span>}
-                </div>
-                <div>
-                  <div style={{ fontSize: '14px', fontWeight: item.done ? '400' : '500', color: item.done ? 'rgba(1,3,65,0.3)' : 'var(--navy)', textDecoration: item.done ? 'line-through' : 'none' }}>{item.label}</div>
-                  {!item.done && <div style={{ fontSize: '12px', color: 'rgba(1,3,65,0.4)', marginTop: '1px' }}>{item.sub}</div>}
-                </div>
+        {tab === 'home' && (() => {
+          const acties = [
+            { done: !!partner.offerte_akkoord, label: 'Offerte accorderen', sub: 'Ga naar Offerte', go: 'offerte' },
+            ...(isFood
+              ? [{ done: menu.length > 0, label: 'Menukaart & allergenen invullen', sub: `Deadline ${T('deadline_wijnlijst', '29 oktober 12:00')}`, go: 'menukaart' },
+                 { done: partner.stroom_kw != null, label: 'Technische gegevens doorgeven', sub: 'Stroom, gas en water', go: 'techniek' }]
+              : [{ done: wijnen.length > 0, label: 'Wijnlijst invullen', sub: `Deadline ${T('deadline_wijnlijst', '29 oktober 12:00')}`, go: 'wijnlijst' }]),
+            { done: catering.length > 0, label: 'Crewcatering aanvragen', sub: `Deadline ${T('deadline_catering', '31 oktober')}`, go: 'catering' },
+          ]
+          const klaar = acties.filter(a => a.done).length
+          const pct = Math.round((klaar / acties.length) * 100)
+          return <>
+            <div style={S.pageTitle}>Welkom terug</div>
+            <div style={S.pageDesc}>{partner.bedrijfsnaam} · {partner.avond} · {PAKKET[partner.pakket]}</div>
+
+            {/* Voortgang */}
+            <div style={{ background: 'var(--cream)', border: '1px solid rgba(1,3,65,0.1)', padding: '20px 22px', marginBottom: '8px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '12px' }}>
+                <span style={{ fontSize: '14px', fontWeight: '600', color: 'var(--navy)' }}>
+                  {pct === 100 ? 'Alles is geregeld 🎉' : `Je bent er bijna — ${klaar} van ${acties.length} afgerond`}
+                </span>
+                <span style={{ fontSize: '13px', fontWeight: '600', color: 'var(--bordeaux)' }}>{pct}%</span>
               </div>
-            ))}
-          </div>
-        </>}
+              <div style={{ height: '8px', background: 'rgba(1,3,65,0.08)', borderRadius: '99px', overflow: 'hidden' }}>
+                <div style={{ height: '100%', width: `${pct}%`, background: 'var(--bordeaux)', borderRadius: '99px', transition: 'width .4s ease' }} />
+              </div>
+            </div>
+
+            <div style={{ paddingTop: '24px' }}>
+              <div style={S.sectionTitle}>Openstaande acties</div>
+              {acties.map((item, i) => (
+                <div key={i} onClick={() => !item.done && setTab(item.go)} style={{ display: 'flex', alignItems: 'center', gap: '14px', padding: '14px 0', borderBottom: '1px solid rgba(1,3,65,0.07)', cursor: item.done ? 'default' : 'pointer' }}>
+                  <div style={{ width: '18px', height: '18px', borderRadius: '50%', background: item.done ? 'var(--bordeaux)' : 'transparent', border: `1.5px solid ${item.done ? 'var(--bordeaux)' : 'rgba(1,3,65,0.2)'}`, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    {item.done && <span style={{ color: 'white', fontSize: '10px', lineHeight: 1 }}>✓</span>}
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: '14px', fontWeight: item.done ? '400' : '500', color: item.done ? 'rgba(1,3,65,0.3)' : 'var(--navy)', textDecoration: item.done ? 'line-through' : 'none' }}>{item.label}</div>
+                    {!item.done && <div style={{ fontSize: '12px', color: 'rgba(1,3,65,0.4)', marginTop: '1px' }}>{item.sub}</div>}
+                  </div>
+                  {!item.done && <span style={{ fontSize: '16px', color: 'rgba(1,3,65,0.25)' }}>›</span>}
+                </div>
+              ))}
+            </div>
+
+            {/* Recente activiteit (eigen) */}
+            {log.length > 0 && (
+              <div style={{ marginTop: '40px' }}>
+                <div style={S.sectionTitle}>Recente activiteit</div>
+                {log.slice(0, 8).map(e => {
+                  const wat = LOG_TABEL_LABEL[e.tabel] || e.tabel
+                  const actie = LOG_ACTIE_LABEL[e.actie] || e.actie.toLowerCase()
+                  return (
+                    <div key={e.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid rgba(1,3,65,0.06)', fontSize: '13px' }}>
+                      <span style={{ color: 'rgba(1,3,65,0.7)' }}>{wat.charAt(0).toUpperCase() + wat.slice(1)} {actie}{e.omschrijving ? `: ${e.omschrijving}` : ''}</span>
+                      <span style={{ color: 'rgba(1,3,65,0.3)', fontSize: '11px', whiteSpace: 'nowrap', marginLeft: '12px' }}>{new Date(e.created_at).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' })}</span>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </>
+        })()}
 
         {/* TICKETS */}
         {tab === 'tickets' && <>

@@ -1,7 +1,8 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import type { Partner, PartnerVraag, Product, FAQ, PortalTekst, Admin, Document } from '@/lib/supabase'
+import type { Partner, PartnerVraag, Product, FAQ, PortalTekst, Admin, Document, ActiviteitLog } from '@/lib/supabase'
+import { LOG_TABEL_LABEL, LOG_ACTIE_LABEL } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 
 const PAKKET_LABELS: Record<string, string> = {
@@ -88,7 +89,9 @@ export default function AdminPage() {
   const [teksten, setTeksten] = useState<PortalTekst[]>([])
   const [admins, setAdmins] = useState<Admin[]>([])
   const [documenten, setDocumenten] = useState<Document[]>([])
-  const [activeTab, setActiveTab] = useState('partners')
+  const [log, setLog] = useState<ActiviteitLog[]>([])
+  const [mijnNaam, setMijnNaam] = useState('')
+  const [activeTab, setActiveTab] = useState('overzicht')
   const [loading, setLoading] = useState(true)
   const [saveMsg, setSaveMsg] = useState('')
   const [exportLoading, setExportLoading] = useState(false)
@@ -106,7 +109,7 @@ export default function AdminPage() {
   const flash = (m: string, ms = 3500) => { setSaveMsg(m); setTimeout(() => setSaveMsg(''), ms) }
 
   const loadAll = async () => {
-    const [p, v, pr, f, t, a, d] = await Promise.all([
+    const [p, v, pr, f, t, a, d, l] = await Promise.all([
       supabase.from('partners').select('*').order('created_at', { ascending: false }),
       supabase.from('partner_vragen').select('*').order('created_at', { ascending: false }),
       supabase.from('producten_catalogus').select('*').order('volgorde'),
@@ -114,12 +117,19 @@ export default function AdminPage() {
       supabase.from('portal_teksten').select('*').order('volgorde'),
       supabase.from('admins').select('*').order('created_at'),
       supabase.from('documenten').select('*').order('created_at', { ascending: false }),
+      supabase.from('activiteit_log').select('*').order('created_at', { ascending: false }).limit(300),
     ])
     setPartners(p.data || []); setVragen(v.data || []); setProducten(pr.data || [])
     setFaqItems(f.data || []); setTeksten(t.data || []); setAdmins(a.data || []); setDocumenten(d.data || [])
+    setLog(l.data || [])
     const td: Record<string, string> = {}
     ;(t.data || []).forEach((x: PortalTekst) => { td[x.sleutel] = x.waarde })
     setTekstDraft(td)
+  }
+
+  const refreshLog = async () => {
+    const { data } = await supabase.from('activiteit_log').select('*').order('created_at', { ascending: false }).limit(300)
+    setLog(data || [])
   }
 
   useEffect(() => {
@@ -128,6 +138,8 @@ export default function AdminPage() {
       if (!user) { router.push('/'); return }
       const { data: isAdmin } = await supabase.rpc('is_admin')
       if (!isAdmin) { router.push('/dashboard'); return }
+      const { data: me } = await supabase.from('admins').select('naam').eq('email', user.email).maybeSingle()
+      setMijnNaam(me?.naam || user.email || '')
       await loadAll()
       setLoading(false)
     }
@@ -330,6 +342,7 @@ export default function AdminPage() {
   const openVragen = vragen.filter(v => v.status === 'open')
 
   const NAV = [
+    { id: 'overzicht', label: 'Overzicht' },
     { id: 'partners', label: 'Partners' },
     { id: 'toevoegen', label: 'Partner toevoegen' },
     { id: 'producten', label: 'Producten' },
@@ -337,23 +350,37 @@ export default function AdminPage() {
     { id: 'documenten', label: 'Documenten' },
     { id: 'teksten', label: 'Teksten & deadlines' },
     { id: 'team', label: 'Team' },
-    { id: 'export', label: 'Tactile export' },
+    { id: 'export', label: 'Exports' },
     { id: 'vragen', label: `Vragen ${openVragen.length > 0 ? `(${openVragen.length})` : ''}` },
+    { id: 'activiteit', label: 'Activiteit' },
   ]
+
+  const aantalFood = partners.filter(p => p.type === 'food').length
+  const aantalWijn = partners.length - aantalFood
+  const aantalLogins = partners.filter(p => p.user_id).length
+  const aantalAkkoord = partners.filter(p => p.offerte_akkoord).length
+
+  const logZin = (e: ActiviteitLog) => {
+    const wat = LOG_TABEL_LABEL[e.tabel] || e.tabel
+    const actie = LOG_ACTIE_LABEL[e.actie] || e.actie.toLowerCase()
+    const wie = e.actor_naam || e.actor_email || 'iemand'
+    return { wie, zin: `heeft ${wat} ${actie}${e.omschrijving ? `: ${e.omschrijving}` : ''}` }
+  }
 
   return (
     <div style={S.page}>
-      <div style={S.sidebar}>
+      <div style={{ ...S.sidebar, display: 'flex', flexDirection: 'column' }}>
         <div style={S.sidebarTop}>
           <div style={S.logo}>NvdW 2026</div>
           <div style={S.adminLabel}>Organisatie</div>
         </div>
-        <nav style={{ padding: '16px 0' }}>
+        <nav style={{ padding: '16px 0', flex: 1, overflowY: 'auto' }}>
           {NAV.map(item => (
             <button key={item.id} style={S.navItem(activeTab === item.id)} onClick={() => setActiveTab(item.id)}>{item.label}</button>
           ))}
         </nav>
-        <div style={{ padding: '16px 20px', borderTop: '1px solid rgba(255,255,255,0.08)', marginTop: '8px' }}>
+        <div style={{ padding: '16px 20px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+          <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.7)', fontWeight: '600', marginBottom: '2px' }}>{mijnNaam}</div>
           <button onClick={async () => { await supabase.auth.signOut(); router.push('/') }}
             style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>Uitloggen</button>
         </div>
@@ -361,6 +388,72 @@ export default function AdminPage() {
 
       <main style={S.main}>
         {saveMsg && <div style={S.successMsg}>{saveMsg}</div>}
+
+        {/* OVERZICHT */}
+        {activeTab === 'overzicht' && (
+          <>
+            <div style={S.title}>Welkom, {mijnNaam.split(' ')[0]}</div>
+            <div style={S.sub}>Nacht van de Wijn 2026 · partnerbeheer</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', marginBottom: '24px' }}>
+              {[
+                { label: 'Partners totaal', val: partners.length, sub: `${aantalWijn} wijn · ${aantalFood} food` },
+                { label: 'Logins actief', val: aantalLogins, sub: `van ${partners.length}` },
+                { label: 'Offerte akkoord', val: aantalAkkoord, sub: `van ${partners.length}` },
+                { label: 'Open vragen', val: openVragen.length, sub: openVragen.length === 0 ? 'alles beantwoord' : 'wacht op antwoord' },
+              ].map(s => (
+                <div key={s.label} style={{ ...S.card, marginBottom: 0, padding: '20px' }}>
+                  <div style={{ fontSize: '11px', fontWeight: '700', letterSpacing: '1px', textTransform: 'uppercase', color: '#999', marginBottom: '8px' }}>{s.label}</div>
+                  <div style={{ fontSize: '32px', fontWeight: '800', color: 'var(--navy)', lineHeight: 1 }}>{s.val}</div>
+                  <div style={{ fontSize: '12px', color: '#888', marginTop: '6px' }}>{s.sub}</div>
+                </div>
+              ))}
+            </div>
+            <div style={S.card}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={S.cardTitle}>Laatste activiteit</div>
+                <button style={S.btnSm} onClick={() => setActiveTab('activiteit')}>Alles bekijken</button>
+              </div>
+              {log.length === 0 && <p style={{ fontSize: '13px', color: '#999' }}>Nog geen activiteit.</p>}
+              {log.slice(0, 6).map(e => {
+                const { wie, zin } = logZin(e)
+                return (
+                  <div key={e.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid #f0f0f0', fontSize: '13px' }}>
+                    <span style={{ color: 'var(--navy)' }}><strong>{wie}</strong> {zin}</span>
+                    <span style={{ color: '#aaa', fontSize: '11px', whiteSpace: 'nowrap', marginLeft: '12px' }}>{new Date(e.created_at).toLocaleString('nl-NL', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
+                  </div>
+                )
+              })}
+            </div>
+          </>
+        )}
+
+        {/* ACTIVITEIT */}
+        {activeTab === 'activiteit' && (
+          <>
+            <div style={S.title}>Activiteit</div>
+            <div style={S.sub}>Alles wat het team en partners in de portal wijzigen. Iedereen met een admin-login ziet dit volledige log.</div>
+            <div style={S.card}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                <div style={S.cardTitle}>{log.length} gebeurtenissen</div>
+                <button style={S.btnSm} onClick={refreshLog}>Vernieuwen</button>
+              </div>
+              {log.length === 0 && <p style={{ fontSize: '13px', color: '#999' }}>Nog geen activiteit.</p>}
+              {log.map(e => {
+                const { wie, zin } = logZin(e)
+                const kleur = e.actie === 'DELETE' ? '#c62828' : e.actie === 'INSERT' ? '#2e7d32' : '#5e35b1'
+                return (
+                  <div key={e.id} style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', padding: '11px 0', borderBottom: '1px solid #f0f0f0' }}>
+                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: kleur, marginTop: '6px', flexShrink: 0 }} />
+                    <div style={{ flex: 1, fontSize: '13px' }}>
+                      <span style={{ color: 'var(--navy)' }}><strong>{wie}</strong> {zin}</span>
+                    </div>
+                    <span style={{ color: '#aaa', fontSize: '11px', whiteSpace: 'nowrap' }}>{new Date(e.created_at).toLocaleString('nl-NL', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
+                  </div>
+                )
+              })}
+            </div>
+          </>
+        )}
 
         {/* PARTNERS */}
         {activeTab === 'partners' && (

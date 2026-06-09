@@ -76,6 +76,28 @@ export type Document = {
   created_at: string
 }
 
+export type ActiviteitLog = {
+  id: string
+  actor_email: string | null
+  actor_naam: string | null
+  actie: string
+  tabel: string
+  record_id: string | null
+  partner_id: string | null
+  omschrijving: string | null
+  created_at: string
+}
+
+// Vriendelijke labels + werkwoorden voor het activiteitenlog
+export const LOG_TABEL_LABEL: Record<string, string> = {
+  partners: 'partner', wijnlijst: 'wijn', menukaart: 'gerecht', crewcatering: 'crewcatering',
+  extra_bestellingen: 'extra bestelling', producten_catalogus: 'product', faq: 'FAQ',
+  documenten: 'document', portal_teksten: 'portaltekst', admins: 'teamlid', partner_vragen: 'vraag',
+}
+export const LOG_ACTIE_LABEL: Record<string, string> = {
+  INSERT: 'toegevoegd', UPDATE: 'gewijzigd', DELETE: 'verwijderd',
+}
+
 export type Wijn = {
   id: string
   partner_id: string
