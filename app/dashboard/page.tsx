@@ -215,7 +215,10 @@ export default function Dashboard() {
             </button>
           ))}
         </nav>
-        <div style={{ padding: '16px 20px', borderTop: '1px solid rgba(1,3,65,0.08)' }}>
+        <div style={{ padding: '16px 20px', borderTop: '1px solid rgba(1,3,65,0.08)', display: 'flex', flexDirection: 'column', gap: '10px', alignItems: 'flex-start' }}>
+          <button onClick={() => router.push('/wachtwoord')} style={{ fontSize: '11px', color: 'rgba(1,3,65,0.5)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+            Wachtwoord wijzigen
+          </button>
           <button onClick={logout} style={{ fontSize: '11px', color: 'rgba(1,3,65,0.35)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
             Uitloggen
           </button>

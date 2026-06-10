@@ -108,6 +108,19 @@ export default function AdminPage() {
 
   const flash = (m: string, ms = 3500) => { setSaveMsg(m); setTimeout(() => setSaveMsg(''), ms) }
 
+  const stuurWelkomstmail = async (email: string, naam: string, isFood = false): Promise<{ ok: boolean; error?: string }> => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const res = await fetch('/api/welkomstmail', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token || ''}` },
+        body: JSON.stringify({ email, naam, isFood }),
+      })
+      const j = await res.json().catch(() => ({}))
+      return res.ok ? { ok: true } : { ok: false, error: j.error }
+    } catch (e) { return { ok: false, error: (e as Error)?.message } }
+  }
+
   const loadAll = async () => {
     const [p, v, pr, f, t, a, d, l] = await Promise.all([
       supabase.from('partners').select('*').order('created_at', { ascending: false }),
@@ -171,7 +184,9 @@ export default function AdminPage() {
     const { data, error } = await supabase.rpc('admin_create_partner_login', { p_partner_id: p.id, p_temp_password: pw })
     if (error) { flash('Fout: ' + error.message, 6000); return }
     setPartners(partners.map(x => x.id === p.id ? { ...x, user_id: (data as any)?.user_id || 'set' } : x))
-    flash(`Login klaar voor ${p.email} — tijdelijk wachtwoord: ${pw}`, 15000)
+    const mail = await stuurWelkomstmail(p.email, p.naam, p.type === 'food')
+    if (mail.ok) flash(`Login klaar — welkomstmail verstuurd naar ${p.email}.`, 8000)
+    else flash(`Login klaar voor ${p.email}. Mail nog niet actief — tijdelijk wachtwoord: ${pw} (deel handmatig).`, 15000)
   }
 
   // ---- Vragen ----
@@ -232,8 +247,10 @@ export default function AdminPage() {
     const pw = genPassword()
     const { error } = await supabase.rpc('admin_create_teamlid', { p_email: newTeamlid.email, p_naam: newTeamlid.naam, p_temp_password: pw })
     if (error) { flash('Fout: ' + error.message, 6000); return }
+    const mail = await stuurWelkomstmail(newTeamlid.email, newTeamlid.naam, false)
     await loadAll()
-    flash(`${newTeamlid.naam} toegevoegd — login: ${newTeamlid.email} / wachtwoord: ${pw}`, 15000)
+    if (mail.ok) flash(`${newTeamlid.naam} toegevoegd — welkomstmail verstuurd naar ${newTeamlid.email}.`, 8000)
+    else flash(`${newTeamlid.naam} toegevoegd. Mail nog niet actief — login: ${newTeamlid.email} / wachtwoord: ${pw} (deel handmatig).`, 15000)
     setNewTeamlid({ email: '', naam: '' })
   }
   const toggleAdmin = async (a: Admin) => {
@@ -380,7 +397,9 @@ export default function AdminPage() {
           ))}
         </nav>
         <div style={{ padding: '16px 20px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-          <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.7)', fontWeight: '600', marginBottom: '2px' }}>{mijnNaam}</div>
+          <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.7)', fontWeight: '600', marginBottom: '8px' }}>{mijnNaam}</div>
+          <button onClick={() => router.push('/wachtwoord')}
+            style={{ display: 'block', fontSize: '11px', color: 'rgba(255,255,255,0.55)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, marginBottom: '8px' }}>Wachtwoord wijzigen</button>
           <button onClick={async () => { await supabase.auth.signOut(); router.push('/') }}
             style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>Uitloggen</button>
         </div>
