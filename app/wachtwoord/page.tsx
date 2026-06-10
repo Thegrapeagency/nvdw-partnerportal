@@ -14,18 +14,29 @@ export default function WachtwoordPage() {
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
-    // Supabase verwerkt de recovery-link automatisch (detectSessionInUrl).
-    const check = async () => {
+    // De recovery-link kan in 3 vormen binnenkomen: #access_token (impliciet,
+    // auto via detectSessionInUrl), ?code= (PKCE) of ?token_hash=&type= (OTP).
+    const run = async () => {
+      try {
+        const url = new URL(window.location.href)
+        const code = url.searchParams.get('code')
+        const token_hash = url.searchParams.get('token_hash')
+        const type = url.searchParams.get('type')
+        if (code) {
+          await supabase.auth.exchangeCodeForSession(code)
+        } else if (token_hash && type) {
+          await supabase.auth.verifyOtp({ token_hash, type: type as 'recovery' })
+        }
+      } catch { /* val terug op bestaande sessie hieronder */ }
       const { data: { session } } = await supabase.auth.getSession()
       setHasSession(!!session)
       setReady(true)
     }
-    // kleine vertraging zodat de hash uit de recovery-link verwerkt is
-    const t = setTimeout(check, 400)
     const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
-      setHasSession(!!session); setReady(true)
+      if (session) { setHasSession(true); setReady(true) }
     })
-    return () => { clearTimeout(t); sub.subscription.unsubscribe() }
+    run()
+    return () => { sub.subscription.unsubscribe() }
   }, [])
 
   const opslaan = async (e: React.FormEvent) => {
