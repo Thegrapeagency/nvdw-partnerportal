@@ -105,6 +105,10 @@ export default function AdminPage() {
   const [newTeamlid, setNewTeamlid] = useState({ email: '', naam: '' })
   const [docUpload, setDocUpload] = useState({ naam: '', categorie: 'draaiboek', file: null as File | null })
   const [uploading, setUploading] = useState(false)
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [partnerDocs, setPartnerDocs] = useState<Document[]>([])
+  const [pDocUpload, setPDocUpload] = useState({ naam: '', file: null as File | null })
+  const [pUploading, setPUploading] = useState(false)
 
   const flash = (m: string, ms = 3500) => { setSaveMsg(m); setTimeout(() => setSaveMsg(''), ms) }
 
@@ -187,6 +191,44 @@ export default function AdminPage() {
     const mail = await stuurWelkomstmail(p.email, p.naam, p.type === 'food')
     if (mail.ok) flash(`Login klaar — welkomstmail verstuurd naar ${p.email}.`, 8000)
     else flash(`Login klaar voor ${p.email}. Mail nog niet actief — tijdelijk wachtwoord: ${pw} (deel handmatig).`, 15000)
+  }
+
+  const openPartner = async (id: string) => {
+    setSelectedId(id)
+    const { data } = await supabase.from('documenten').select('*').eq('partner_id', id).order('created_at', { ascending: false })
+    setPartnerDocs(data || [])
+  }
+
+  const updatePartner = async (id: string, patch: Partial<Partner>) => {
+    await supabase.from('partners').update(patch).eq('id', id)
+    setPartners(partners.map(p => p.id === id ? { ...p, ...patch } : p))
+  }
+
+  const uploadPartnerDoc = async (partnerId: string) => {
+    if (!pDocUpload.file) return
+    setPUploading(true)
+    const file = pDocUpload.file
+    const safe = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
+    const path = `partner/${partnerId}/${Date.now()}_${safe}`
+    const { error: upErr } = await supabase.storage.from('documenten').upload(path, file)
+    if (upErr) { flash('Upload mislukt: ' + upErr.message, 6000); setPUploading(false); return }
+    const { data, error } = await supabase.from('documenten').insert({
+      naam: pDocUpload.naam || file.name, categorie: 'persoonlijk', bestandsnaam: file.name, storage_path: path, partner_id: partnerId,
+    }).select().single()
+    if (!error && data) { setPartnerDocs([data, ...partnerDocs]); setPDocUpload({ naam: '', file: null }); flash('Persoonlijk document geüpload') }
+    setPUploading(false)
+  }
+
+  const deletePartnerDoc = async (d: Document) => {
+    if (!confirm('Document verwijderen?')) return
+    await supabase.storage.from('documenten').remove([d.storage_path])
+    await supabase.from('documenten').delete().eq('id', d.id)
+    setPartnerDocs(partnerDocs.filter(x => x.id !== d.id)); flash('Verwijderd')
+  }
+
+  const bekijkDoc = async (d: Document) => {
+    const { data } = await supabase.storage.from('documenten').createSignedUrl(d.storage_path, 120)
+    if (data?.signedUrl) window.open(data.signedUrl, '_blank')
   }
 
   // ---- Vragen ----
@@ -474,11 +516,11 @@ export default function AdminPage() {
           </>
         )}
 
-        {/* PARTNERS */}
-        {activeTab === 'partners' && (
+        {/* PARTNERS — overzicht */}
+        {activeTab === 'partners' && !selectedId && (
           <>
             <div style={S.title}>Partners overzicht</div>
-            <div style={S.sub}>{partners.length} partners. Klik op ticketcodes of kortingscode om te bewerken.</div>
+            <div style={S.sub}>{partners.length} partners. Klik op een bedrijfsnaam voor het detailscherm.</div>
             <div style={S.card}>
               <div style={{ overflowX: 'auto' }}>
                 <table style={S.table}>
@@ -488,7 +530,10 @@ export default function AdminPage() {
                   <tbody>
                     {partners.map(p => (
                       <tr key={p.id}>
-                        <td style={S.td}><div style={{ fontWeight: '700' }}>{p.bedrijfsnaam}</div><div style={{ fontSize: '11px', color: '#999' }}>{p.email}</div></td>
+                        <td style={S.td}>
+                          <div style={{ fontWeight: '700', color: 'var(--bordeaux)', cursor: 'pointer' }} onClick={() => openPartner(p.id)}>{p.bedrijfsnaam} ›</div>
+                          <div style={{ fontSize: '11px', color: '#999' }}>{p.email}</div>
+                        </td>
                         <td style={S.td}><span style={{ fontSize: '10px', fontWeight: '700', padding: '2px 8px', borderRadius: '2px', background: p.type === 'food' ? '#fff3e0' : '#ede7f6', color: p.type === 'food' ? '#e65100' : '#5e35b1' }}>{p.type === 'food' ? 'Food' : 'Wijn'}</span></td>
                         <td style={S.td}>{PAKKET_LABELS[p.pakket] || p.pakket}</td>
                         <td style={S.td}>{p.avond}</td>
@@ -515,6 +560,84 @@ export default function AdminPage() {
             </div>
           </>
         )}
+
+        {/* PARTNERS — detail */}
+        {activeTab === 'partners' && selectedId && (() => {
+          const sp = partners.find(p => p.id === selectedId)
+          if (!sp) return <button style={S.btnSm} onClick={() => setSelectedId(null)}>← Terug</button>
+          const num = (v: string) => v === '' ? null : Number(v)
+          return (
+            <>
+              <button style={{ ...S.btnSm, marginBottom: '16px' }} onClick={() => { setSelectedId(null); setPartnerDocs([]) }}>← Terug naar overzicht</button>
+              <div style={S.title}>{sp.bedrijfsnaam}</div>
+              <div style={S.sub}>{sp.naam} · {sp.email} · {sp.type === 'food' ? 'Foodtruck' : 'Wijnpartner'}</div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                {/* Afspraken */}
+                <div style={S.card}>
+                  <div style={S.cardTitle}>Afspraken</div>
+                  <label style={S.label}>Pakket</label>
+                  <select style={S.input} value={sp.pakket} onChange={e => updatePartner(sp.id, { pakket: e.target.value })}>
+                    {(sp.type === 'food' ? ['foodtruck'] : ['branded_bar', 'own_bar', 'restaurant_host', 'entrance_host', 'silent_disco']).map(v => <option key={v} value={v}>{PAKKET_LABELS[v]}</option>)}
+                  </select>
+                  <div style={S.grid2}>
+                    <div>
+                      <label style={S.label}>Afdracht %</label>
+                      <input style={S.input} type="number" defaultValue={sp.afdracht_percentage} onBlur={e => Number(e.target.value) !== sp.afdracht_percentage && updatePartner(sp.id, { afdracht_percentage: Number(e.target.value) })} />
+                    </div>
+                    <div>
+                      <label style={S.label}>Gratis tickets</label>
+                      <input style={S.input} type="number" defaultValue={sp.gratis_tickets} onBlur={e => Number(e.target.value) !== sp.gratis_tickets && updatePartner(sp.id, { gratis_tickets: Number(e.target.value) })} />
+                    </div>
+                  </div>
+                  {sp.type === 'food' && (
+                    <>
+                      <label style={S.label}>Standplaatsvergoeding € (excl. btw)</label>
+                      <input style={S.input} type="number" step="0.01" defaultValue={sp.standplaats_vergoeding ?? ''} onBlur={e => updatePartner(sp.id, { standplaats_vergoeding: num(e.target.value) as any })} />
+                    </>
+                  )}
+                  <label style={S.label}>{sp.type === 'food' ? 'Standplaats' : 'Barlocatie'}</label>
+                  <input style={S.input} defaultValue={sp.barlocatie ?? ''} onBlur={e => updatePartner(sp.id, { barlocatie: e.target.value || null })} />
+                </div>
+
+                {/* Offerte + tickets */}
+                <div style={S.card}>
+                  <div style={S.cardTitle}>Offerte &amp; tickets</div>
+                  <div style={{ padding: '4px 0 14px' }}>
+                    <span style={S.badge(sp.offerte_akkoord)}>{sp.offerte_akkoord ? 'Offerte akkoord' : 'Offerte open'}</span>
+                    {sp.offerte_akkoord && sp.offerte_akkoord_datum && <span style={{ fontSize: '11px', color: '#999', marginLeft: '8px' }}>{new Date(sp.offerte_akkoord_datum).toLocaleDateString('nl-NL')}</span>}
+                  </div>
+                  <label style={S.label}>Ticketcodes (komma-gescheiden)</label>
+                  <textarea style={{ ...S.input, height: '64px', fontFamily: 'monospace', fontSize: '12px' }} defaultValue={(sp as any).ticket_codes || ''} onBlur={e => updatePartner(sp.id, { ticket_codes: e.target.value } as any)} placeholder="CODE1,CODE2,CODE3" />
+                  <label style={S.label}>Eigen kortingscode</label>
+                  <input style={S.input} defaultValue={sp.kortingscode ?? ''} onBlur={e => updatePartner(sp.id, { kortingscode: e.target.value.toUpperCase() || null })} placeholder="standaard" />
+                  <div style={{ marginTop: '14px' }}>
+                    {sp.user_id ? <span style={S.badge(true)}>login actief</span> : <button style={S.btnSm} onClick={() => maakPartnerLogin(sp)}>Maak login</button>}
+                  </div>
+                </div>
+              </div>
+
+              {/* Persoonlijke documenten */}
+              <div style={S.card}>
+                <div style={S.cardTitle}>Persoonlijke documenten — alleen zichtbaar voor {sp.bedrijfsnaam}</div>
+                <div style={S.grid2}>
+                  <div><label style={S.label}>Weergavenaam</label><input style={S.input} value={pDocUpload.naam} onChange={e => setPDocUpload({ ...pDocUpload, naam: e.target.value })} placeholder="bijv. Getekende offerte" /></div>
+                  <div><label style={S.label}>Bestand</label><input type="file" onChange={e => setPDocUpload({ ...pDocUpload, file: e.target.files?.[0] || null })} style={{ fontSize: '13px', marginTop: '8px' }} /></div>
+                </div>
+                <button style={{ ...S.btn, opacity: pUploading ? 0.6 : 1 }} disabled={pUploading} onClick={() => uploadPartnerDoc(sp.id)}>{pUploading ? 'Uploaden...' : 'Uploaden'}</button>
+                <div style={{ marginTop: '20px' }}>
+                  {partnerDocs.length === 0 && <p style={{ fontSize: '13px', color: '#999' }}>Nog geen persoonlijke documenten.</p>}
+                  {partnerDocs.map(d => (
+                    <div key={d.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid #f0f0f0' }}>
+                      <div><div style={{ fontWeight: '600', fontSize: '13px' }}>{d.naam}</div><div style={{ fontSize: '11px', color: '#999' }}>{d.bestandsnaam} · {new Date(d.created_at).toLocaleDateString('nl-NL')}</div></div>
+                      <div><button style={{ ...S.btnSm, marginRight: '6px' }} onClick={() => bekijkDoc(d)}>Bekijk</button><button style={S.btnSm} onClick={() => deletePartnerDoc(d)}>Verwijder</button></div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
+          )
+        })()}
 
         {/* TOEVOEGEN */}
         {activeTab === 'toevoegen' && (

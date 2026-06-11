@@ -73,6 +73,7 @@ export type Document = {
   categorie: string
   bestandsnaam: string
   storage_path: string
+  partner_id: string | null
   created_at: string
 }
 
