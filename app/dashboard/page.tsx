@@ -47,6 +47,27 @@ export default function Dashboard() {
     vrijdag: { aantal: '0', dieet: '' }, zaterdag: { aantal: '0', dieet: '' }, zondag: { aantal: '0', dieet: '' },
   })
 
+  // Gasttickets
+  type GastIssued = {
+    id: string
+    short_ref: string
+    buyer_name: string
+    buyer_email: string
+    created_at: string
+    order_items?: { quantity: number; ticket_type_id: string; ticket_types?: { name_nl?: string } | null }[]
+  }
+  const GAST_DAGEN = [
+    { id: 'day_fri', label: 'Vrijdag 6 nov' },
+    { id: 'day_sat', label: 'Zaterdag 7 nov' },
+    { id: 'day_sun', label: 'Zondag 8 nov' },
+  ]
+  const [gastQuota, setGastQuota] = useState(0)
+  const [gastUsed, setGastUsed] = useState(0)
+  const [gastIssued, setGastIssued] = useState<GastIssued[]>([])
+  const [gastLoaded, setGastLoaded] = useState(false)
+  const [gastBusy, setGastBusy] = useState(false)
+  const [gastForm, setGastForm] = useState({ guest_name: '', guest_email: '', type_id: 'day_fri', qty: '1' })
+
   useEffect(() => {
     const init = async () => {
       const { data: { user } } = await supabase.auth.getUser()
@@ -85,6 +106,14 @@ export default function Dashboard() {
     }
     init()
   }, [router])
+
+  // Laad gasttickets zodra de tab geopend wordt (en partner geladen is)
+  useEffect(() => {
+    if (tab === 'gasttickets' && partner && (partner.gratis_tickets || 0) > 0 && !gastLoaded) {
+      laadGasttickets()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, partner])
 
   const flash = (m: string) => { setMsg(m); setTimeout(() => setMsg(''), 3000) }
   const logout = async () => { await supabase.auth.signOut(); router.push('/') }
@@ -168,6 +197,73 @@ export default function Dashboard() {
     if (data) { setVragen([data, ...vragen]); setNewVraag({ onderwerp: '', bericht: '' }); flash('Vraag verstuurd') }
   }
 
+  const GAST_ENDPOINT = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/partner-tickets`
+
+  const gastAuthHeader = async (): Promise<string | null> => {
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session?.access_token) return null
+    return 'Bearer ' + session.access_token
+  }
+
+  const laadGasttickets = async () => {
+    const auth = await gastAuthHeader()
+    if (!auth) { flash('Je sessie is verlopen. Log opnieuw in.'); return }
+    try {
+      const res = await fetch(GAST_ENDPOINT, { method: 'GET', headers: { Authorization: auth } })
+      if (res.status === 401) { flash('Je sessie is verlopen. Log opnieuw in.'); return }
+      if (!res.ok) { flash('Gasttickets konden niet worden geladen.'); return }
+      const json = await res.json()
+      setGastQuota(typeof json.quota === 'number' ? json.quota : 0)
+      setGastUsed(typeof json.used === 'number' ? json.used : 0)
+      setGastIssued(Array.isArray(json.issued) ? json.issued : [])
+      setGastLoaded(true)
+    } catch {
+      flash('Gasttickets konden niet worden geladen.')
+    }
+  }
+
+  const wijsGastticketToe = async () => {
+    if (gastBusy) return
+    const naam = gastForm.guest_name.trim()
+    const email = gastForm.guest_email.trim()
+    const qty = parseInt(gastForm.qty || '1', 10)
+    if (!naam) { flash('Vul de naam van je gast in.'); return }
+    if (!email) { flash('Vul het e-mailadres van je gast in.'); return }
+    if (!qty || qty < 1) { flash('Vul een geldig aantal in.'); return }
+    const auth = await gastAuthHeader()
+    if (!auth) { flash('Je sessie is verlopen. Log opnieuw in.'); return }
+    setGastBusy(true)
+    try {
+      const res = await fetch(GAST_ENDPOINT, {
+        method: 'POST',
+        headers: { Authorization: auth, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type_id: gastForm.type_id, qty, guest_name: naam, guest_email: email }),
+      })
+      if (res.status === 401) { flash('Je sessie is verlopen. Log opnieuw in.'); return }
+      let json: { ok?: boolean; error?: string; used?: number; quota?: number } = {}
+      try { json = await res.json() } catch { /* lege of niet-JSON respons */ }
+      if (res.ok && json.ok) {
+        if (typeof json.used === 'number') setGastUsed(json.used)
+        if (typeof json.quota === 'number') setGastQuota(json.quota)
+        flash(`Gastticket verstuurd naar ${email}`)
+        setGastForm({ guest_name: '', guest_email: '', type_id: gastForm.type_id, qty: '1' })
+        await laadGasttickets()
+        return
+      }
+      if (json.error === 'quota_exceeded') { flash('Je hebt niet genoeg gasttickets meer over.'); return }
+      if (json.error === 'sold_out') { flash('Die dag is uitverkocht.'); return }
+      if (json.error === 'bad_email') { flash('Het e-mailadres is ongeldig.'); return }
+      if (json.error === 'bad_name') { flash('De naam is ongeldig.'); return }
+      if (json.error === 'bad_qty') { flash('Het aantal is ongeldig.'); return }
+      if (json.error === 'no_type') { flash('Kies een geldige dag.'); return }
+      flash('Het is niet gelukt om het gastticket te versturen.')
+    } catch {
+      flash('Het is niet gelukt om het gastticket te versturen.')
+    } finally {
+      setGastBusy(false)
+    }
+  }
+
   // Ticket codes als array
   const ticketCodes = (partner as any)?.ticket_codes
     ? String((partner as any).ticket_codes).split(',').map((c: string) => c.trim()).filter(Boolean)
@@ -181,6 +277,7 @@ export default function Dashboard() {
     { id: 'home', label: 'Dashboard' },
     { id: 'offerte', label: 'Offerte' },
     { id: 'tickets', label: 'Tickets & codes' },
+    { id: 'gasttickets', label: 'Gasttickets' },
     ...(isFood
       ? [{ id: 'menukaart', label: 'Menukaart' }, { id: 'techniek', label: 'Techniek' }]
       : [{ id: 'wijnlijst', label: 'Wijnlijst' }]),
@@ -327,6 +424,99 @@ export default function Dashboard() {
             </div>
           </div>
         </>}
+
+        {/* GASTTICKETS */}
+        {tab === 'gasttickets' && (() => {
+          const heeftPakket = (partner.gratis_tickets || 0) > 0
+          const quota = gastLoaded ? gastQuota : partner.gratis_tickets
+          const used = gastUsed
+          const over = Math.max(quota - used, 0)
+          const pct = quota > 0 ? Math.min(Math.round((used / quota) * 100), 100) : 0
+          const dagLabel = (typeId?: string) => GAST_DAGEN.find(d => d.id === typeId)?.label || ''
+          return <>
+            <div style={S.pageTitle}>Gasttickets</div>
+            <div style={S.pageDesc}>Wijs gratis gasttickets toe aan je gasten binnen jouw quotum.</div>
+
+            {!heeftPakket ? (
+              <div style={{ background: 'var(--cream)', border: '1px solid rgba(1,3,65,0.1)', padding: '20px 22px', fontSize: '14px', color: 'var(--navy)' }}>
+                Je hebt geen gasttickets in je pakket.
+              </div>
+            ) : <>
+              {/* Quotum-overzicht */}
+              <div style={{ background: 'var(--cream)', border: '1px solid rgba(1,3,65,0.1)', padding: '20px 22px', marginBottom: '8px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '12px' }}>
+                  <span style={{ fontSize: '16px', fontWeight: '600', color: 'var(--navy)' }}>
+                    {used} van {quota} gasttickets gebruikt
+                  </span>
+                  <span style={{ fontSize: '13px', fontWeight: '600', color: 'var(--bordeaux)' }}>{over} over</span>
+                </div>
+                <div style={{ height: '8px', background: 'rgba(1,3,65,0.08)', borderRadius: '99px', overflow: 'hidden' }}>
+                  <div style={{ height: '100%', width: `${pct}%`, background: 'var(--bordeaux)', borderRadius: '99px', transition: 'width .4s ease' }} />
+                </div>
+              </div>
+
+              <p style={{ fontSize: '13px', color: 'rgba(1,3,65,0.55)', lineHeight: '1.7', marginBottom: '8px', marginTop: '16px' }}>
+                Je gast ontvangt het ticket per mail. Toegewezen tickets gaan van je quotum af.
+              </p>
+
+              {/* Formulier */}
+              <div style={{ borderTop: '1px solid rgba(1,3,65,0.1)', paddingTop: '28px', marginTop: '20px' }}>
+                <div style={S.sectionTitle}>Gastticket toewijzen</div>
+                <div style={S.grid2}>
+                  <div>
+                    <label style={S.label}>Naam gast *</label>
+                    <input style={S.input} value={gastForm.guest_name} onChange={e => setGastForm({ ...gastForm, guest_name: e.target.value })} placeholder="Voor- en achternaam" />
+                  </div>
+                  <div>
+                    <label style={S.label}>E-mail gast *</label>
+                    <input style={S.input} type="email" value={gastForm.guest_email} onChange={e => setGastForm({ ...gastForm, guest_email: e.target.value })} placeholder="naam@voorbeeld.nl" />
+                  </div>
+                  <div>
+                    <label style={S.label}>Dag</label>
+                    <select style={S.input} value={gastForm.type_id} onChange={e => setGastForm({ ...gastForm, type_id: e.target.value })}>
+                      {GAST_DAGEN.map(d => <option key={d.id} value={d.id}>{d.label}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={S.label}>Aantal</label>
+                    <input style={S.input} type="number" min="1" value={gastForm.qty} onChange={e => setGastForm({ ...gastForm, qty: e.target.value })} />
+                  </div>
+                </div>
+                <button style={{ ...S.btn, opacity: gastBusy ? 0.55 : 1, cursor: gastBusy ? 'default' : 'pointer' }} disabled={gastBusy} onClick={wijsGastticketToe}>
+                  {gastBusy ? 'Bezig met versturen...' : 'Ticket toewijzen'}
+                </button>
+              </div>
+
+              {/* Toegewezen gasttickets */}
+              <div style={{ borderTop: '1px solid rgba(1,3,65,0.1)', paddingTop: '28px', marginTop: '40px' }}>
+                <div style={S.sectionTitle}>Toegewezen gasttickets</div>
+                {!gastLoaded ? (
+                  <p style={{ fontSize: '13px', color: 'rgba(1,3,65,0.4)', paddingTop: '4px' }}>Laden...</p>
+                ) : gastIssued.length === 0 ? (
+                  <p style={{ fontSize: '13px', color: 'rgba(1,3,65,0.4)', paddingTop: '4px' }}>Nog geen gasttickets toegewezen.</p>
+                ) : (
+                  gastIssued.map(g => {
+                    const dagen = (g.order_items || [])
+                      .map(it => `${it.ticket_types?.name_nl || dagLabel(it.ticket_type_id)}${it.quantity > 1 ? ` ×${it.quantity}` : ''}`)
+                      .filter(Boolean).join(', ')
+                    return (
+                      <div key={g.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '14px 0', borderBottom: '1px solid rgba(1,3,65,0.07)' }}>
+                        <div style={{ paddingRight: '14px' }}>
+                          <div style={{ fontSize: '14px', fontWeight: '500', color: 'var(--navy)' }}>{g.buyer_name || 'Onbekende gast'}</div>
+                          <div style={{ fontSize: '12px', color: 'rgba(1,3,65,0.4)', marginTop: '2px' }}>{g.buyer_email}</div>
+                          {dagen && <div style={{ fontSize: '12px', color: 'var(--bordeaux)', marginTop: '2px' }}>{dagen}</div>}
+                        </div>
+                        <span style={{ fontSize: '11px', color: 'rgba(1,3,65,0.35)', whiteSpace: 'nowrap', marginLeft: '12px' }}>
+                          {g.created_at ? new Date(g.created_at).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' }) : ''}
+                        </span>
+                      </div>
+                    )
+                  })
+                )}
+              </div>
+            </>}
+          </>
+        })()}
 
         {/* OFFERTE */}
         {tab === 'offerte' && <>
