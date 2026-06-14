@@ -21,6 +21,10 @@ export type Partner = {
   afdracht_percentage: number
   notities: string | null
   kortingscode: string | null
+  contract_ondertekend: boolean | null
+  contract_ondertekend_datum: string | null
+  contract_ondertekenaar: string | null
+  contract_handtekening: string | null
   type: string
   standplaats_vergoeding: number | null
   stroom_kw: number | null

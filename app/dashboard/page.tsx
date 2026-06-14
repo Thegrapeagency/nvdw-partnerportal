@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 import type { Partner, Wijn, Crewcatering, FAQ, PartnerVraag, Product, PortalTekst, Document, MenukaartItem, ActiviteitLog, CrewLid } from '@/lib/supabase'
 import { ALLERGENEN, LOG_TABEL_LABEL, LOG_ACTIE_LABEL } from '@/lib/supabase'
@@ -24,6 +24,31 @@ const S = {
   sectionTitle: { fontSize: '11px', fontWeight: '600', letterSpacing: '1.5px', textTransform: 'uppercase', color: 'rgba(1,3,65,0.4)', marginBottom: '16px' } as React.CSSProperties,
 }
 
+function SignaturePad({ onChange }: { onChange: (dataUrl: string | null) => void }) {
+  const ref = useRef<HTMLCanvasElement>(null)
+  const drawing = useRef(false)
+  const dirty = useRef(false)
+
+  const ctx = () => { const c = ref.current!; return c.getContext('2d')! }
+  const point = (e: React.PointerEvent) => {
+    const c = ref.current!; const r = c.getBoundingClientRect()
+    return { x: (e.clientX - r.left) * (c.width / r.width), y: (e.clientY - r.top) * (c.height / r.height) }
+  }
+  const down = (e: React.PointerEvent) => { drawing.current = true; const p = point(e); const x = ctx(); x.beginPath(); x.moveTo(p.x, p.y); (e.target as Element).setPointerCapture(e.pointerId) }
+  const move = (e: React.PointerEvent) => { if (!drawing.current) return; const p = point(e); const x = ctx(); x.lineWidth = 2.5; x.lineCap = 'round'; x.strokeStyle = '#010341'; x.lineTo(p.x, p.y); x.stroke(); dirty.current = true }
+  const up = () => { if (!drawing.current) return; drawing.current = false; if (dirty.current) onChange(ref.current!.toDataURL('image/png')) }
+  const clear = () => { const c = ref.current!; ctx().clearRect(0, 0, c.width, c.height); dirty.current = false; onChange(null) }
+
+  return (
+    <div>
+      <canvas ref={ref} width={500} height={160}
+        onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerLeave={up}
+        style={{ width: '100%', height: '160px', background: '#fff', border: '1px solid rgba(1,3,65,0.2)', borderRadius: '2px', touchAction: 'none', cursor: 'crosshair' }} />
+      <button type="button" onClick={clear} style={{ marginTop: '8px', fontSize: '11px', color: 'rgba(1,3,65,0.5)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>Wissen</button>
+    </div>
+  )
+}
+
 export default function Dashboard() {
   const router = useRouter()
   const [tab, setTab] = useState('home')
@@ -45,6 +70,8 @@ export default function Dashboard() {
   const [newGerecht, setNewGerecht] = useState<{ naam: string; omschrijving: string; prijs: string; allergenen: string[] }>({ naam: '', omschrijving: '', prijs: '', allergenen: [] })
   const [techForm, setTechForm] = useState({ stroom_kw: '', stroom_aansluitingen: '', gas_nodig: false, water_nodig: false, techniek_opmerkingen: '' })
   const [newVraag, setNewVraag] = useState({ onderwerp: '', bericht: '' })
+  const [signNaam, setSignNaam] = useState('')
+  const [signData, setSignData] = useState<string | null>(null)
   const [cateringForm, setCateringForm] = useState<Record<string, { aantal: string; dieet: string }>>({
     vrijdag: { aantal: '0', dieet: '' }, zaterdag: { aantal: '0', dieet: '' }, zondag: { aantal: '0', dieet: '' },
   })
@@ -188,6 +215,19 @@ export default function Dashboard() {
 
   const deleteCrew = async (id: string) => { await supabase.from('crew').delete().eq('id', id); setCrew(crew.filter(c => c.id !== id)) }
 
+  const ondertekenContract = async () => {
+    if (!partner || !signNaam.trim() || !signData) { flash('Vul je naam in en zet je handtekening.'); return }
+    const nu = new Date().toISOString()
+    const patch = {
+      contract_ondertekend: true, contract_ondertekend_datum: nu, contract_ondertekenaar: signNaam.trim(),
+      contract_handtekening: signData, offerte_akkoord: true, offerte_akkoord_datum: nu, status: 'getekend',
+    }
+    const { error } = await supabase.from('partners').update(patch).eq('id', partner.id)
+    if (error) { flash('Opslaan mislukt: ' + error.message); return }
+    setPartner({ ...partner, ...patch })
+    flash('Contract ondertekend. Bedankt!')
+  }
+
   const saveCatering = async (avond: string) => {
     if (!partner) return
     const form = cateringForm[avond]
@@ -295,6 +335,7 @@ export default function Dashboard() {
   const isWijn = !isFood && !isPersoneel
   const NAV = [
     { id: 'home', label: 'Dashboard' },
+    { id: 'gegevens', label: 'Mijn gegevens' },
     { id: 'offerte', label: 'Offerte' },
     { id: 'tickets', label: 'Tickets & codes' },
     { id: 'gasttickets', label: 'Gasttickets' },
@@ -538,6 +579,24 @@ export default function Dashboard() {
         })()}
 
         {/* OFFERTE */}
+        {tab === 'gegevens' && <>
+          <div style={S.pageTitle}>Mijn gegevens</div>
+          <div style={S.pageDesc}>Vul of werk je bedrijfs- en contactgegevens bij.</div>
+          <div style={{ borderTop: '1px solid rgba(1,3,65,0.1)', paddingTop: '28px', maxWidth: '440px' }}>
+            <label style={S.label}>Bedrijfsnaam</label>
+            <input style={S.input} defaultValue={partner.bedrijfsnaam || ''} onBlur={async e => {
+              if (e.target.value !== partner.bedrijfsnaam) { await supabase.from('partners').update({ bedrijfsnaam: e.target.value }).eq('id', partner.id); setPartner({ ...partner, bedrijfsnaam: e.target.value }); flash('Opgeslagen') }
+            }} />
+            <label style={S.label}>Contactpersoon</label>
+            <input style={S.input} defaultValue={partner.naam || ''} onBlur={async e => {
+              if (e.target.value !== partner.naam) { await supabase.from('partners').update({ naam: e.target.value }).eq('id', partner.id); setPartner({ ...partner, naam: e.target.value }); flash('Opgeslagen') }
+            }} />
+            <label style={S.label}>E-mailadres (inlog)</label>
+            <input style={{ ...S.input, opacity: 0.6 }} value={partner.email} disabled />
+            <p style={{ fontSize: '12px', color: 'rgba(1,3,65,0.4)', marginTop: '8px' }}>Je e-mailadres is je inlognaam en kan niet hier gewijzigd worden. Neem contact op als dit moet veranderen.</p>
+          </div>
+        </>}
+
         {tab === 'offerte' && <>
           <div style={S.pageTitle}>Offerte</div>
           <div style={S.pageDesc}>Jouw partnerafspraken voor Nacht van de Wijn 2026.</div>
@@ -557,26 +616,30 @@ export default function Dashboard() {
             ))}
           </div>
           <div style={{ marginTop: '32px', padding: '20px', background: 'var(--cream)', border: '1px solid rgba(1,3,65,0.1)' }}>
-            <div style={{ fontSize: '12px', fontWeight: '600', color: 'rgba(1,3,65,0.5)', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '1px' }}>Voorwaarden</div>
+            <div style={{ fontSize: '12px', fontWeight: '600', color: 'rgba(1,3,65,0.5)', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '1px' }}>Contract &amp; voorwaarden</div>
             <p style={{ fontSize: '13px', color: 'rgba(1,3,65,0.65)', lineHeight: '1.7', whiteSpace: 'pre-line' }}>
-              {T('offerte_voorwaarden', 'NVDW B.V. (KvK 89631935). Rollup- en spanbanners niet toegestaan. Branding via koelkasten, kleding en kleine materialen wel mogelijk. Afdracht over netto-omzet via NvdW betaalsystemen.')}
+              {T('contract_tekst', T('offerte_voorwaarden', 'Voorwaarden voor deelname aan Nacht van de Wijn 2026.'))}
             </p>
           </div>
           <div style={{ marginTop: '24px' }}>
-            {partner.offerte_akkoord ? (
-              <div style={{ fontSize: '13px', color: '#2e7d32', fontWeight: '500' }}>
-                ✓ Geaccordeerd op {partner.offerte_akkoord_datum ? new Date(partner.offerte_akkoord_datum).toLocaleDateString('nl-NL', { day: 'numeric', month: 'long', year: 'numeric' }) : ''}
+            {partner.contract_ondertekend ? (
+              <div style={{ padding: '18px 20px', background: '#f0faf0', border: '1px solid #c8e6c9' }}>
+                <div style={{ fontSize: '14px', color: '#2e7d32', fontWeight: '600', marginBottom: '4px' }}>✓ Ondertekend</div>
+                <div style={{ fontSize: '13px', color: 'rgba(1,3,65,0.6)' }}>
+                  Door {partner.contract_ondertekenaar} op {partner.contract_ondertekend_datum ? new Date(partner.contract_ondertekend_datum).toLocaleDateString('nl-NL', { day: 'numeric', month: 'long', year: 'numeric' }) : ''}
+                </div>
+                {partner.contract_handtekening && <img src={partner.contract_handtekening} alt="handtekening" style={{ marginTop: '12px', maxWidth: '260px', height: 'auto', background: '#fff', border: '1px solid rgba(1,3,65,0.12)' }} />}
               </div>
             ) : (
               <>
                 <p style={{ fontSize: '13px', color: 'rgba(1,3,65,0.55)', marginBottom: '16px' }}>
-                  Door akkoord te geven bevestig je dat je de afspraken en voorwaarden hebt gelezen en accepteert.
+                  Zet hieronder je handtekening en vul je naam in. Daarmee onderteken je het contract en ga je akkoord met de afspraken en voorwaarden.
                 </p>
-                <button style={S.btn} onClick={async () => {
-                  await supabase.from('partners').update({ offerte_akkoord: true, offerte_akkoord_datum: new Date().toISOString(), status: 'offerte_akkoord' }).eq('id', partner.id)
-                  setPartner({ ...partner, offerte_akkoord: true, status: 'offerte_akkoord' })
-                  flash('Offerte geaccordeerd')
-                }}>Akkoord geven</button>
+                <label style={S.label}>Volledige naam</label>
+                <input style={S.input} value={signNaam} onChange={e => setSignNaam(e.target.value)} placeholder="Voor- en achternaam" />
+                <label style={S.label}>Handtekening</label>
+                <SignaturePad onChange={setSignData} />
+                <button style={{ ...S.btn, opacity: (signNaam.trim() && signData) ? 1 : 0.5 }} disabled={!signNaam.trim() || !signData} onClick={ondertekenContract}>Onderteken contract</button>
               </>
             )}
           </div>

@@ -104,6 +104,8 @@ export default function AdminPage() {
     naam: '', bedrijfsnaam: '', email: '', type: 'wijn', pakket: 'own_bar', avond: 'alle', gratis_tickets: '20', afdracht_percentage: '25', standplaats_vergoeding: '', barlocatie: '', notities: ''
   })
   const [antwoordMap, setAntwoordMap] = useState<Record<string, string>>({})
+  const [invite, setInvite] = useState({ email: '', type: 'wijn' })
+  const [inviting, setInviting] = useState(false)
   const [newProduct, setNewProduct] = useState({ naam: '', omschrijving: '', prijs: '', eenheid: 'stuk' })
   const [newFaq, setNewFaq] = useState({ vraag: '', antwoord: '', categorie: 'logistiek' })
   const [tekstDraft, setTekstDraft] = useState<Record<string, string>>({})
@@ -187,6 +189,26 @@ export default function AdminPage() {
     } else if (error) {
       flash('Fout: ' + error.message, 6000)
     }
+  }
+
+  const snelUitnodigen = async () => {
+    const email = invite.email.trim().toLowerCase()
+    if (!email) return
+    setInviting(true)
+    const pakket = invite.type === 'food' ? 'foodtruck' : invite.type === 'personeel' ? 'personeel' : 'own_bar'
+    const { data, error } = await supabase.from('partners').insert({
+      naam: '', bedrijfsnaam: email, email, type: invite.type, pakket, avond: 'alle',
+    }).select().single()
+    if (error) { flash('Fout: ' + error.message, 6000); setInviting(false); return }
+    const pw = genPassword()
+    const { error: e2 } = await supabase.rpc('admin_create_partner_login', { p_partner_id: data.id, p_temp_password: pw })
+    if (e2) { setPartners([data, ...partners]); flash('Aangemaakt, maar login mislukte: ' + e2.message, 8000); setInviting(false); return }
+    const mail = await stuurWelkomstmail(email, '', invite.type === 'food')
+    await loadAll()
+    if (mail.ok) flash(`Uitnodiging verstuurd naar ${email}. Zij stellen zelf hun wachtwoord in en vullen hun gegevens aan.`, 9000)
+    else flash(`Aangemaakt voor ${email}. Mail nog niet actief — login: ${email} / wachtwoord: ${pw} (deel handmatig).`, 15000)
+    setInvite({ email: '', type: 'wijn' })
+    setInviting(false)
   }
 
   const maakPartnerLogin = async (p: Partner) => {
@@ -713,8 +735,9 @@ export default function AdminPage() {
                 <div style={S.card}>
                   <div style={S.cardTitle}>Offerte &amp; tickets</div>
                   <div style={{ padding: '4px 0 14px' }}>
-                    <span style={S.badge(sp.offerte_akkoord)}>{sp.offerte_akkoord ? 'Offerte akkoord' : 'Offerte open'}</span>
-                    {sp.offerte_akkoord && sp.offerte_akkoord_datum && <span style={{ fontSize: '11px', color: '#999', marginLeft: '8px' }}>{new Date(sp.offerte_akkoord_datum).toLocaleDateString('nl-NL')}</span>}
+                    <span style={S.badge(!!sp.contract_ondertekend)}>{sp.contract_ondertekend ? 'Contract getekend' : 'Nog niet getekend'}</span>
+                    {sp.contract_ondertekend && sp.contract_ondertekend_datum && <span style={{ fontSize: '11px', color: '#999', marginLeft: '8px' }}>door {sp.contract_ondertekenaar} op {new Date(sp.contract_ondertekend_datum).toLocaleDateString('nl-NL')}</span>}
+                    {sp.contract_handtekening && <img src={sp.contract_handtekening} alt="handtekening" style={{ display: 'block', marginTop: '10px', maxWidth: '220px', height: 'auto', background: '#fff', border: '1px solid #eee' }} />}
                   </div>
                   <label style={S.label}>Ticketcodes (komma-gescheiden)</label>
                   <textarea style={{ ...S.input, height: '64px', fontFamily: 'monospace', fontSize: '12px' }} defaultValue={(sp as any).ticket_codes || ''} onBlur={e => updatePartner(sp.id, { ticket_codes: e.target.value } as any)} placeholder="CODE1,CODE2,CODE3" />
@@ -752,7 +775,27 @@ export default function AdminPage() {
         {activeTab === 'toevoegen' && (
           <>
             <div style={S.title}>Partner toevoegen</div>
-            <div style={S.sub}>Maak de partner aan en daarna in één klik een login via het overzicht.</div>
+            <div style={S.sub}>Snel uitnodigen met alleen een e-mailadres, of hieronder alle gegevens zelf invullen.</div>
+
+            <div style={{ ...S.card, borderLeft: '3px solid var(--gold)' }}>
+              <div style={S.cardTitle}>Snel uitnodigen</div>
+              <p style={{ fontSize: '13px', color: '#555', lineHeight: 1.6, marginBottom: '14px' }}>
+                Vul alleen een e-mailadres en het type in. De partner krijgt een uitnodiging, stelt zelf een wachtwoord in en vult daarna z&apos;n eigen gegevens aan.
+              </p>
+              <div style={S.grid2}>
+                <div><label style={S.label}>E-mailadres</label><input style={S.input} value={invite.email} onChange={e => setInvite({ ...invite, email: e.target.value })} placeholder="naam@bedrijf.nl" /></div>
+                <div><label style={S.label}>Type</label>
+                  <select style={S.input} value={invite.type} onChange={e => setInvite({ ...invite, type: e.target.value })}>
+                    <option value="wijn">Wijnpartner</option>
+                    <option value="food">Foodtruck</option>
+                    <option value="personeel">Personeelsleverancier</option>
+                  </select>
+                </div>
+              </div>
+              <button style={{ ...S.btn, opacity: inviting ? 0.6 : 1 }} disabled={inviting} onClick={snelUitnodigen}>{inviting ? 'Versturen...' : 'Uitnodiging versturen'}</button>
+            </div>
+
+            <div style={{ ...S.sub, marginTop: '8px' }}>Of vul alles handmatig in:</div>
             <div style={S.card}>
               <div style={S.grid2}>
                 {[
