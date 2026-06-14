@@ -38,6 +38,18 @@ export const ALLERGENEN = [
   'Soja', 'Melk', 'Selderij', 'Mosterd', 'Sesamzaad', 'Sulfiet', 'Lupine', 'Weekdieren',
 ] as const
 
+export type CrewLid = {
+  id: string
+  partner_id: string | null
+  naam: string
+  functie: string | null
+  email: string | null
+  dagen: string[]
+  catering_dagen: string[]
+  dieet: string | null
+  created_at: string
+}
+
 export type MenukaartItem = {
   id: string
   partner_id: string

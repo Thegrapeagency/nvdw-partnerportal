@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import type { Partner, Wijn, Crewcatering, FAQ, PartnerVraag, Product, PortalTekst, Document, MenukaartItem, ActiviteitLog } from '@/lib/supabase'
+import type { Partner, Wijn, Crewcatering, FAQ, PartnerVraag, Product, PortalTekst, Document, MenukaartItem, ActiviteitLog, CrewLid } from '@/lib/supabase'
 import { ALLERGENEN, LOG_TABEL_LABEL, LOG_ACTIE_LABEL } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 
@@ -40,33 +40,14 @@ export default function Dashboard() {
   const [msg, setMsg] = useState('')
   const [newWijn, setNewWijn] = useState({ naam: '', producent: '', regio: '', land: '', druif: '', jaar: '', prijs_half_glas: '', prijs_heel_glas: '', prijs_fles: '', beschrijving: '' })
   const [menu, setMenu] = useState<MenukaartItem[]>([])
+  const [crew, setCrew] = useState<CrewLid[]>([])
+  const [newCrew, setNewCrew] = useState<{ naam: string; functie: string; email: string; dagen: string[]; catering_dagen: string[]; dieet: string }>({ naam: '', functie: '', email: '', dagen: [], catering_dagen: [], dieet: '' })
   const [newGerecht, setNewGerecht] = useState<{ naam: string; omschrijving: string; prijs: string; allergenen: string[] }>({ naam: '', omschrijving: '', prijs: '', allergenen: [] })
   const [techForm, setTechForm] = useState({ stroom_kw: '', stroom_aansluitingen: '', gas_nodig: false, water_nodig: false, techniek_opmerkingen: '' })
   const [newVraag, setNewVraag] = useState({ onderwerp: '', bericht: '' })
   const [cateringForm, setCateringForm] = useState<Record<string, { aantal: string; dieet: string }>>({
     vrijdag: { aantal: '0', dieet: '' }, zaterdag: { aantal: '0', dieet: '' }, zondag: { aantal: '0', dieet: '' },
   })
-
-  // Gasttickets
-  type GastIssued = {
-    id: string
-    short_ref: string
-    buyer_name: string
-    buyer_email: string
-    created_at: string
-    order_items?: { quantity: number; ticket_type_id: string; ticket_types?: { name_nl?: string } | null }[]
-  }
-  const GAST_DAGEN = [
-    { id: 'day_fri', label: 'Vrijdag 6 nov' },
-    { id: 'day_sat', label: 'Zaterdag 7 nov' },
-    { id: 'day_sun', label: 'Zondag 8 nov' },
-  ]
-  const [gastQuota, setGastQuota] = useState(0)
-  const [gastUsed, setGastUsed] = useState(0)
-  const [gastIssued, setGastIssued] = useState<GastIssued[]>([])
-  const [gastLoaded, setGastLoaded] = useState(false)
-  const [gastBusy, setGastBusy] = useState(false)
-  const [gastForm, setGastForm] = useState({ guest_name: '', guest_email: '', type_id: 'day_fri', qty: '1' })
 
   useEffect(() => {
     const init = async () => {
@@ -81,17 +62,18 @@ export default function Dashboard() {
         gas_nodig: !!p.gas_nodig, water_nodig: !!p.water_nodig,
         techniek_opmerkingen: p.techniek_opmerkingen || '',
       })
-      const [{ data: w }, { data: m }, { data: c }, { data: f }, { data: v }, { data: pr }, { data: t }, { data: d }] = await Promise.all([
+      const [{ data: w }, { data: m }, { data: c }, { data: cr }, { data: f }, { data: v }, { data: pr }, { data: t }, { data: d }] = await Promise.all([
         supabase.from('wijnlijst').select('*').eq('partner_id', p.id).order('volgorde'),
         supabase.from('menukaart').select('*').eq('partner_id', p.id).order('volgorde'),
         supabase.from('crewcatering').select('*').eq('partner_id', p.id),
+        supabase.from('crew').select('*').eq('partner_id', p.id).order('created_at'),
         supabase.from('faq').select('*').eq('actief', true).order('volgorde'),
         supabase.from('partner_vragen').select('*').eq('partner_id', p.id).order('created_at', { ascending: false }),
         supabase.from('producten_catalogus').select('*').eq('actief', true).order('volgorde'),
         supabase.from('portal_teksten').select('*'),
         supabase.from('documenten').select('*').order('created_at', { ascending: false }),
       ])
-      setWijnen(w || []); setMenu(m || []); setCatering(c || []); setFaqItems(f || []); setVragen(v || []); setProducten(pr || [])
+      setWijnen(w || []); setMenu(m || []); setCatering(c || []); setCrew(cr || []); setFaqItems(f || []); setVragen(v || []); setProducten(pr || [])
       const tmap: Record<string, string> = {}
       ;(t as PortalTekst[] || []).forEach(x => { tmap[x.sleutel] = x.waarde })
       setTeksten(tmap); setDocumenten(d || [])
@@ -106,14 +88,6 @@ export default function Dashboard() {
     }
     init()
   }, [router])
-
-  // Laad gasttickets zodra de tab geopend wordt (en partner geladen is)
-  useEffect(() => {
-    if (tab === 'gasttickets' && partner && (partner.gratis_tickets || 0) > 0 && !gastLoaded) {
-      laadGasttickets()
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, partner])
 
   const flash = (m: string) => { setMsg(m); setTimeout(() => setMsg(''), 3000) }
   const logout = async () => { await supabase.auth.signOut(); router.push('/') }
@@ -170,6 +144,21 @@ export default function Dashboard() {
     flash('Technische gegevens opgeslagen')
   }
 
+  const toggleArr = (key: 'dagen' | 'catering_dagen', dag: string) => {
+    setNewCrew(c => ({ ...c, [key]: c[key].includes(dag) ? c[key].filter(d => d !== dag) : [...c[key], dag] }))
+  }
+
+  const addCrew = async () => {
+    if (!partner || !newCrew.naam) return
+    const { data, error } = await supabase.from('crew').insert({
+      partner_id: partner.id, naam: newCrew.naam, functie: newCrew.functie || null, email: newCrew.email || null,
+      dagen: newCrew.dagen, catering_dagen: newCrew.catering_dagen, dieet: newCrew.dieet || null,
+    }).select().single()
+    if (!error && data) { setCrew([...crew, data]); setNewCrew({ naam: '', functie: '', email: '', dagen: [], catering_dagen: [], dieet: '' }); flash('Crewlid toegevoegd') }
+  }
+
+  const deleteCrew = async (id: string) => { await supabase.from('crew').delete().eq('id', id); setCrew(crew.filter(c => c.id !== id)) }
+
   const saveCatering = async (avond: string) => {
     if (!partner) return
     const form = cateringForm[avond]
@@ -197,73 +186,6 @@ export default function Dashboard() {
     if (data) { setVragen([data, ...vragen]); setNewVraag({ onderwerp: '', bericht: '' }); flash('Vraag verstuurd') }
   }
 
-  const GAST_ENDPOINT = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/partner-tickets`
-
-  const gastAuthHeader = async (): Promise<string | null> => {
-    const { data: { session } } = await supabase.auth.getSession()
-    if (!session?.access_token) return null
-    return 'Bearer ' + session.access_token
-  }
-
-  const laadGasttickets = async () => {
-    const auth = await gastAuthHeader()
-    if (!auth) { flash('Je sessie is verlopen. Log opnieuw in.'); return }
-    try {
-      const res = await fetch(GAST_ENDPOINT, { method: 'GET', headers: { Authorization: auth } })
-      if (res.status === 401) { flash('Je sessie is verlopen. Log opnieuw in.'); return }
-      if (!res.ok) { flash('Gasttickets konden niet worden geladen.'); return }
-      const json = await res.json()
-      setGastQuota(typeof json.quota === 'number' ? json.quota : 0)
-      setGastUsed(typeof json.used === 'number' ? json.used : 0)
-      setGastIssued(Array.isArray(json.issued) ? json.issued : [])
-      setGastLoaded(true)
-    } catch {
-      flash('Gasttickets konden niet worden geladen.')
-    }
-  }
-
-  const wijsGastticketToe = async () => {
-    if (gastBusy) return
-    const naam = gastForm.guest_name.trim()
-    const email = gastForm.guest_email.trim()
-    const qty = parseInt(gastForm.qty || '1', 10)
-    if (!naam) { flash('Vul de naam van je gast in.'); return }
-    if (!email) { flash('Vul het e-mailadres van je gast in.'); return }
-    if (!qty || qty < 1) { flash('Vul een geldig aantal in.'); return }
-    const auth = await gastAuthHeader()
-    if (!auth) { flash('Je sessie is verlopen. Log opnieuw in.'); return }
-    setGastBusy(true)
-    try {
-      const res = await fetch(GAST_ENDPOINT, {
-        method: 'POST',
-        headers: { Authorization: auth, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type_id: gastForm.type_id, qty, guest_name: naam, guest_email: email }),
-      })
-      if (res.status === 401) { flash('Je sessie is verlopen. Log opnieuw in.'); return }
-      let json: { ok?: boolean; error?: string; used?: number; quota?: number } = {}
-      try { json = await res.json() } catch { /* lege of niet-JSON respons */ }
-      if (res.ok && json.ok) {
-        if (typeof json.used === 'number') setGastUsed(json.used)
-        if (typeof json.quota === 'number') setGastQuota(json.quota)
-        flash(`Gastticket verstuurd naar ${email}`)
-        setGastForm({ guest_name: '', guest_email: '', type_id: gastForm.type_id, qty: '1' })
-        await laadGasttickets()
-        return
-      }
-      if (json.error === 'quota_exceeded') { flash('Je hebt niet genoeg gasttickets meer over.'); return }
-      if (json.error === 'sold_out') { flash('Die dag is uitverkocht.'); return }
-      if (json.error === 'bad_email') { flash('Het e-mailadres is ongeldig.'); return }
-      if (json.error === 'bad_name') { flash('De naam is ongeldig.'); return }
-      if (json.error === 'bad_qty') { flash('Het aantal is ongeldig.'); return }
-      if (json.error === 'no_type') { flash('Kies een geldige dag.'); return }
-      flash('Het is niet gelukt om het gastticket te versturen.')
-    } catch {
-      flash('Het is niet gelukt om het gastticket te versturen.')
-    } finally {
-      setGastBusy(false)
-    }
-  }
-
   // Ticket codes als array
   const ticketCodes = (partner as any)?.ticket_codes
     ? String((partner as any).ticket_codes).split(',').map((c: string) => c.trim()).filter(Boolean)
@@ -273,16 +195,16 @@ export default function Dashboard() {
   if (!partner) return <div style={{ padding: '40px', background: 'var(--sand)', minHeight: '100vh', fontSize: '14px', color: 'var(--navy)' }}>Geen partneraccount gevonden. Mail naar info@nachtvandewijn.nl</div>
 
   const isFood = partner.type === 'food'
+  const isPersoneel = partner.type === 'personeel'
+  const isWijn = !isFood && !isPersoneel
   const NAV = [
     { id: 'home', label: 'Dashboard' },
     { id: 'offerte', label: 'Offerte' },
     { id: 'tickets', label: 'Tickets & codes' },
-    { id: 'gasttickets', label: 'Gasttickets' },
-    ...(isFood
-      ? [{ id: 'menukaart', label: 'Menukaart' }, { id: 'techniek', label: 'Techniek' }]
-      : [{ id: 'wijnlijst', label: 'Wijnlijst' }]),
-    { id: 'catering', label: 'Crew catering' },
-    { id: 'extras', label: 'Extra bestellen' },
+    ...(isWijn ? [{ id: 'wijnlijst', label: 'Wijnlijst' }] : []),
+    ...(isFood ? [{ id: 'menukaart', label: 'Menukaart' }, { id: 'techniek', label: 'Techniek' }] : []),
+    { id: 'crew', label: 'Crew' },
+    ...((isWijn || isFood) ? [{ id: 'extras', label: 'Extra bestellen' }] : []),
     { id: 'documenten', label: 'Documenten' },
     { id: 'faq', label: 'Spelregels & FAQ' },
     { id: 'contact', label: 'Contact' },
@@ -424,99 +346,6 @@ export default function Dashboard() {
             </div>
           </div>
         </>}
-
-        {/* GASTTICKETS */}
-        {tab === 'gasttickets' && (() => {
-          const heeftPakket = (partner.gratis_tickets || 0) > 0
-          const quota = gastLoaded ? gastQuota : partner.gratis_tickets
-          const used = gastUsed
-          const over = Math.max(quota - used, 0)
-          const pct = quota > 0 ? Math.min(Math.round((used / quota) * 100), 100) : 0
-          const dagLabel = (typeId?: string) => GAST_DAGEN.find(d => d.id === typeId)?.label || ''
-          return <>
-            <div style={S.pageTitle}>Gasttickets</div>
-            <div style={S.pageDesc}>Wijs gratis gasttickets toe aan je gasten binnen jouw quotum.</div>
-
-            {!heeftPakket ? (
-              <div style={{ background: 'var(--cream)', border: '1px solid rgba(1,3,65,0.1)', padding: '20px 22px', fontSize: '14px', color: 'var(--navy)' }}>
-                Je hebt geen gasttickets in je pakket.
-              </div>
-            ) : <>
-              {/* Quotum-overzicht */}
-              <div style={{ background: 'var(--cream)', border: '1px solid rgba(1,3,65,0.1)', padding: '20px 22px', marginBottom: '8px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '12px' }}>
-                  <span style={{ fontSize: '16px', fontWeight: '600', color: 'var(--navy)' }}>
-                    {used} van {quota} gasttickets gebruikt
-                  </span>
-                  <span style={{ fontSize: '13px', fontWeight: '600', color: 'var(--bordeaux)' }}>{over} over</span>
-                </div>
-                <div style={{ height: '8px', background: 'rgba(1,3,65,0.08)', borderRadius: '99px', overflow: 'hidden' }}>
-                  <div style={{ height: '100%', width: `${pct}%`, background: 'var(--bordeaux)', borderRadius: '99px', transition: 'width .4s ease' }} />
-                </div>
-              </div>
-
-              <p style={{ fontSize: '13px', color: 'rgba(1,3,65,0.55)', lineHeight: '1.7', marginBottom: '8px', marginTop: '16px' }}>
-                Je gast ontvangt het ticket per mail. Toegewezen tickets gaan van je quotum af.
-              </p>
-
-              {/* Formulier */}
-              <div style={{ borderTop: '1px solid rgba(1,3,65,0.1)', paddingTop: '28px', marginTop: '20px' }}>
-                <div style={S.sectionTitle}>Gastticket toewijzen</div>
-                <div style={S.grid2}>
-                  <div>
-                    <label style={S.label}>Naam gast *</label>
-                    <input style={S.input} value={gastForm.guest_name} onChange={e => setGastForm({ ...gastForm, guest_name: e.target.value })} placeholder="Voor- en achternaam" />
-                  </div>
-                  <div>
-                    <label style={S.label}>E-mail gast *</label>
-                    <input style={S.input} type="email" value={gastForm.guest_email} onChange={e => setGastForm({ ...gastForm, guest_email: e.target.value })} placeholder="naam@voorbeeld.nl" />
-                  </div>
-                  <div>
-                    <label style={S.label}>Dag</label>
-                    <select style={S.input} value={gastForm.type_id} onChange={e => setGastForm({ ...gastForm, type_id: e.target.value })}>
-                      {GAST_DAGEN.map(d => <option key={d.id} value={d.id}>{d.label}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label style={S.label}>Aantal</label>
-                    <input style={S.input} type="number" min="1" value={gastForm.qty} onChange={e => setGastForm({ ...gastForm, qty: e.target.value })} />
-                  </div>
-                </div>
-                <button style={{ ...S.btn, opacity: gastBusy ? 0.55 : 1, cursor: gastBusy ? 'default' : 'pointer' }} disabled={gastBusy} onClick={wijsGastticketToe}>
-                  {gastBusy ? 'Bezig met versturen...' : 'Ticket toewijzen'}
-                </button>
-              </div>
-
-              {/* Toegewezen gasttickets */}
-              <div style={{ borderTop: '1px solid rgba(1,3,65,0.1)', paddingTop: '28px', marginTop: '40px' }}>
-                <div style={S.sectionTitle}>Toegewezen gasttickets</div>
-                {!gastLoaded ? (
-                  <p style={{ fontSize: '13px', color: 'rgba(1,3,65,0.4)', paddingTop: '4px' }}>Laden...</p>
-                ) : gastIssued.length === 0 ? (
-                  <p style={{ fontSize: '13px', color: 'rgba(1,3,65,0.4)', paddingTop: '4px' }}>Nog geen gasttickets toegewezen.</p>
-                ) : (
-                  gastIssued.map(g => {
-                    const dagen = (g.order_items || [])
-                      .map(it => `${it.ticket_types?.name_nl || dagLabel(it.ticket_type_id)}${it.quantity > 1 ? ` ×${it.quantity}` : ''}`)
-                      .filter(Boolean).join(', ')
-                    return (
-                      <div key={g.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '14px 0', borderBottom: '1px solid rgba(1,3,65,0.07)' }}>
-                        <div style={{ paddingRight: '14px' }}>
-                          <div style={{ fontSize: '14px', fontWeight: '500', color: 'var(--navy)' }}>{g.buyer_name || 'Onbekende gast'}</div>
-                          <div style={{ fontSize: '12px', color: 'rgba(1,3,65,0.4)', marginTop: '2px' }}>{g.buyer_email}</div>
-                          {dagen && <div style={{ fontSize: '12px', color: 'var(--bordeaux)', marginTop: '2px' }}>{dagen}</div>}
-                        </div>
-                        <span style={{ fontSize: '11px', color: 'rgba(1,3,65,0.35)', whiteSpace: 'nowrap', marginLeft: '12px' }}>
-                          {g.created_at ? new Date(g.created_at).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' }) : ''}
-                        </span>
-                      </div>
-                    )
-                  })
-                )}
-              </div>
-            </>}
-          </>
-        })()}
 
         {/* OFFERTE */}
         {tab === 'offerte' && <>
@@ -697,6 +526,55 @@ export default function Dashboard() {
             <label style={S.label}>Opmerkingen</label>
             <textarea style={{ ...S.input, height: '90px', resize: 'vertical' }} value={techForm.techniek_opmerkingen} onChange={e => setTechForm({ ...techForm, techniek_opmerkingen: e.target.value })} placeholder="Afmetingen truck, bijzonderheden, etc." />
             <button style={S.btn} onClick={saveTechniek}>Opslaan</button>
+          </div>
+        </>}
+
+        {/* CREW */}
+        {tab === 'crew' && <>
+          <div style={S.pageTitle}>Crew</div>
+          <div style={S.pageDesc}>Meld hier je personeel aan. Wij maken op basis hiervan tickets en sturen de briefing. Vul ook crewcatering en allergieën in.</div>
+          <div style={{ borderTop: '1px solid rgba(1,3,65,0.1)', paddingTop: '28px' }}>
+            {crew.length > 0 && <>
+              <div style={S.sectionTitle}>{crew.length} {crew.length === 1 ? 'crewlid' : 'crewleden'}</div>
+              {crew.map(c => (
+                <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '14px 0', borderBottom: '1px solid rgba(1,3,65,0.07)' }}>
+                  <div style={{ paddingRight: '14px' }}>
+                    <div style={{ fontSize: '14px', fontWeight: '500', color: 'var(--navy)' }}>{c.naam}{c.functie && <span style={{ color: 'rgba(1,3,65,0.45)', fontWeight: 400 }}> · {c.functie}</span>}</div>
+                    <div style={{ fontSize: '12px', color: 'rgba(1,3,65,0.4)', marginTop: '2px' }}>
+                      {[c.email, c.dagen.length ? `dagen: ${c.dagen.join(', ')}` : null, c.catering_dagen.length ? `catering: ${c.catering_dagen.join(', ')}` : null].filter(Boolean).join(' · ')}
+                    </div>
+                    {c.dieet && <div style={{ fontSize: '12px', color: 'var(--bordeaux)', marginTop: '2px' }}>Dieet/allergie: {c.dieet}</div>}
+                  </div>
+                  <button onClick={() => deleteCrew(c.id)} style={S.btnOutline}>Verwijder</button>
+                </div>
+              ))}
+            </>}
+            <div style={{ marginTop: crew.length > 0 ? '36px' : '0' }}>
+              <div style={S.sectionTitle}>Crewlid toevoegen</div>
+              <div style={S.grid2}>
+                <div><label style={S.label}>Naam *</label><input style={S.input} value={newCrew.naam} onChange={e => setNewCrew({ ...newCrew, naam: e.target.value })} /></div>
+                <div><label style={S.label}>Functie</label><input style={S.input} value={newCrew.functie} onChange={e => setNewCrew({ ...newCrew, functie: e.target.value })} placeholder="bijv. bartender" /></div>
+              </div>
+              <label style={S.label}>E-mailadres (voor ticket &amp; briefing)</label>
+              <input style={S.input} value={newCrew.email} onChange={e => setNewCrew({ ...newCrew, email: e.target.value })} placeholder="naam@bedrijf.nl" />
+              <label style={S.label}>Werkdagen</label>
+              <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+                {['vrijdag', 'zaterdag', 'zondag'].map(d => {
+                  const on = newCrew.dagen.includes(d)
+                  return <button key={d} type="button" onClick={() => toggleArr('dagen', d)} style={{ padding: '8px 14px', fontSize: '13px', cursor: 'pointer', textTransform: 'capitalize', border: `1px solid ${on ? 'var(--bordeaux)' : 'rgba(1,3,65,0.2)'}`, background: on ? 'var(--bordeaux)' : 'transparent', color: on ? 'var(--cream)' : 'rgba(1,3,65,0.55)', fontWeight: on ? 600 : 400 }}>{d}</button>
+                })}
+              </div>
+              <label style={S.label}>Crewcatering op (welke dagen eet deze persoon mee)</label>
+              <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+                {['vrijdag', 'zaterdag', 'zondag'].map(d => {
+                  const on = newCrew.catering_dagen.includes(d)
+                  return <button key={d} type="button" onClick={() => toggleArr('catering_dagen', d)} style={{ padding: '8px 14px', fontSize: '13px', cursor: 'pointer', textTransform: 'capitalize', border: `1px solid ${on ? 'var(--bordeaux)' : 'rgba(1,3,65,0.2)'}`, background: on ? 'var(--bordeaux)' : 'transparent', color: on ? 'var(--cream)' : 'rgba(1,3,65,0.55)', fontWeight: on ? 600 : 400 }}>{d}</button>
+                })}
+              </div>
+              <label style={S.label}>Dieetwensen / allergieën</label>
+              <input style={S.input} value={newCrew.dieet} onChange={e => setNewCrew({ ...newCrew, dieet: e.target.value })} placeholder="bijv. vegetarisch, notenallergie" />
+              <button style={S.btn} onClick={addCrew}>Toevoegen</button>
+            </div>
           </div>
         </>}
 

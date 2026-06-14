@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import type { Partner, PartnerVraag, Product, FAQ, PortalTekst, Admin, Document, ActiviteitLog } from '@/lib/supabase'
+import type { Partner, PartnerVraag, Product, FAQ, PortalTekst, Admin, Document, ActiviteitLog, CrewLid } from '@/lib/supabase'
 import { LOG_TABEL_LABEL, LOG_ACTIE_LABEL } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 
@@ -12,7 +12,10 @@ const PAKKET_LABELS: Record<string, string> = {
   entrance_host: 'Entrance Host',
   silent_disco: 'Silent Disco',
   foodtruck: 'Foodtruck',
+  personeel: 'Personeelsleverancier',
 }
+
+const DAGEN = ['vrijdag', 'zaterdag', 'zondag']
 
 const FAQ_CATEGORIEEN = ['logistiek', 'systemen', 'huisregels', 'catering', 'algemeen']
 const DOC_CATEGORIEEN = ['draaiboek', 'plattegrond', 'huisstijl', 'contracten', 'overig']
@@ -90,6 +93,8 @@ export default function AdminPage() {
   const [admins, setAdmins] = useState<Admin[]>([])
   const [documenten, setDocumenten] = useState<Document[]>([])
   const [log, setLog] = useState<ActiviteitLog[]>([])
+  const [crew, setCrew] = useState<CrewLid[]>([])
+  const [internCrew, setInternCrew] = useState<{ naam: string; functie: string; email: string; dagen: string[]; catering_dagen: string[]; dieet: string }>({ naam: '', functie: '', email: '', dagen: [], catering_dagen: [], dieet: '' })
   const [mijnNaam, setMijnNaam] = useState('')
   const [activeTab, setActiveTab] = useState('overzicht')
   const [loading, setLoading] = useState(true)
@@ -126,7 +131,7 @@ export default function AdminPage() {
   }
 
   const loadAll = async () => {
-    const [p, v, pr, f, t, a, d, l] = await Promise.all([
+    const [p, v, pr, f, t, a, d, l, cw] = await Promise.all([
       supabase.from('partners').select('*').order('created_at', { ascending: false }),
       supabase.from('partner_vragen').select('*').order('created_at', { ascending: false }),
       supabase.from('producten_catalogus').select('*').order('volgorde'),
@@ -135,10 +140,11 @@ export default function AdminPage() {
       supabase.from('admins').select('*').order('created_at'),
       supabase.from('documenten').select('*').order('created_at', { ascending: false }),
       supabase.from('activiteit_log').select('*').order('created_at', { ascending: false }).limit(300),
+      supabase.from('crew').select('*').order('created_at'),
     ])
     setPartners(p.data || []); setVragen(v.data || []); setProducten(pr.data || [])
     setFaqItems(f.data || []); setTeksten(t.data || []); setAdmins(a.data || []); setDocumenten(d.data || [])
-    setLog(l.data || [])
+    setLog(l.data || []); setCrew(cw.data || [])
     const td: Record<string, string> = {}
     ;(t.data || []).forEach((x: PortalTekst) => { td[x.sleutel] = x.waarde })
     setTekstDraft(td)
@@ -364,6 +370,37 @@ export default function AdminPage() {
     setExportLoading(false)
   }
 
+  // ---- Crew ----
+  const toggleInternArr = (key: 'dagen' | 'catering_dagen', dag: string) => {
+    setInternCrew(c => ({ ...c, [key]: c[key].includes(dag) ? c[key].filter(d => d !== dag) : [...c[key], dag] }))
+  }
+  const addInternCrew = async () => {
+    if (!internCrew.naam) return
+    const { data, error } = await supabase.from('crew').insert({
+      partner_id: null, naam: internCrew.naam, functie: internCrew.functie || null, email: internCrew.email || null,
+      dagen: internCrew.dagen, catering_dagen: internCrew.catering_dagen, dieet: internCrew.dieet || null,
+    }).select().single()
+    if (!error && data) { setCrew([...crew, data]); setInternCrew({ naam: '', functie: '', email: '', dagen: [], catering_dagen: [], dieet: '' }); flash('Eigen crewlid toegevoegd') }
+    else if (error) flash('Fout: ' + error.message, 6000)
+  }
+  const deleteCrewLid = async (id: string) => {
+    if (!confirm('Crewlid verwijderen?')) return
+    await supabase.from('crew').delete().eq('id', id)
+    setCrew(crew.filter(c => c.id !== id)); flash('Verwijderd')
+  }
+  const partnerNaam = (pid: string | null) => pid ? (partners.find(p => p.id === pid)?.bedrijfsnaam || 'Onbekend') : 'Eigen organisatie'
+  const handleExportCrew = async () => {
+    if (crew.length === 0) { flash('Geen crew om te exporteren.'); return }
+    const headers = ['Bron', 'Naam', 'Functie', 'E-mail', 'Werkdagen', 'Crewcatering dagen', 'Dieet/allergie']
+    const rows = crew.map(c => [partnerNaam(c.partner_id), c.naam, c.functie || '', c.email || '', (c.dagen || []).join('; '), (c.catering_dagen || []).join('; '), c.dieet || ''])
+    const csv = [headers, ...rows].map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n')
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a'); link.href = url; link.download = `NvdW2026_crewlijst_${new Date().toISOString().slice(0, 10)}.csv`
+    document.body.appendChild(link); link.click(); document.body.removeChild(link); URL.revokeObjectURL(url)
+    flash(`Export klaar — ${crew.length} crewleden.`, 4000)
+  }
+
   const S = {
     page: { display: 'flex', minHeight: '100vh', background: 'var(--sand)' } as React.CSSProperties,
     sidebar: { width: '210px', background: 'var(--navy)', flexShrink: 0 } as React.CSSProperties,
@@ -406,6 +443,7 @@ export default function AdminPage() {
     { id: 'toevoegen', label: 'Partner toevoegen' },
     { id: 'producten', label: 'Producten' },
     { id: 'faq', label: 'FAQ & spelregels' },
+    { id: 'crew', label: 'Crew' },
     { id: 'documenten', label: 'Documenten' },
     { id: 'teksten', label: 'Teksten & deadlines' },
     { id: 'team', label: 'Team' },
@@ -515,6 +553,77 @@ export default function AdminPage() {
             </div>
           </>
         )}
+
+        {/* CREW */}
+        {activeTab === 'crew' && (() => {
+          const cateringTotaal = DAGEN.reduce((acc, d) => { acc[d] = crew.filter(c => c.catering_dagen?.includes(d)).length; return acc }, {} as Record<string, number>)
+          const bronnen = ['Eigen organisatie', ...partners.filter(p => crew.some(c => c.partner_id === p.id)).map(p => p.bedrijfsnaam)]
+          return (
+            <>
+              <div style={S.title}>Crew &amp; personeel</div>
+              <div style={S.sub}>Alle crew van partners, leveranciers én onze eigen mensen op één lijst.</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', marginBottom: '16px' }}>
+                {[
+                  { label: 'Crew totaal', val: crew.length, sub: `${bronnen.length} bronnen` },
+                  ...DAGEN.map(d => ({ label: `Catering ${d.slice(0, 2)}`, val: cateringTotaal[d], sub: 'eters' })),
+                ].map(s => (
+                  <div key={s.label} style={{ ...S.card, marginBottom: 0, padding: '18px' }}>
+                    <div style={{ fontSize: '10px', fontWeight: '700', letterSpacing: '1px', textTransform: 'uppercase', color: '#999', marginBottom: '6px' }}>{s.label}</div>
+                    <div style={{ fontSize: '26px', fontWeight: '800', color: 'var(--navy)', lineHeight: 1 }}>{s.val}</div>
+                    <div style={{ fontSize: '11px', color: '#888', marginTop: '4px' }}>{s.sub}</div>
+                  </div>
+                ))}
+              </div>
+
+              <div style={S.card}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={S.cardTitle}>{crew.length} crewleden</div>
+                  <button style={S.btnSm} onClick={handleExportCrew}>↓ Export CSV</button>
+                </div>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={S.table}>
+                    <thead><tr>{['Bron', 'Naam', 'Functie', 'E-mail', 'Dagen', 'Catering', 'Dieet/allergie', ''].map(h => <th key={h} style={S.th}>{h}</th>)}</tr></thead>
+                    <tbody>
+                      {crew.length === 0 && <tr><td style={S.td} colSpan={8}><span style={{ color: '#999' }}>Nog geen crew.</span></td></tr>}
+                      {crew.map(c => (
+                        <tr key={c.id}>
+                          <td style={S.td}><span style={{ fontSize: '11px', fontWeight: 700, color: c.partner_id ? 'var(--navy)' : 'var(--bordeaux)' }}>{partnerNaam(c.partner_id)}</span></td>
+                          <td style={S.td}>{c.naam}</td>
+                          <td style={S.td}>{c.functie || '—'}</td>
+                          <td style={S.td}>{c.email || '—'}</td>
+                          <td style={S.td}>{(c.dagen || []).join(', ') || '—'}</td>
+                          <td style={S.td}>{(c.catering_dagen || []).join(', ') || '—'}</td>
+                          <td style={S.td}>{c.dieet || '—'}</td>
+                          <td style={S.td}><button style={S.btnSm} onClick={() => deleteCrewLid(c.id)}>Verwijder</button></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div style={S.card}>
+                <div style={S.cardTitle}>Eigen crewlid toevoegen (vrijwilliger, runner, scanner)</div>
+                <div style={S.grid3}>
+                  <div><label style={S.label}>Naam</label><input style={S.input} value={internCrew.naam} onChange={e => setInternCrew({ ...internCrew, naam: e.target.value })} /></div>
+                  <div><label style={S.label}>Functie</label><input style={S.input} value={internCrew.functie} onChange={e => setInternCrew({ ...internCrew, functie: e.target.value })} placeholder="bijv. ticketscanner" /></div>
+                  <div><label style={S.label}>E-mail</label><input style={S.input} value={internCrew.email} onChange={e => setInternCrew({ ...internCrew, email: e.target.value })} /></div>
+                </div>
+                <label style={S.label}>Werkdagen</label>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  {DAGEN.map(d => { const on = internCrew.dagen.includes(d); return <button key={d} type="button" onClick={() => toggleInternArr('dagen', d)} style={{ padding: '7px 12px', fontSize: '12px', cursor: 'pointer', textTransform: 'capitalize', borderRadius: '2px', border: `1px solid ${on ? 'var(--bordeaux)' : '#ddd'}`, background: on ? 'var(--bordeaux)' : '#fff', color: on ? '#fff' : '#666' }}>{d}</button> })}
+                </div>
+                <label style={S.label}>Crewcatering op</label>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  {DAGEN.map(d => { const on = internCrew.catering_dagen.includes(d); return <button key={d} type="button" onClick={() => toggleInternArr('catering_dagen', d)} style={{ padding: '7px 12px', fontSize: '12px', cursor: 'pointer', textTransform: 'capitalize', borderRadius: '2px', border: `1px solid ${on ? 'var(--bordeaux)' : '#ddd'}`, background: on ? 'var(--bordeaux)' : '#fff', color: on ? '#fff' : '#666' }}>{d}</button> })}
+                </div>
+                <label style={S.label}>Dieet / allergieën</label>
+                <input style={S.input} value={internCrew.dieet} onChange={e => setInternCrew({ ...internCrew, dieet: e.target.value })} placeholder="bijv. vegetarisch" />
+                <button style={S.btn} onClick={addInternCrew}>Toevoegen aan crewlijst</button>
+              </div>
+            </>
+          )
+        })()}
 
         {/* PARTNERS — overzicht */}
         {activeTab === 'partners' && !selectedId && (
@@ -663,10 +772,11 @@ export default function AdminPage() {
                   <label style={S.label}>Type partner</label>
                   <select style={S.input} value={newPartner.type} onChange={e => {
                     const type = e.target.value
-                    setNewPartner({ ...newPartner, type, pakket: type === 'food' ? 'foodtruck' : 'own_bar' })
+                    setNewPartner({ ...newPartner, type, pakket: type === 'food' ? 'foodtruck' : type === 'personeel' ? 'personeel' : 'own_bar' })
                   }}>
                     <option value="wijn">Wijnpartner</option>
                     <option value="food">Foodtruck</option>
+                    <option value="personeel">Personeelsleverancier</option>
                   </select>
                 </div>
                 {newPartner.type === 'food' && (
@@ -680,7 +790,7 @@ export default function AdminPage() {
                 <div>
                   <label style={S.label}>Pakket</label>
                   <select style={S.input} value={newPartner.pakket} onChange={e => setNewPartner({ ...newPartner, pakket: e.target.value })}>
-                    {(newPartner.type === 'food' ? ['foodtruck'] : ['branded_bar', 'own_bar', 'restaurant_host', 'entrance_host', 'silent_disco']).map(val => <option key={val} value={val}>{PAKKET_LABELS[val]}</option>)}
+                    {(newPartner.type === 'food' ? ['foodtruck'] : newPartner.type === 'personeel' ? ['personeel'] : ['branded_bar', 'own_bar', 'restaurant_host', 'entrance_host', 'silent_disco']).map(val => <option key={val} value={val}>{PAKKET_LABELS[val]}</option>)}
                   </select>
                 </div>
                 <div>
