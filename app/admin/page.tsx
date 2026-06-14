@@ -101,7 +101,7 @@ export default function AdminPage() {
   const [saveMsg, setSaveMsg] = useState('')
   const [exportLoading, setExportLoading] = useState(false)
   const [newPartner, setNewPartner] = useState({
-    naam: '', bedrijfsnaam: '', email: '', type: 'wijn', pakket: 'own_bar', avond: 'alle', gratis_tickets: '20', afdracht_percentage: '25', standplaats_vergoeding: '', barlocatie: '', notities: ''
+    naam: '', bedrijfsnaam: '', email: '', type: 'wijn', pakket: 'own_bar', avond: 'alle', gratis_tickets: '20', crew_tickets: '0', afdracht_percentage: '25', standplaats_vergoeding: '', barlocatie: '', notities: ''
   })
   const [antwoordMap, setAntwoordMap] = useState<Record<string, string>>({})
   const [invite, setInvite] = useState({ email: '', type: 'wijn' })
@@ -177,13 +177,13 @@ export default function AdminPage() {
     const { data, error } = await supabase.from('partners').insert({
       naam: newPartner.naam, bedrijfsnaam: newPartner.bedrijfsnaam, email: newPartner.email,
       type: newPartner.type, pakket: newPartner.pakket, avond: newPartner.avond,
-      gratis_tickets: parseInt(newPartner.gratis_tickets), afdracht_percentage: parseInt(newPartner.afdracht_percentage),
+      gratis_tickets: parseInt(newPartner.gratis_tickets), crew_tickets: parseInt(newPartner.crew_tickets || "0"), afdracht_percentage: parseInt(newPartner.afdracht_percentage),
       standplaats_vergoeding: newPartner.type === 'food' && newPartner.standplaats_vergoeding ? parseFloat(newPartner.standplaats_vergoeding) : null,
       barlocatie: newPartner.barlocatie || null, notities: newPartner.notities || null,
     }).select().single()
     if (!error && data) {
       setPartners([data, ...partners])
-      setNewPartner({ naam: '', bedrijfsnaam: '', email: '', type: 'wijn', pakket: 'own_bar', avond: 'alle', gratis_tickets: '20', afdracht_percentage: '25', standplaats_vergoeding: '', barlocatie: '', notities: '' })
+      setNewPartner({ naam: '', bedrijfsnaam: '', email: '', type: 'wijn', pakket: 'own_bar', avond: 'alle', gratis_tickets: '20', crew_tickets: '0', afdracht_percentage: '25', standplaats_vergoeding: '', barlocatie: '', notities: '' })
       flash('Partner aangemaakt. Maak nu een login aan via de knop in het overzicht.', 6000)
       setActiveTab('partners')
     } else if (error) {
@@ -720,6 +720,10 @@ export default function AdminPage() {
                       <label style={S.label}>Gratis tickets</label>
                       <input style={S.input} type="number" defaultValue={sp.gratis_tickets} onBlur={e => Number(e.target.value) !== sp.gratis_tickets && updatePartner(sp.id, { gratis_tickets: Number(e.target.value) })} />
                     </div>
+                    <div>
+                      <label style={S.label}>Crewtickets</label>
+                      <input style={S.input} type="number" defaultValue={sp.crew_tickets ?? 0} onBlur={e => Number(e.target.value) !== (sp.crew_tickets ?? 0) && updatePartner(sp.id, { crew_tickets: Number(e.target.value) })} />
+                    </div>
                   </div>
                   {sp.type === 'food' && (
                     <>
@@ -845,6 +849,10 @@ export default function AdminPage() {
                 <div>
                   <label style={S.label}>Gratis tickets</label>
                   <input style={S.input} type="number" value={newPartner.gratis_tickets} onChange={e => setNewPartner({ ...newPartner, gratis_tickets: e.target.value })} />
+                </div>
+                <div>
+                  <label style={S.label}>Crewtickets</label>
+                  <input style={S.input} type="number" value={newPartner.crew_tickets} onChange={e => setNewPartner({ ...newPartner, crew_tickets: e.target.value })} />
                 </div>
                 <div>
                   <label style={S.label}>Afdracht %</label>

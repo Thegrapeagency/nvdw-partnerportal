@@ -18,6 +18,7 @@ export type Partner = {
   offerte_akkoord: boolean
   offerte_akkoord_datum: string | null
   gratis_tickets: number
+  crew_tickets: number
   afdracht_percentage: number
   notities: string | null
   kortingscode: string | null
