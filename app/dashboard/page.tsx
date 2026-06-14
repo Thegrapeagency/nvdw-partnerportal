@@ -210,7 +210,31 @@ export default function Dashboard() {
       partner_id: partner.id, naam: newCrew.naam, functie: newCrew.functie || null, email: newCrew.email || null,
       dagen: newCrew.dagen, catering_dagen: newCrew.catering_dagen, dieet: newCrew.dieet || null,
     }).select().single()
-    if (!error && data) { setCrew([...crew, data]); setNewCrew({ naam: '', functie: '', email: '', dagen: [], catering_dagen: [], dieet: '' }); flash('Crewlid toegevoegd') }
+    if (error || !data) { flash('Crewlid toevoegen mislukt.'); return }
+    setCrew([...crew, data])
+    const naam = newCrew.naam.trim()
+    const email = newCrew.email.trim()
+    setNewCrew({ naam: '', functie: '', email: '', dagen: [], catering_dagen: [], dieet: '' })
+    // Crewticket (alle dagen, gratis) automatisch uitgeven als er een geldig e-mailadres is
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) {
+      flash('Crewlid toegevoegd. Vul een e-mail in om automatisch een crewticket te sturen.')
+      return
+    }
+    const auth = await gastAuthHeader()
+    if (!auth) { flash('Crewlid toegevoegd. Crewticket niet verstuurd: log opnieuw in.'); return }
+    try {
+      const res = await fetch(GAST_ENDPOINT, {
+        method: 'POST',
+        headers: { Authorization: auth, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type_id: 'crew', qty: 1, guest_name: naam, guest_email: email }),
+      })
+      const j = await res.json().catch(() => ({}))
+      if (res.ok && j.ok) { flash(`Crewlid toegevoegd. Crewticket verstuurd naar ${email}.`); return }
+      if (j.error === 'quota_exceeded') { flash('Crewlid toegevoegd, maar je crew-ticketquotum is op. Neem contact op voor meer crewtickets.'); return }
+      flash('Crewlid toegevoegd. Crewticket kon niet worden verstuurd.')
+    } catch {
+      flash('Crewlid toegevoegd. Crewticket kon niet worden verstuurd.')
+    }
   }
 
   const deleteCrew = async (id: string) => { await supabase.from('crew').delete().eq('id', id); setCrew(crew.filter(c => c.id !== id)) }
@@ -785,7 +809,7 @@ export default function Dashboard() {
         {/* CREW */}
         {tab === 'crew' && <>
           <div style={S.pageTitle}>Crew</div>
-          <div style={S.pageDesc}>Meld hier je personeel aan. Wij maken op basis hiervan tickets en sturen de briefing. Vul ook crewcatering en allergieën in.</div>
+          <div style={S.pageDesc}>Meld hier je personeel aan. Met een e-mailadres ontvangt elk crewlid automatisch een gratis crewticket (alle dagen). Vul ook crewcatering en allergieën in.</div>
           <div style={{ borderTop: '1px solid rgba(1,3,65,0.1)', paddingTop: '28px' }}>
             {crew.length > 0 && <>
               <div style={S.sectionTitle}>{crew.length} {crew.length === 1 ? 'crewlid' : 'crewleden'}</div>
