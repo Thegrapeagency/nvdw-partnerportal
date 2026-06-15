@@ -841,10 +841,20 @@ export default function AdminPage() {
                   </select>
                 </div>
                 <div>
-                  <label style={S.label}>Avond(en)</label>
-                  <select style={S.input} value={newPartner.avond} onChange={e => setNewPartner({ ...newPartner, avond: e.target.value })}>
-                    {['alle', 'vrijdag', 'zaterdag', 'zondag'].map(a => <option key={a} value={a}>{a}</option>)}
-                  </select>
+                  <label style={S.label}>Dagen aanwezig</label>
+                  {(() => {
+                    const sel = (newPartner.avond === 'alle' || !newPartner.avond) ? [...DAGEN] : newPartner.avond.split(',').map(s => s.trim()).filter(Boolean)
+                    const toggle = (d: string) => {
+                      const has = sel.includes(d)
+                      const next = DAGEN.filter(x => has ? (sel.includes(x) && x !== d) : (sel.includes(x) || x === d))
+                      setNewPartner({ ...newPartner, avond: next.length === DAGEN.length ? 'alle' : next.join(', ') })
+                    }
+                    return (
+                      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                        {DAGEN.map(d => { const on = sel.includes(d); return <button type="button" key={d} onClick={() => toggle(d)} style={{ padding: '7px 12px', fontSize: '12px', cursor: 'pointer', textTransform: 'capitalize', borderRadius: '2px', border: `1px solid ${on ? 'var(--bordeaux)' : '#ddd'}`, background: on ? 'var(--bordeaux)' : '#fff', color: on ? '#fff' : '#666', fontWeight: on ? 700 : 400 }}>{d}</button> })}
+                      </div>
+                    )
+                  })()}
                 </div>
                 <div>
                   <label style={S.label}>Gratis tickets</label>
