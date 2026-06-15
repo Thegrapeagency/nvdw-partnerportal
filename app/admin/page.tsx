@@ -211,14 +211,16 @@ export default function AdminPage() {
     setInviting(false)
   }
 
-  const maakPartnerLogin = async (p: Partner) => {
-    const pw = genPassword()
-    const { data, error } = await supabase.rpc('admin_create_partner_login', { p_partner_id: p.id, p_temp_password: pw })
-    if (error) { flash('Fout: ' + error.message, 6000); return }
-    setPartners(partners.map(x => x.id === p.id ? { ...x, user_id: (data as any)?.user_id || 'set' } : x))
-    const mail = await stuurWelkomstmail(p.email, p.naam, p.type === 'food')
-    if (mail.ok) flash(`Login klaar — welkomstmail verstuurd naar ${p.email}.`, 8000)
-    else flash(`Login klaar voor ${p.email}. Mail nog niet actief — tijdelijk wachtwoord: ${pw} (deel handmatig).`, 15000)
+  const stuurInlog = async (p: Partner) => {
+    const { data: { session } } = await supabase.auth.getSession()
+    const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/partner-invite`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token || ''}`, apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '' },
+      body: JSON.stringify({ partner_id: p.id }),
+    })
+    const j = await res.json().catch(() => ({}))
+    if (res.ok && j.ok) { setPartners(partners.map(x => x.id === p.id ? { ...x, user_id: x.user_id || 'set' } : x)); flash(`Inlogmail met inloggegevens verstuurd naar ${p.email}.`, 8000) }
+    else flash('Versturen mislukt: ' + (j.error || res.status), 8000)
   }
 
   const openPartner = async (id: string) => {
@@ -679,9 +681,10 @@ export default function AdminPage() {
                           <KortingscodeCell partner={p} onSave={(code) => { setPartners(partners.map(x => x.id === p.id ? { ...x, kortingscode: code || null } : x)) }} />
                         </td>
                         <td style={S.td}>
-                          {p.user_id
-                            ? <span style={S.badge(true)}>actief</span>
-                            : <button style={S.btnSm} onClick={() => maakPartnerLogin(p)}>Maak login</button>}
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-start' }}>
+                            {p.user_id && <span style={S.badge(true)}>actief</span>}
+                            <button style={S.btnSm} onClick={() => stuurInlog(p)}>{p.user_id ? 'Mail opnieuw' : 'Stuur inlog'}</button>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -748,7 +751,8 @@ export default function AdminPage() {
                   <label style={S.label}>Eigen kortingscode</label>
                   <input style={S.input} defaultValue={sp.kortingscode ?? ''} onBlur={e => updatePartner(sp.id, { kortingscode: e.target.value.toUpperCase() || null })} placeholder="standaard" />
                   <div style={{ marginTop: '14px' }}>
-                    {sp.user_id ? <span style={S.badge(true)}>login actief</span> : <button style={S.btnSm} onClick={() => maakPartnerLogin(sp)}>Maak login</button>}
+                    {sp.user_id && <span style={{ ...S.badge(true), marginRight: '8px' }}>login actief</span>}
+                    <button style={S.btnSm} onClick={() => stuurInlog(sp)}>{sp.user_id ? 'Inlogmail opnieuw sturen' : 'Stuur inlogmail'}</button>
                   </div>
                 </div>
               </div>
