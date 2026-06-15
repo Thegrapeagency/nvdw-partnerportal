@@ -1042,7 +1042,7 @@ export default function AdminPage() {
         {/* EXPORT */}
         {activeTab === 'export' && (
           <>
-            <div style={S.title}>Tactile export</div>
+            <div style={S.title}>Exports</div>
             <div style={S.card}>
               <div style={S.cardTitle}>Wijnlijst export</div>
               <p style={{ fontSize: '13px', color: '#555', lineHeight: '1.7', marginBottom: '20px' }}>
