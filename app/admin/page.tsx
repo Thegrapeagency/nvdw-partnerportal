@@ -200,13 +200,9 @@ export default function AdminPage() {
       naam: '', bedrijfsnaam: email, email, type: invite.type, pakket, avond: 'alle',
     }).select().single()
     if (error) { flash('Fout: ' + error.message, 6000); setInviting(false); return }
-    const pw = genPassword()
-    const { error: e2 } = await supabase.rpc('admin_create_partner_login', { p_partner_id: data.id, p_temp_password: pw })
-    if (e2) { setPartners([data, ...partners]); flash('Aangemaakt, maar login mislukte: ' + e2.message, 8000); setInviting(false); return }
-    const mail = await stuurWelkomstmail(email, '', invite.type === 'food')
+    setPartners([data, ...partners])
+    await stuurInlog(data)
     await loadAll()
-    if (mail.ok) flash(`Uitnodiging verstuurd naar ${email}. Zij stellen zelf hun wachtwoord in en vullen hun gegevens aan.`, 9000)
-    else flash(`Aangemaakt voor ${email}. Mail nog niet actief — login: ${email} / wachtwoord: ${pw} (deel handmatig).`, 15000)
     setInvite({ email: '', type: 'wijn' })
     setInviting(false)
   }
