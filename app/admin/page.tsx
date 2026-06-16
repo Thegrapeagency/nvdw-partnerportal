@@ -106,6 +106,7 @@ export default function AdminPage() {
   const [antwoordMap, setAntwoordMap] = useState<Record<string, string>>({})
   const [invite, setInvite] = useState({ email: '', type: 'wijn' })
   const [inviting, setInviting] = useState(false)
+  const [genAantal, setGenAantal] = useState('')
   const [newProduct, setNewProduct] = useState({ naam: '', omschrijving: '', prijs: '', eenheid: 'stuk' })
   const [newFaq, setNewFaq] = useState({ vraag: '', antwoord: '', categorie: 'logistiek' })
   const [tekstDraft, setTekstDraft] = useState<Record<string, string>>({})
@@ -217,6 +218,18 @@ export default function AdminPage() {
     const j = await res.json().catch(() => ({}))
     if (res.ok && j.ok) { setPartners(partners.map(x => x.id === p.id ? { ...x, user_id: x.user_id || 'set' } : x)); flash(`Inlogmail met inloggegevens verstuurd naar ${p.email}.`, 8000) }
     else flash('Versturen mislukt: ' + (j.error || res.status), 8000)
+  }
+
+  const genTicketCode = () => 'NVDW-' + Array.from({ length: 6 }, () => 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[Math.floor(Math.random() * 32)]).join('')
+  const genereerTicketcodes = async (p: Partner, aantal: number) => {
+    if (!aantal || aantal < 1) { flash('Vul een aantal in.'); return }
+    if ((p as any).ticket_codes && !confirm('Er staan al ticketcodes. Vervangen door nieuwe?')) return
+    const codes: string[] = []
+    while (codes.length < aantal) { const c = genTicketCode(); if (!codes.includes(c)) codes.push(c) }
+    const val = codes.join(',')
+    await supabase.from('partners').update({ ticket_codes: val } as any).eq('id', p.id)
+    setPartners(partners.map(x => x.id === p.id ? ({ ...x, ticket_codes: val } as any) : x))
+    flash(`${aantal} ticketcodes gegenereerd`)
   }
 
   const openPartner = async (id: string) => {
@@ -742,8 +755,13 @@ export default function AdminPage() {
                     {sp.contract_ondertekend && sp.contract_ondertekend_datum && <span style={{ fontSize: '11px', color: '#999', marginLeft: '8px' }}>door {sp.contract_ondertekenaar} op {new Date(sp.contract_ondertekend_datum).toLocaleDateString('nl-NL')}</span>}
                     {sp.contract_handtekening && <img src={sp.contract_handtekening} alt="handtekening" style={{ display: 'block', marginTop: '10px', maxWidth: '220px', height: 'auto', background: '#fff', border: '1px solid #eee' }} />}
                   </div>
+                  <label style={S.label}>Ticketcodes automatisch genereren</label>
+                  <div style={{ display: 'flex', gap: '8px', marginBottom: '4px' }}>
+                    <input style={{ ...S.input, width: '100px' }} type="number" min="1" value={genAantal} onChange={e => setGenAantal(e.target.value)} placeholder="aantal" />
+                    <button style={S.btnSm} onClick={() => genereerTicketcodes(sp, parseInt(genAantal))}>Genereer ticketcodes</button>
+                  </div>
                   <label style={S.label}>Ticketcodes (komma-gescheiden)</label>
-                  <textarea style={{ ...S.input, height: '64px', fontFamily: 'monospace', fontSize: '12px' }} defaultValue={(sp as any).ticket_codes || ''} onBlur={e => updatePartner(sp.id, { ticket_codes: e.target.value } as any)} placeholder="CODE1,CODE2,CODE3" />
+                  <textarea key={(sp as any).ticket_codes || 'leeg'} style={{ ...S.input, height: '64px', fontFamily: 'monospace', fontSize: '12px' }} defaultValue={(sp as any).ticket_codes || ''} onBlur={e => updatePartner(sp.id, { ticket_codes: e.target.value } as any)} placeholder="CODE1,CODE2,CODE3" />
                   <label style={S.label}>Eigen kortingscode</label>
                   <input style={S.input} defaultValue={sp.kortingscode ?? ''} onBlur={e => updatePartner(sp.id, { kortingscode: e.target.value.toUpperCase() || null })} placeholder="standaard" />
                   <div style={{ marginTop: '14px' }}>
