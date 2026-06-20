@@ -97,6 +97,8 @@ export default function AdminPage() {
   const [internCrew, setInternCrew] = useState<{ naam: string; functie: string; email: string; dagen: string[]; catering_dagen: string[]; dieet: string }>({ naam: '', functie: '', email: '', dagen: [], catering_dagen: [], dieet: '' })
   const [mijnNaam, setMijnNaam] = useState('')
   const [activeTab, setActiveTab] = useState('overzicht')
+  const [appMetrics, setAppMetrics] = useState<any>(null)
+  const [appMetricsLoading, setAppMetricsLoading] = useState(false)
   const [loading, setLoading] = useState(true)
   const [saveMsg, setSaveMsg] = useState('')
   const [exportLoading, setExportLoading] = useState(false)
@@ -483,6 +485,7 @@ export default function AdminPage() {
     { id: 'export', label: 'Exports' },
     { id: 'vragen', label: `Vragen ${openVragen.length > 0 ? `(${openVragen.length})` : ''}` },
     { id: 'activiteit', label: 'Activiteit' },
+    { id: 'app', label: 'Bezoekers-app' },
   ]
 
   const aantalFood = partners.filter(p => p.type === 'food').length
@@ -496,6 +499,13 @@ export default function AdminPage() {
     const wie = e.actor_naam || e.actor_email || 'iemand'
     return { wie, zin: `heeft ${wat} ${actie}${e.omschrijving ? `: ${e.omschrijving}` : ''}` }
   }
+
+  useEffect(() => {
+    if (activeTab === 'app' && !appMetrics && !appMetricsLoading) {
+      setAppMetricsLoading(true)
+      supabase.rpc('app_metrics').then(({ data }) => { setAppMetrics(data); setAppMetricsLoading(false) })
+    }
+  }, [activeTab, appMetrics, appMetricsLoading])
 
   return (
     <div style={S.page}>
@@ -555,6 +565,37 @@ export default function AdminPage() {
                   </div>
                 )
               })}
+            </div>
+          </>
+        )}
+
+        {/* BEZOEKERS-APP */}
+        {activeTab === 'app' && (
+          <>
+            <div style={S.title}>Bezoekers-app</div>
+            <div style={S.sub}>Nocturne, de app voor festivalbezoekers. Alleen anonieme cijfers, geen persoonsgegevens.</div>
+            {appMetricsLoading && <p style={{ fontSize: '13px', color: '#999' }}>Cijfers laden...</p>}
+            {appMetrics && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginBottom: '24px' }}>
+                {[
+                  { label: 'Unieke bezoekers', val: appMetrics.devices, sub: 'toestellen met de app' },
+                  { label: 'Actief, 24 uur', val: appMetrics.laatste_24u, sub: 'unieke toestellen' },
+                  { label: 'App geopend', val: appMetrics.opens, sub: 'keer in totaal' },
+                  { label: 'Smaaktest gedaan', val: appMetrics.smaaktest_started, sub: 'bezoekers' },
+                  { label: 'Wijnen gestempeld', val: appMetrics.stempels, sub: 'in paspoorten' },
+                  { label: 'Smaak-match aan', val: appMetrics.smaakmatch_optin, sub: 'bezoekers, vrijdag' },
+                ].map(s => (
+                  <div key={s.label} style={{ ...S.card, marginBottom: 0, padding: '20px' }}>
+                    <div style={{ fontSize: '11px', fontWeight: '700', letterSpacing: '1px', textTransform: 'uppercase', color: '#999', marginBottom: '8px' }}>{s.label}</div>
+                    <div style={{ fontSize: '32px', fontWeight: '800', color: 'var(--navy)', lineHeight: 1 }}>{s.val ?? 0}</div>
+                    <div style={{ fontSize: '12px', color: '#888', marginTop: '6px' }}>{s.sub}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div style={S.card}>
+              <div style={S.cardTitle}>Over deze cijfers</div>
+              <p style={{ fontSize: '13px', color: '#666', lineHeight: 1.6 }}>De app verzamelt alleen anonieme gebeurtenissen met een lokaal toestel-id, geen namen of e-mails. Zodra bezoekers de app gebruiken, lopen deze cijfers op. De ticketverkoop en het partnerbeheer blijven in de andere tabbladen.</p>
             </div>
           </>
         )}
