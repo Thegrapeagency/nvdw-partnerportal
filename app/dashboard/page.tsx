@@ -605,7 +605,7 @@ export default function Dashboard() {
         {/* OFFERTE */}
         {tab === 'gegevens' && <>
           <div style={S.pageTitle}>Mijn gegevens</div>
-          <div style={S.pageDesc}>Vul of werk je bedrijfs- en contactgegevens bij.</div>
+          <div style={S.pageDesc}>Vul of werk je bedrijfs- en contactgegevens bij. Je bedrijfsnaam is ook zichtbaar voor bezoekers in de NvdW app.</div>
           <div style={{ borderTop: '1px solid rgba(1,3,65,0.1)', paddingTop: '28px', maxWidth: '440px' }}>
             <label style={S.label}>Bedrijfsnaam</label>
             <input style={S.input} defaultValue={partner.bedrijfsnaam || ''} onBlur={async e => {
@@ -673,6 +673,10 @@ export default function Dashboard() {
         {tab === 'wijnlijst' && <>
           <div style={S.pageTitle}>Wijnlijst</div>
           <div style={S.pageDesc}>Vul hier je volledige wijnassortiment in inclusief prijzen.</div>
+          <div style={{ background: 'var(--cream)', borderTop: '1px solid rgba(1,3,65,0.1)', borderRight: '1px solid rgba(1,3,65,0.1)', borderBottom: '1px solid rgba(1,3,65,0.1)', borderLeft: '3px solid var(--gold)', padding: '14px 18px', marginBottom: '16px', fontSize: '13px', color: 'var(--navy)', lineHeight: '1.7' }}>
+            <div style={{ fontSize: '11px', fontWeight: '600', letterSpacing: '1px', textTransform: 'uppercase', color: 'var(--bordeaux)', marginBottom: '6px' }}>Zichtbaar in de bezoekers-app</div>
+            Alles wat je hier invult (je wijnen, prijzen en omschrijving) tonen we aan bezoekers in de NvdW app, waar gasten tijdens het festival hun wijnen kiezen. Hoe vollediger en aantrekkelijker je het omschrijft, hoe vaker jouw wijn wordt gekozen.
+          </div>
           <div style={{ background: 'var(--cream)', border: '1px solid rgba(1,3,65,0.1)', padding: '16px 20px', marginBottom: '28px', fontSize: '13px', color: 'var(--navy)', lineHeight: '1.7' }}>
             <strong>Let op:</strong> De wijnen en prijzen die je hier invoert worden op <strong>{T('deadline_wijnlijst', '29 oktober 12:00')}</strong> geëxporteerd. Ze worden gedrukt op de signing en geladen in de kassa. Wijzigingen na die tijd zijn niet meer mogelijk.
           </div>
@@ -725,6 +729,10 @@ export default function Dashboard() {
         {tab === 'menukaart' && <>
           <div style={S.pageTitle}>Menukaart</div>
           <div style={S.pageDesc}>Vul je gerechten met prijzen in en vink per gerecht de allergenen aan.</div>
+          <div style={{ background: 'var(--cream)', borderTop: '1px solid rgba(1,3,65,0.1)', borderRight: '1px solid rgba(1,3,65,0.1)', borderBottom: '1px solid rgba(1,3,65,0.1)', borderLeft: '3px solid var(--gold)', padding: '14px 18px', marginBottom: '16px', fontSize: '13px', color: 'var(--navy)', lineHeight: '1.7' }}>
+            <div style={{ fontSize: '11px', fontWeight: '600', letterSpacing: '1px', textTransform: 'uppercase', color: 'var(--bordeaux)', marginBottom: '6px' }}>Zichtbaar in de bezoekers-app</div>
+            Je gerechten, prijzen en allergenen tonen we aan bezoekers in de NvdW app, waar gasten vooraf en tijdens het festival kunnen kijken wat er te eten is.
+          </div>
           <div style={{ background: 'var(--cream)', border: '1px solid rgba(1,3,65,0.1)', padding: '16px 20px', marginBottom: '28px', fontSize: '13px', color: 'var(--navy)', lineHeight: '1.7' }}>
             <strong>Let op:</strong> Allergenen invullen is wettelijk verplicht. De menukaart wordt op <strong>{T('deadline_wijnlijst', '29 oktober 12:00')}</strong> definitief gemaakt voor de signing en kassa.
           </div>
