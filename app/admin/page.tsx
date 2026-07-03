@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
-import { supabase } from '@/lib/supabase'
-import type { Partner, PartnerVraag, Product, FAQ, PortalTekst, Admin, Document, ActiviteitLog, CrewLid, Proeverij, ExtraTicketType } from '@/lib/supabase'
+import { supabase, posRpc, posSelect, posPatch } from '@/lib/supabase'
+import type { Partner, PartnerVraag, Product, FAQ, PortalTekst, Admin, Document, ActiviteitLog, CrewLid, Proeverij, ExtraTicketType, PriceFloor, SettlementRow } from '@/lib/supabase'
 import { LOG_TABEL_LABEL, LOG_ACTIE_LABEL } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 
@@ -107,6 +107,18 @@ export default function AdminPage() {
   const [activeTab, setActiveTab] = useState('overzicht')
   const [appMetrics, setAppMetrics] = useState<any>(null)
   const [appMetricsLoading, setAppMetricsLoading] = useState(false)
+  // Kassa & omzet (festival_pos koppeling)
+  const [bridgedPartnerIds, setBridgedPartnerIds] = useState<Set<string>>(new Set())
+  const [floors, setFloors] = useState<PriceFloor[]>([])
+  const [floorDraft, setFloorDraft] = useState<Record<string, { euro: string; active: boolean }>>({})
+  const [settlement, setSettlement] = useState<SettlementRow[]>([])
+  const [kassaLoaded, setKassaLoaded] = useState(false)
+  const [kassaFout, setKassaFout] = useState('')
+  const [kassaBusy, setKassaBusy] = useState('')
+  // Status (mission control)
+  const [health, setHealth] = useState<{ ok: boolean; systems: { key: string; label: string; ok: boolean; detail: string }[] } | null>(null)
+  const [healthLoading, setHealthLoading] = useState(false)
+  const [healthTijd, setHealthTijd] = useState<Date | null>(null)
   const [loading, setLoading] = useState(true)
   const [saveMsg, setSaveMsg] = useState('')
   const [exportLoading, setExportLoading] = useState(false)
@@ -198,6 +210,116 @@ export default function AdminPage() {
     }
     init()
   }, [router])
+
+  // Bezoekers-app cijfers laden zodra de tab opent.
+  // Staat hier BOVEN de vroege loading-return: hooks moeten elke render in
+  // dezelfde volgorde komen, anders crasht React (error 310).
+  useEffect(() => {
+    if (activeTab === 'app' && !appMetrics && !appMetricsLoading) {
+      setAppMetricsLoading(true)
+      supabase.rpc('app_metrics').then(({ data }) => { setAppMetrics(data); setAppMetricsLoading(false) })
+    }
+  }, [activeTab, appMetrics, appMetricsLoading])
+
+  // ---- Kassa & omzet ----
+  const laadKassa = async () => {
+    try {
+      const [merchants, fl, st] = await Promise.all([
+        posSelect<{ id: string; partner_id: string | null }>('merchants?select=id,partner_id&partner_id=not.is.null'),
+        posSelect<PriceFloor>('price_floors?select=key,label,min_cents,active'),
+        posRpc<{ ok: boolean; partners: SettlementRow[] }>('partner_settlement'),
+      ])
+      setBridgedPartnerIds(new Set(merchants.map(m => m.partner_id!).filter(Boolean)))
+      const volgorde = ['half_glas', 'heel_glas', 'fles', 'food_item']
+      const sorted = [...fl].sort((a, b) => volgorde.indexOf(a.key) - volgorde.indexOf(b.key))
+      setFloors(sorted)
+      const draft: Record<string, { euro: string; active: boolean }> = {}
+      sorted.forEach(f => { draft[f.key] = { euro: (f.min_cents / 100).toFixed(2).replace('.', ','), active: f.active } })
+      setFloorDraft(draft)
+      setSettlement(st.ok ? st.partners : [])
+      setKassaFout('')
+    } catch (e) {
+      setKassaFout((e as Error).message)
+    }
+  }
+  useEffect(() => {
+    if (activeTab === 'kassa' && !kassaLoaded) { setKassaLoaded(true); laadKassa() }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab])
+
+  // ---- Status (mission control) ----
+  const laadStatus = async () => {
+    setHealthLoading(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/health`, {
+        headers: { Authorization: `Bearer ${session?.access_token || ''}`, apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '' },
+      })
+      const j = await res.json()
+      setHealth(j)
+      setHealthTijd(new Date())
+    } catch {
+      setHealth(null)
+    } finally {
+      setHealthLoading(false)
+    }
+  }
+  useEffect(() => {
+    if (activeTab !== 'status') return
+    laadStatus()
+    const iv = setInterval(laadStatus, 60000)
+    return () => clearInterval(iv)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab])
+
+  const koppelPartner = async (p: Partner) => {
+    if (!p.user_id) { flash('Deze partner heeft nog geen login. Stuur eerst een inlogmail via Partners.', 7000); return }
+    setKassaBusy(p.id)
+    try {
+      const res = await posRpc<{ ok: boolean; error?: string; wijnen?: number; gerechten?: number; overgeslagen?: string[] }>('bridge_partner', { p_partner_id: p.id })
+      if (!res.ok) {
+        flash('Koppelen mislukte: ' + (res.error === 'partner_heeft_geen_login' ? 'deze partner heeft nog geen login' : res.error || 'onbekende fout'), 8000)
+      } else {
+        const over = res.overgeslagen || []
+        flash(`${p.bedrijfsnaam} is gekoppeld aan de kassa. ${res.wijnen || 0} wijnen en ${res.gerechten || 0} gerechten staan erin.${over.length ? ` Let op, overgeslagen: ${over.join(' · ')}` : ''}`, 10000)
+        await laadKassa()
+      }
+    } catch (e) {
+      flash('Koppelen mislukte: ' + (e as Error).message, 8000)
+    } finally {
+      setKassaBusy('')
+    }
+  }
+
+  const saveFloor = async (key: string) => {
+    const d = floorDraft[key]
+    if (!d) return
+    const cents = Math.round(parseFloat((d.euro || '0').replace(',', '.')) * 100)
+    if (isNaN(cents) || cents < 0) { flash('Vul een geldig bedrag in.'); return }
+    try {
+      await posPatch(`price_floors?key=eq.${encodeURIComponent(key)}`, { min_cents: cents, active: d.active })
+      flash('Minimumprijs opgeslagen. Geldt direct voor alle partners.')
+      await laadKassa()
+    } catch (e) {
+      flash('Opslaan mislukte: ' + (e as Error).message, 7000)
+    }
+  }
+
+  const exportSettlementCsv = () => {
+    const kop = 'Partner;Omzet;Terugbetaald;Netto;Afdracht %;Afdracht;Uit te betalen;Verkopen'
+    const eu = (c: number) => (c / 100).toFixed(2).replace('.', ',')
+    const regels = settlement.map(r => {
+      const netto = r.omzet_cents - r.refunded_cents
+      const afdracht = Math.round(netto * r.afdracht_percentage / 100)
+      return [r.partner_naam, eu(r.omzet_cents), eu(r.refunded_cents), eu(netto), r.afdracht_percentage, eu(afdracht), eu(netto - afdracht), r.order_count].join(';')
+    })
+    const blob = new Blob(['﻿' + [kop, ...regels].join('\r\n')], { type: 'text/csv;charset=utf-8' })
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = `uitbetaaloverzicht-nvdw-${new Date().toISOString().slice(0, 10)}.csv`
+    a.click()
+    URL.revokeObjectURL(a.href)
+  }
 
   // ---- Partners ----
   const handleAddPartner = async () => {
@@ -532,15 +654,16 @@ export default function AdminPage() {
     navItem: (active: boolean) => ({
       display: 'block', width: '100%', padding: '10px 20px', textAlign: 'left' as const,
       background: active ? 'rgba(254,183,42,0.12)' : 'transparent',
+      borderTop: 'none', borderRight: 'none', borderBottom: 'none',
       borderLeft: active ? '3px solid var(--gold)' : '3px solid transparent',
       color: active ? 'var(--gold)' : 'rgba(255,255,255,0.55)',
       fontSize: '12px', fontWeight: '600', letterSpacing: '1px', textTransform: 'uppercase' as const,
-      cursor: 'pointer', border: 'none', fontFamily: 'Inter, sans-serif',
+      cursor: 'pointer', fontFamily: 'Inter, sans-serif',
     }),
     main: { flex: 1, padding: '32px 40px', maxWidth: '1100px' } as React.CSSProperties,
-    title: { fontSize: '22px', fontWeight: '800', textTransform: 'uppercase' as const, letterSpacing: '1px', color: 'var(--navy)', marginBottom: '6px' },
+    title: { fontFamily: 'Fraunces, Georgia, serif', fontSize: '24px', fontWeight: '700', letterSpacing: '0', color: 'var(--navy)', marginBottom: '6px' },
     sub: { fontSize: '13px', color: '#888', marginBottom: '24px' },
-    card: { background: 'var(--cream)', padding: '24px', marginBottom: '16px', borderRadius: '2px', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' } as React.CSSProperties,
+    card: { background: 'var(--card)', padding: '24px', marginBottom: '16px', borderRadius: '14px', border: '1px solid rgba(1,3,65,0.08)', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' } as React.CSSProperties,
     cardTitle: { fontSize: '11px', fontWeight: '700', letterSpacing: '2px', textTransform: 'uppercase' as const, color: 'var(--bordeaux)', marginBottom: '16px' },
     label: { display: 'block', fontSize: '11px', fontWeight: '700', letterSpacing: '1px', textTransform: 'uppercase' as const, color: '#666', marginBottom: '6px', marginTop: '12px' },
     input: { width: '100%', padding: '9px 12px', border: '1px solid #ddd', fontSize: '13px', fontFamily: 'Inter, sans-serif', outline: 'none', borderRadius: '2px', color: 'var(--navy)', background: '#fff' } as React.CSSProperties,
@@ -564,6 +687,7 @@ export default function AdminPage() {
     { id: 'partners', label: 'Partners' },
     { id: 'toevoegen', label: 'Partner toevoegen' },
     { id: 'producten', label: 'Producten' },
+    { id: 'kassa', label: 'Kassa & omzet' },
     { id: 'programma', label: 'Proeverijen & Restaurant' },
     { id: 'faq', label: 'FAQ & spelregels' },
     { id: 'crew', label: 'Crew' },
@@ -574,6 +698,7 @@ export default function AdminPage() {
     { id: 'vragen', label: `Vragen ${openVragen.length > 0 ? `(${openVragen.length})` : ''}` },
     { id: 'activiteit', label: 'Activiteit' },
     { id: 'app', label: 'Bezoekers-app' },
+    { id: 'status', label: 'Status' },
   ]
 
   const aantalFood = partners.filter(p => p.type === 'food').length
@@ -587,13 +712,6 @@ export default function AdminPage() {
     const wie = e.actor_naam || e.actor_email || 'iemand'
     return { wie, zin: `heeft ${wat} ${actie}${e.omschrijving ? `: ${e.omschrijving}` : ''}` }
   }
-
-  useEffect(() => {
-    if (activeTab === 'app' && !appMetrics && !appMetricsLoading) {
-      setAppMetricsLoading(true)
-      supabase.rpc('app_metrics').then(({ data }) => { setAppMetrics(data); setAppMetricsLoading(false) })
-    }
-  }, [activeTab, appMetrics, appMetricsLoading])
 
   return (
     <div style={S.page}>
@@ -685,6 +803,142 @@ export default function AdminPage() {
               <div style={S.cardTitle}>Over deze cijfers</div>
               <p style={{ fontSize: '13px', color: '#666', lineHeight: 1.6 }}>De app verzamelt alleen anonieme gebeurtenissen met een lokaal toestel-id, geen namen of e-mails. Zodra bezoekers de app gebruiken, lopen deze cijfers op. De ticketverkoop en het partnerbeheer blijven in de andere tabbladen.</p>
             </div>
+          </>
+        )}
+
+        {/* KASSA & OMZET */}
+        {activeTab === 'kassa' && (() => {
+          const eu = (c: number) => '€ ' + (c / 100).toFixed(2).replace('.', ',')
+          const kandidaten = partners.filter(p => p.type === 'wijn' || p.type === 'food')
+          const totaal = settlement.reduce((s, r) => s + (r.omzet_cents - r.refunded_cents), 0)
+          const totaalAfdracht = settlement.reduce((s, r) => s + Math.round((r.omzet_cents - r.refunded_cents) * r.afdracht_percentage / 100), 0)
+          return <>
+            <div style={S.title}>Kassa & omzet</div>
+            <div style={S.sub}>Koppel partners aan het kassasysteem, stel minimumprijzen in en zie wat elke partner krijgt uitbetaald.</div>
+            {kassaFout && <div style={{ ...S.successMsg, background: '#fdecea', border: '1px solid #e57373', color: '#b3261e' }}>Kassakoppeling niet bereikbaar: {kassaFout}</div>}
+
+            <div style={S.card}>
+              <div style={S.cardTitle}>Minimumprijzen (geldt voor alle partners)</div>
+              <p style={{ fontSize: '13px', color: '#666', lineHeight: 1.6, marginBottom: '14px' }}>
+                Een partner kan in het portal en in de kassa nooit onder deze prijzen zakken. Zet een regel aan met het vinkje. Wijzigingen gelden direct.
+              </p>
+              <table style={S.table}>
+                <thead><tr><th style={S.th}>Eenheid</th><th style={S.th}>Minimum (€)</th><th style={S.th}>Actief</th><th style={S.th}></th></tr></thead>
+                <tbody>
+                  {floors.map(f => (
+                    <tr key={f.key}>
+                      <td style={S.td}>{f.label}</td>
+                      <td style={S.td}>
+                        <input style={{ ...S.input, width: '110px' }} value={floorDraft[f.key]?.euro ?? ''}
+                          onChange={e => setFloorDraft({ ...floorDraft, [f.key]: { ...floorDraft[f.key], euro: e.target.value } })} placeholder="0,00" />
+                      </td>
+                      <td style={S.td}>
+                        <label style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px' }}>
+                          <input type="checkbox" checked={floorDraft[f.key]?.active ?? false}
+                            onChange={e => setFloorDraft({ ...floorDraft, [f.key]: { ...floorDraft[f.key], active: e.target.checked } })} />
+                          {floorDraft[f.key]?.active ? 'aan' : 'uit'}
+                        </label>
+                      </td>
+                      <td style={S.td}><button style={S.btnSm} onClick={() => saveFloor(f.key)}>Opslaan</button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div style={S.card}>
+              <div style={S.cardTitle}>Partners koppelen aan de kassa</div>
+              <p style={{ fontSize: '13px', color: '#666', lineHeight: 1.6, marginBottom: '14px' }}>
+                Koppelen maakt een kassa-omgeving voor de partner, zet de wijnlijst of menukaart er direct in en geeft de partner een Omzet-tab in het portal. Daarna loopt alles automatisch mee.
+              </p>
+              <table style={S.table}>
+                <thead><tr><th style={S.th}>Partner</th><th style={S.th}>Type</th><th style={S.th}>Login</th><th style={S.th}>Kassa</th><th style={S.th}></th></tr></thead>
+                <tbody>
+                  {kandidaten.map(p => {
+                    const bridged = bridgedPartnerIds.has(p.id)
+                    return (
+                      <tr key={p.id}>
+                        <td style={S.td}><strong>{p.bedrijfsnaam}</strong></td>
+                        <td style={S.td}>{p.type}</td>
+                        <td style={S.td}><span style={S.badge(!!p.user_id)}>{p.user_id ? 'actief' : 'nog niet'}</span></td>
+                        <td style={S.td}><span style={S.badge(bridged)}>{bridged ? 'gekoppeld' : 'niet gekoppeld'}</span></td>
+                        <td style={S.td}>
+                          <button style={{ ...S.btnSm, opacity: kassaBusy === p.id ? 0.5 : 1 }} disabled={kassaBusy === p.id} onClick={() => koppelPartner(p)}>
+                            {kassaBusy === p.id ? 'Bezig…' : bridged ? 'Opnieuw syncen' : 'Koppel aan kassa'}
+                          </button>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <div style={S.card}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                <div style={S.cardTitle}>Uitbetaaloverzicht</div>
+                <button style={S.btnSm} onClick={exportSettlementCsv} disabled={settlement.length === 0}>Download CSV</button>
+              </div>
+              {settlement.length === 0 && <p style={{ fontSize: '13px', color: '#999' }}>Nog geen gekoppelde partners met omzet.</p>}
+              {settlement.length > 0 && <>
+                <table style={S.table}>
+                  <thead><tr>
+                    <th style={S.th}>Partner</th><th style={S.th}>Omzet</th><th style={S.th}>Terugbetaald</th>
+                    <th style={S.th}>Netto</th><th style={S.th}>Afdracht</th><th style={S.th}>Uit te betalen</th>
+                  </tr></thead>
+                  <tbody>
+                    {settlement.map(r => {
+                      const netto = r.omzet_cents - r.refunded_cents
+                      const afdracht = Math.round(netto * r.afdracht_percentage / 100)
+                      return (
+                        <tr key={r.merchant_id}>
+                          <td style={S.td}><strong>{r.partner_naam}</strong><div style={{ fontSize: '11px', color: '#999' }}>{r.order_count} verkopen</div></td>
+                          <td style={S.td}>{eu(r.omzet_cents)}</td>
+                          <td style={S.td}>{r.refunded_cents > 0 ? eu(r.refunded_cents) : '—'}</td>
+                          <td style={S.td}>{eu(netto)}</td>
+                          <td style={S.td}>{r.afdracht_percentage}% ({eu(afdracht)})</td>
+                          <td style={{ ...S.td, fontWeight: 700 }}>{eu(netto - afdracht)}</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+                <div style={{ fontSize: '12px', color: '#666', marginTop: '12px' }}>
+                  Totaal netto {eu(totaal)} · totale afdracht (voor NvdW) {eu(totaalAfdracht)} · uit te betalen {eu(totaal - totaalAfdracht)}
+                </div>
+              </>}
+            </div>
+          </>
+        })()}
+
+        {/* STATUS / MISSION CONTROL */}
+        {activeTab === 'status' && (
+          <>
+            <div style={S.title}>Status van alle systemen</div>
+            <div style={S.sub}>
+              Ticketshop, kassa, portal en bezoekersapp in één oogopslag. Ververst elke minuut{healthTijd ? ` · laatste check ${healthTijd.toLocaleTimeString('nl-NL')}` : ''}.
+            </div>
+            <div style={{ marginBottom: '16px' }}>
+              <button style={S.btnSm} onClick={laadStatus} disabled={healthLoading}>{healthLoading ? 'Checken…' : 'Nu verversen'}</button>
+            </div>
+            {!health && !healthLoading && (
+              <div style={{ ...S.successMsg, background: '#fdecea', border: '1px solid #e57373', color: '#b3261e' }}>
+                De statuscheck is niet bereikbaar. Dat kan betekenen dat Supabase zelf een storing heeft.
+              </div>
+            )}
+            {health && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px' }}>
+                {health.systems.map(s => (
+                  <div key={s.key} style={{ ...S.card, marginBottom: 0, boxShadow: `inset 4px 0 0 ${s.ok ? '#2e7d32' : '#b3261e'}, 0 1px 3px rgba(0,0,0,0.05)` }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                      <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--navy)' }}>{s.label}</div>
+                      <span style={S.badge(s.ok)}>{s.ok ? 'werkt' : 'storing'}</span>
+                    </div>
+                    <div style={{ fontSize: '12px', color: '#666' }}>{s.detail}</div>
+                  </div>
+                ))}
+              </div>
+            )}
           </>
         )}
 

@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -18,7 +18,9 @@
   --bordeaux: #9b3737;
   --gold: #feb72a;
   --cream: #fef1d5;
-  --sand: #f0e4c0;
+  /* zelfde papier + kaart als de ticketing-admin, zodat alle dashboards familie zijn */
+  --sand: #f4ecd9;
+  --card: #fffdf9;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }

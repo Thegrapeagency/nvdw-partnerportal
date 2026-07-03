@@ -5,6 +5,77 @@ export const supabase = createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
+// ---- Festival POS (schema festival_pos) ----
+// Het kassasysteem leeft in een eigen schema. We praten er rechtstreeks tegen via
+// PostgREST met een Profile-header, met de ingelogde sessie. De beveiliging zit
+// server-side (RLS + effective_merchant_scope): een partner krijgt ALTIJD alleen
+// zijn eigen merchant terug, wat hij ook meestuurt.
+async function posHeaders(): Promise<Record<string, string> | null> {
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session?.access_token) return null
+  return {
+    apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    Authorization: `Bearer ${session.access_token}`,
+  }
+}
+
+export async function posRpc<T = unknown>(fn: string, args: Record<string, unknown> = {}): Promise<T> {
+  const h = await posHeaders()
+  if (!h) throw new Error('Je sessie is verlopen. Log opnieuw in.')
+  const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/rpc/${fn}`, {
+    method: 'POST',
+    headers: { ...h, 'Content-Type': 'application/json', 'Content-Profile': 'festival_pos' },
+    body: JSON.stringify(args),
+  })
+  const j = await res.json().catch(() => null)
+  if (!res.ok) throw new Error(j?.message || `Kassakoppeling gaf een fout (${res.status})`)
+  return j as T
+}
+
+export async function posSelect<T = unknown>(pathAndQuery: string): Promise<T[]> {
+  const h = await posHeaders()
+  if (!h) throw new Error('Je sessie is verlopen. Log opnieuw in.')
+  const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/${pathAndQuery}`, {
+    headers: { ...h, 'Accept-Profile': 'festival_pos' },
+  })
+  const j = await res.json().catch(() => null)
+  if (!res.ok) throw new Error(j?.message || `Kassakoppeling gaf een fout (${res.status})`)
+  return j as T[]
+}
+
+export async function posPatch(pathAndQuery: string, body: Record<string, unknown>): Promise<void> {
+  const h = await posHeaders()
+  if (!h) throw new Error('Je sessie is verlopen. Log opnieuw in.')
+  const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/${pathAndQuery}`, {
+    method: 'PATCH',
+    headers: { ...h, 'Content-Type': 'application/json', 'Content-Profile': 'festival_pos' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    const j = await res.json().catch(() => null)
+    throw new Error(j?.message || `Opslaan mislukte (${res.status})`)
+  }
+}
+
+export type PosMe = { role: 'super' | 'partner' | 'none'; merchant_id?: string; merchant_name?: string; merchant_role?: string }
+export type PosSummary = {
+  scope: string | null
+  total_cents: number
+  order_count: number
+  refunded_cents: number
+  refund_count: number
+  orders_last_15m: number
+  cents_last_15m: number
+  active_devices_15m: number
+  by_method: { method: string; orders: number; cents: number }[]
+  recent: { created_at: string; total_cents: number; status: string; method: string | null; bar: string; device: string; merchant: string }[]
+}
+export type PriceFloor = { key: string; label: string; min_cents: number; active: boolean }
+export type SettlementRow = {
+  merchant_id: string; merchant: string; partner_id: string; partner_naam: string
+  afdracht_percentage: number; omzet_cents: number; refunded_cents: number; order_count: number
+}
+
 export type Partner = {
   id: string
   user_id: string | null

@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState, useRef } from 'react'
-import { supabase } from '@/lib/supabase'
-import type { Partner, Wijn, Crewcatering, FAQ, PartnerVraag, Product, PortalTekst, Document, MenukaartItem, ActiviteitLog, CrewLid } from '@/lib/supabase'
+import { supabase, posRpc } from '@/lib/supabase'
+import type { Partner, Wijn, Crewcatering, FAQ, PartnerVraag, Product, PortalTekst, Document, MenukaartItem, ActiviteitLog, CrewLid, PosMe, PosSummary } from '@/lib/supabase'
 import { ALLERGENEN, LOG_TABEL_LABEL, LOG_ACTIE_LABEL } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 
@@ -19,7 +19,7 @@ const S = {
   btnOutline: { padding: '7px 14px', background: 'transparent', color: 'var(--bordeaux)', border: '1px solid var(--bordeaux)', fontSize: '10px', fontWeight: '600', letterSpacing: '1px', textTransform: 'uppercase', cursor: 'pointer' } as React.CSSProperties,
   divider: { borderTop: '1px solid rgba(1,3,65,0.08)', margin: '0' },
   grid2: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' } as React.CSSProperties,
-  pageTitle: { fontFamily: 'GoboldBlocky, sans-serif', fontSize: '26px', textTransform: 'uppercase', letterSpacing: '0', color: 'var(--navy)', lineHeight: 1, marginBottom: '6px' } as React.CSSProperties,
+  pageTitle: { fontFamily: 'Fraunces, Georgia, serif', fontWeight: 700, fontSize: '26px', letterSpacing: '0', color: 'var(--navy)', lineHeight: 1.1, marginBottom: '6px' } as React.CSSProperties,
   pageDesc: { fontSize: '13px', color: 'rgba(1,3,65,0.45)', marginBottom: '32px' } as React.CSSProperties,
   sectionTitle: { fontSize: '11px', fontWeight: '600', letterSpacing: '1.5px', textTransform: 'uppercase', color: 'rgba(1,3,65,0.4)', marginBottom: '16px' } as React.CSSProperties,
 }
@@ -97,6 +97,11 @@ export default function Dashboard() {
   const [gastBusy, setGastBusy] = useState(false)
   const [gastForm, setGastForm] = useState({ guest_name: '', guest_email: '', type_id: 'day_fri', qty: '1' })
 
+  // Live omzet uit de kassa (festival_pos)
+  const [omzet, setOmzet] = useState<PosSummary | null>(null)
+  const [omzetStatus, setOmzetStatus] = useState<'idle' | 'laden' | 'ok' | 'niet_gekoppeld' | 'fout'>('idle')
+  const [omzetTijd, setOmzetTijd] = useState<Date | null>(null)
+
   useEffect(() => {
     const init = async () => {
       const { data: { user } } = await supabase.auth.getUser()
@@ -145,6 +150,27 @@ export default function Dashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, partner])
 
+  // Live omzet: laden bij openen van de tab en daarna elke 15 seconden verversen
+  useEffect(() => {
+    if (tab !== 'omzet' || !partner) return
+    let stop = false
+    const laad = async () => {
+      try {
+        if (!omzet) setOmzetStatus('laden')
+        const me = await posRpc<PosMe>('me')
+        if (me?.role !== 'partner' && me?.role !== 'super') { if (!stop) setOmzetStatus('niet_gekoppeld'); return }
+        const sum = await posRpc<PosSummary>('merchant_sales_summary', { p_merchant_id: null })
+        if (!stop) { setOmzet(sum); setOmzetStatus('ok'); setOmzetTijd(new Date()) }
+      } catch {
+        if (!stop) setOmzetStatus(omzet ? 'ok' : 'fout')
+      }
+    }
+    laad()
+    const iv = setInterval(laad, 15000)
+    return () => { stop = true; clearInterval(iv) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, partner])
+
   const flash = (m: string) => { setMsg(m); setTimeout(() => setMsg(''), 3000) }
   const logout = async () => { await supabase.auth.signOut(); router.push('/') }
   const T = (k: string, fallback = '') => teksten[k] || fallback
@@ -155,18 +181,26 @@ export default function Dashboard() {
     if (data?.signedUrl) window.open(data.signedUrl, '_blank')
   }
 
+  // "4,50" en "4.50" allebei goed inlezen (komma is hier de normale invoer)
+  const leesPrijs = (s: string): number | null => {
+    if (!s || !s.trim()) return null
+    const n = parseFloat(s.trim().replace(',', '.'))
+    return isNaN(n) ? null : n
+  }
+
   const addWijn = async () => {
     if (!partner || !newWijn.naam) return
     const { data, error } = await supabase.from('wijnlijst').insert({
       partner_id: partner.id, naam: newWijn.naam, producent: newWijn.producent || null,
       regio: newWijn.regio || null, land: newWijn.land || null, druif: newWijn.druif || null,
       jaar: newWijn.jaar ? parseInt(newWijn.jaar) : null,
-      prijs_half_glas: newWijn.prijs_half_glas ? parseFloat(newWijn.prijs_half_glas) : null,
-      prijs_heel_glas: newWijn.prijs_heel_glas ? parseFloat(newWijn.prijs_heel_glas) : null,
-      prijs_fles: newWijn.prijs_fles ? parseFloat(newWijn.prijs_fles) : null,
+      prijs_half_glas: leesPrijs(newWijn.prijs_half_glas),
+      prijs_heel_glas: leesPrijs(newWijn.prijs_heel_glas),
+      prijs_fles: leesPrijs(newWijn.prijs_fles),
       beschrijving: newWijn.beschrijving || null, volgorde: wijnen.length,
     }).select().single()
-    if (!error && data) { setWijnen([...wijnen, data]); setNewWijn({ naam: '', producent: '', regio: '', land: '', druif: '', jaar: '', prijs_half_glas: '', prijs_heel_glas: '', prijs_fles: '', beschrijving: '' }); flash('Wijn toegevoegd') }
+    if (!error && data) { setWijnen([...wijnen, data]); setNewWijn({ naam: '', producent: '', regio: '', land: '', druif: '', jaar: '', prijs_half_glas: '', prijs_heel_glas: '', prijs_fles: '', beschrijving: '' }); flash('Wijn toegevoegd. Staat direct in de kassa.') }
+    else if (error) flash(error.message)
   }
 
   const deleteWijn = async (id: string) => { await supabase.from('wijnlijst').delete().eq('id', id); setWijnen(wijnen.filter(w => w.id !== id)) }
@@ -179,10 +213,11 @@ export default function Dashboard() {
     if (!partner || !newGerecht.naam) return
     const { data, error } = await supabase.from('menukaart').insert({
       partner_id: partner.id, naam: newGerecht.naam, omschrijving: newGerecht.omschrijving || null,
-      prijs: newGerecht.prijs ? parseFloat(newGerecht.prijs) : null,
+      prijs: leesPrijs(newGerecht.prijs),
       allergenen: newGerecht.allergenen, volgorde: menu.length,
     }).select().single()
-    if (!error && data) { setMenu([...menu, data]); setNewGerecht({ naam: '', omschrijving: '', prijs: '', allergenen: [] }); flash('Gerecht toegevoegd') }
+    if (!error && data) { setMenu([...menu, data]); setNewGerecht({ naam: '', omschrijving: '', prijs: '', allergenen: [] }); flash('Gerecht toegevoegd. Staat direct in de kassa.') }
+    else if (error) flash(error.message)
   }
 
   const deleteGerecht = async (id: string) => { await supabase.from('menukaart').delete().eq('id', id); setMenu(menu.filter(m => m.id !== id)) }
@@ -359,6 +394,7 @@ export default function Dashboard() {
   const isWijn = !isFood && !isPersoneel
   const NAV = [
     { id: 'home', label: 'Dashboard' },
+    ...((isWijn || isFood) ? [{ id: 'omzet', label: 'Omzet' }] : []),
     { id: 'gegevens', label: 'Mijn gegevens' },
     { id: 'offerte', label: 'Offerte' },
     { id: 'tickets', label: 'Tickets & codes' },
@@ -387,10 +423,11 @@ export default function Dashboard() {
             <button key={item.id} onClick={() => setTab(item.id)} style={{
               display: 'block', width: '100%', padding: '9px 20px', textAlign: 'left',
               background: tab === item.id ? 'rgba(1,3,65,0.05)' : 'transparent',
+              borderTop: 'none', borderRight: 'none', borderBottom: 'none',
               borderLeft: `2px solid ${tab === item.id ? 'var(--bordeaux)' : 'transparent'}`,
               color: tab === item.id ? 'var(--navy)' : 'rgba(1,3,65,0.4)',
               fontSize: '12px', fontWeight: tab === item.id ? '600' : '400',
-              cursor: 'pointer', border: 'none',
+              cursor: 'pointer',
             }}>
               {item.label}
             </button>
@@ -427,7 +464,7 @@ export default function Dashboard() {
             <div style={S.pageDesc}>{partner.bedrijfsnaam} · {partner.avond} · {PAKKET[partner.pakket]}</div>
 
             {/* Voortgang */}
-            <div style={{ background: 'var(--cream)', border: '1px solid rgba(1,3,65,0.1)', padding: '20px 22px', marginBottom: '8px' }}>
+            <div style={{ background: 'var(--card)', border: '1px solid rgba(1,3,65,0.08)', borderRadius: '14px', padding: '20px 22px', marginBottom: '8px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '12px' }}>
                 <span style={{ fontSize: '14px', fontWeight: '600', color: 'var(--navy)' }}>
                   {pct === 100 ? 'Alles is geregeld 🎉' : `Je bent er bijna — ${klaar} van ${acties.length} afgerond`}
@@ -474,6 +511,81 @@ export default function Dashboard() {
           </>
         })()}
 
+        {/* OMZET (live uit de kassa) */}
+        {tab === 'omzet' && (() => {
+          const eu = (c: number) => '€ ' + (c / 100).toFixed(2).replace('.', ',')
+          const afdracht = partner.afdracht_percentage || 0
+          const netto = omzet ? omzet.total_cents - omzet.refunded_cents : 0
+          const afdrachtCents = Math.round(netto * afdracht / 100)
+          const jouwDeel = netto - afdrachtCents
+          return <>
+            <div style={S.pageTitle}>Omzet</div>
+            <div style={S.pageDesc}>
+              Live vanaf de kassa{omzetTijd ? ` · bijgewerkt ${omzetTijd.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}` : ''} · ververst automatisch
+            </div>
+
+            {omzetStatus === 'laden' && <p style={{ fontSize: '13px', color: 'rgba(1,3,65,0.4)' }}>Omzet laden…</p>}
+            {omzetStatus === 'niet_gekoppeld' && (
+              <div style={{ background: 'var(--card)', border: '1px solid rgba(1,3,65,0.08)', borderRadius: '14px', padding: '20px 22px', fontSize: '14px', color: 'var(--navy)', lineHeight: 1.7 }}>
+                Je account is nog niet gekoppeld aan het kassasysteem. De organisatie regelt dit vóór het festival. Zodra de koppeling er is, zie je hier live je verkopen.
+              </div>
+            )}
+            {omzetStatus === 'fout' && (
+              <div style={{ background: 'var(--cream)', border: '1px solid rgba(155,55,55,0.35)', padding: '20px 22px', fontSize: '14px', color: 'var(--bordeaux)' }}>
+                De omzetcijfers konden niet worden geladen. Probeer het later opnieuw.
+              </div>
+            )}
+
+            {omzet && omzetStatus === 'ok' && <>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
+                {[
+                  { label: 'Omzet (betaald)', val: eu(omzet.total_cents), sub: `${omzet.order_count} verkopen` },
+                  { label: 'Laatste 15 minuten', val: eu(omzet.cents_last_15m), sub: `${omzet.orders_last_15m} verkopen` },
+                  { label: 'Terugbetaald', val: eu(omzet.refunded_cents), sub: `${omzet.refund_count} refunds` },
+                  { label: 'Actieve kassa’s', val: String(omzet.active_devices_15m), sub: 'afgelopen kwartier' },
+                ].map(s => (
+                  <div key={s.label} style={{ background: 'var(--card)', border: '1px solid rgba(1,3,65,0.08)', borderRadius: '14px', padding: '18px 20px' }}>
+                    <div style={{ fontSize: '10px', fontWeight: '600', letterSpacing: '1.5px', textTransform: 'uppercase', color: 'rgba(1,3,65,0.45)', marginBottom: '6px' }}>{s.label}</div>
+                    <div style={{ fontSize: '24px', fontWeight: '700', color: 'var(--navy)', lineHeight: 1 }}>{s.val}</div>
+                    <div style={{ fontSize: '12px', color: 'rgba(1,3,65,0.4)', marginTop: '5px' }}>{s.sub}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Jouw deel volgens contract */}
+              <div style={{ background: 'var(--navy)', color: 'var(--cream)', padding: '20px 22px', marginBottom: '28px' }}>
+                <div style={{ fontSize: '10px', fontWeight: '600', letterSpacing: '2px', textTransform: 'uppercase', color: 'var(--gold)', marginBottom: '8px' }}>Jouw deel (indicatie)</div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: '8px' }}>
+                  <div style={{ fontSize: '28px', fontWeight: '700' }}>{eu(jouwDeel)}</div>
+                  <div style={{ fontSize: '12px', color: 'rgba(254,241,213,0.75)' }}>
+                    netto {eu(netto)} − afdracht {afdracht}% ({eu(afdrachtCents)})
+                  </div>
+                </div>
+                <div style={{ fontSize: '11px', color: 'rgba(254,241,213,0.55)', marginTop: '8px' }}>
+                  Indicatie op basis van de kassaomzet en het afgesproken afdrachtpercentage. De definitieve afrekening volgt na het festival.
+                </div>
+              </div>
+
+              {omzet.recent.length > 0 && <>
+                <div style={S.sectionTitle}>Laatste verkopen</div>
+                {omzet.recent.slice(0, 12).map((r, i) => (
+                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid rgba(1,3,65,0.07)', fontSize: '13px' }}>
+                    <span style={{ color: 'rgba(1,3,65,0.7)' }}>
+                      {new Date(r.created_at).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })}
+                      {' · '}{r.method === 'card_tap' ? 'pin' : r.method === 'ideal_qr' ? 'iDEAL' : r.method === 'cash' ? 'contant' : r.method || ''}
+                      {r.status === 'refunded' && <span style={{ color: 'var(--bordeaux)', fontWeight: 600 }}> · terugbetaald</span>}
+                    </span>
+                    <span style={{ fontWeight: 600, color: r.status === 'refunded' ? 'var(--bordeaux)' : 'var(--navy)' }}>{eu(r.total_cents)}</span>
+                  </div>
+                ))}
+              </>}
+              {omzet.order_count === 0 && (
+                <p style={{ fontSize: '13px', color: 'rgba(1,3,65,0.4)' }}>Nog geen verkopen. Zodra je kassa draait, zie je hier alles live binnenkomen.</p>
+              )}
+            </>}
+          </>
+        })()}
+
         {/* TICKETS */}
         {tab === 'tickets' && <>
           <div style={S.pageTitle}>Tickets & codes</div>
@@ -488,7 +600,7 @@ export default function Dashboard() {
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '8px' }}>
                 {ticketCodes.map((code: string, i: number) => (
-                  <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', background: 'var(--cream)', border: '1px solid rgba(1,3,65,0.1)' }}>
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', background: 'var(--card)', border: '1px solid rgba(1,3,65,0.08)', borderRadius: '14px' }}>
                     <span style={{ fontFamily: 'monospace', fontSize: '15px', fontWeight: '600', color: 'var(--navy)', letterSpacing: '2px' }}>{code}</span>
                     <span style={{ fontSize: '11px', color: 'rgba(1,3,65,0.35)' }}>1 ticket</span>
                   </div>
@@ -502,7 +614,7 @@ export default function Dashboard() {
             <p style={{ fontSize: '13px', color: 'rgba(1,3,65,0.55)', marginBottom: '16px' }}>
               Deel deze code voor {T('korting_percentage', '20')}% korting op alle tickets. Geschikt voor nieuwsbrieven en social media.
             </p>
-            <div style={{ padding: '14px 18px', background: 'var(--cream)', border: '1px solid rgba(1,3,65,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ padding: '14px 18px', background: 'var(--card)', border: '1px solid rgba(1,3,65,0.08)', borderRadius: '14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <span style={{ fontFamily: 'monospace', fontSize: '16px', fontWeight: '600', color: 'var(--navy)', letterSpacing: '2px' }}>{partner.kortingscode || T('korting_code_default', 'PARTNERKORTING')}</span>
               <span style={{ fontSize: '12px', color: 'var(--bordeaux)', fontWeight: '600' }}>{T('korting_percentage', '20')}% korting</span>
             </div>
@@ -522,12 +634,12 @@ export default function Dashboard() {
             <div style={S.pageDesc}>Wijs gratis gasttickets toe aan je gasten binnen jouw quotum.</div>
 
             {!heeftPakket ? (
-              <div style={{ background: 'var(--cream)', border: '1px solid rgba(1,3,65,0.1)', padding: '20px 22px', fontSize: '14px', color: 'var(--navy)' }}>
+              <div style={{ background: 'var(--card)', border: '1px solid rgba(1,3,65,0.08)', borderRadius: '14px', padding: '20px 22px', fontSize: '14px', color: 'var(--navy)' }}>
                 Je hebt geen gasttickets in je pakket.
               </div>
             ) : <>
               {/* Quotum-overzicht */}
-              <div style={{ background: 'var(--cream)', border: '1px solid rgba(1,3,65,0.1)', padding: '20px 22px', marginBottom: '8px' }}>
+              <div style={{ background: 'var(--card)', border: '1px solid rgba(1,3,65,0.08)', borderRadius: '14px', padding: '20px 22px', marginBottom: '8px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '12px' }}>
                   <span style={{ fontSize: '16px', fontWeight: '600', color: 'var(--navy)' }}>
                     {used} van {quota} gasttickets gebruikt
@@ -639,7 +751,7 @@ export default function Dashboard() {
               </div>
             ))}
           </div>
-          <div style={{ marginTop: '32px', padding: '20px', background: 'var(--cream)', border: '1px solid rgba(1,3,65,0.1)' }}>
+          <div style={{ marginTop: '32px', padding: '20px', background: 'var(--card)', border: '1px solid rgba(1,3,65,0.08)', borderRadius: '14px' }}>
             <div style={{ fontSize: '12px', fontWeight: '600', color: 'rgba(1,3,65,0.5)', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '1px' }}>Contract &amp; voorwaarden</div>
             <p style={{ fontSize: '13px', color: 'rgba(1,3,65,0.65)', lineHeight: '1.7', whiteSpace: 'pre-line' }}>
               {T('contract_tekst', T('offerte_voorwaarden', 'Voorwaarden voor deelname aan Nacht van de Wijn 2026.'))}
@@ -673,11 +785,11 @@ export default function Dashboard() {
         {tab === 'wijnlijst' && <>
           <div style={S.pageTitle}>Wijnlijst</div>
           <div style={S.pageDesc}>Vul hier je volledige wijnassortiment in inclusief prijzen.</div>
-          <div style={{ background: 'var(--cream)', borderTop: '1px solid rgba(1,3,65,0.1)', borderRight: '1px solid rgba(1,3,65,0.1)', borderBottom: '1px solid rgba(1,3,65,0.1)', borderLeft: '3px solid var(--gold)', padding: '14px 18px', marginBottom: '16px', fontSize: '13px', color: 'var(--navy)', lineHeight: '1.7' }}>
-            <div style={{ fontSize: '11px', fontWeight: '600', letterSpacing: '1px', textTransform: 'uppercase', color: 'var(--bordeaux)', marginBottom: '6px' }}>Zichtbaar in de bezoekers-app</div>
-            Alles wat je hier invult (je wijnen, prijzen en omschrijving) tonen we aan bezoekers in de NvdW app, waar gasten tijdens het festival hun wijnen kiezen. Hoe vollediger en aantrekkelijker je het omschrijft, hoe vaker jouw wijn wordt gekozen.
+          <div style={{ background: 'var(--card)', borderTop: '1px solid rgba(1,3,65,0.08)', borderRight: '1px solid rgba(1,3,65,0.08)', borderBottom: '1px solid rgba(1,3,65,0.08)', borderLeft: '3px solid var(--gold)', borderRadius: '14px', padding: '14px 18px', marginBottom: '16px', fontSize: '13px', color: 'var(--navy)', lineHeight: '1.7' }}>
+            <div style={{ fontSize: '11px', fontWeight: '600', letterSpacing: '1px', textTransform: 'uppercase', color: 'var(--bordeaux)', marginBottom: '6px' }}>Zichtbaar in de bezoekers-app én de kassa</div>
+            Alles wat je hier invult (je wijnen, prijzen en omschrijving) tonen we aan bezoekers in de NvdW app, en je wijnen staan direct als knoppen in je kassa. Hoe vollediger en aantrekkelijker je het omschrijft, hoe vaker jouw wijn wordt gekozen.
           </div>
-          <div style={{ background: 'var(--cream)', border: '1px solid rgba(1,3,65,0.1)', padding: '16px 20px', marginBottom: '28px', fontSize: '13px', color: 'var(--navy)', lineHeight: '1.7' }}>
+          <div style={{ background: 'var(--card)', border: '1px solid rgba(1,3,65,0.08)', borderRadius: '14px', padding: '16px 20px', marginBottom: '28px', fontSize: '13px', color: 'var(--navy)', lineHeight: '1.7' }}>
             <strong>Let op:</strong> De wijnen en prijzen die je hier invoert worden op <strong>{T('deadline_wijnlijst', '29 oktober 12:00')}</strong> geëxporteerd. Ze worden gedrukt op de signing en geladen in de kassa. Wijzigingen na die tijd zijn niet meer mogelijk.
           </div>
           <div style={{ borderTop: '1px solid rgba(1,3,65,0.1)', paddingTop: '28px' }}>
@@ -729,11 +841,11 @@ export default function Dashboard() {
         {tab === 'menukaart' && <>
           <div style={S.pageTitle}>Menukaart</div>
           <div style={S.pageDesc}>Vul je gerechten met prijzen in en vink per gerecht de allergenen aan.</div>
-          <div style={{ background: 'var(--cream)', borderTop: '1px solid rgba(1,3,65,0.1)', borderRight: '1px solid rgba(1,3,65,0.1)', borderBottom: '1px solid rgba(1,3,65,0.1)', borderLeft: '3px solid var(--gold)', padding: '14px 18px', marginBottom: '16px', fontSize: '13px', color: 'var(--navy)', lineHeight: '1.7' }}>
-            <div style={{ fontSize: '11px', fontWeight: '600', letterSpacing: '1px', textTransform: 'uppercase', color: 'var(--bordeaux)', marginBottom: '6px' }}>Zichtbaar in de bezoekers-app</div>
-            Je gerechten, prijzen en allergenen tonen we aan bezoekers in de NvdW app, waar gasten vooraf en tijdens het festival kunnen kijken wat er te eten is.
+          <div style={{ background: 'var(--card)', borderTop: '1px solid rgba(1,3,65,0.08)', borderRight: '1px solid rgba(1,3,65,0.08)', borderBottom: '1px solid rgba(1,3,65,0.08)', borderLeft: '3px solid var(--gold)', borderRadius: '14px', padding: '14px 18px', marginBottom: '16px', fontSize: '13px', color: 'var(--navy)', lineHeight: '1.7' }}>
+            <div style={{ fontSize: '11px', fontWeight: '600', letterSpacing: '1px', textTransform: 'uppercase', color: 'var(--bordeaux)', marginBottom: '6px' }}>Zichtbaar in de bezoekers-app én de kassa</div>
+            Je gerechten, prijzen en allergenen tonen we aan bezoekers in de NvdW app, en je gerechten staan direct als knoppen in je kassa.
           </div>
-          <div style={{ background: 'var(--cream)', border: '1px solid rgba(1,3,65,0.1)', padding: '16px 20px', marginBottom: '28px', fontSize: '13px', color: 'var(--navy)', lineHeight: '1.7' }}>
+          <div style={{ background: 'var(--card)', border: '1px solid rgba(1,3,65,0.08)', borderRadius: '14px', padding: '16px 20px', marginBottom: '28px', fontSize: '13px', color: 'var(--navy)', lineHeight: '1.7' }}>
             <strong>Let op:</strong> Allergenen invullen is wettelijk verplicht. De menukaart wordt op <strong>{T('deadline_wijnlijst', '29 oktober 12:00')}</strong> definitief gemaakt voor de signing en kassa.
           </div>
           <div style={{ borderTop: '1px solid rgba(1,3,65,0.1)', paddingTop: '28px' }}>
