@@ -169,3 +169,30 @@ export type Product = {
   actief?: boolean
   volgorde?: number
 }
+
+// Boekbare programma-momenten (proeverijen/masterclasses + restaurant-shifts).
+// Elk moment hoort bij een eigen ticket_types-rij (category='extra') die de
+// prijs/capaciteit/boekbaarheid regelt via de bestaande ticketing (Mollie).
+export type Proeverij = {
+  id: string
+  partner_id: string | null
+  ticket_type_id: string
+  titel: string
+  host: string | null
+  beschrijving: string | null
+  dag: 'fri' | 'sat' | 'sun'
+  start_tijd: string | null
+  eind_tijd: string | null
+  locatie: string | null
+  capaciteit: number
+  volgorde: number
+  actief: boolean
+  soort: 'proeverij' | 'restaurant'
+}
+export type ExtraTicketType = {
+  id: string
+  price_cents: number
+  active: boolean
+  per_type_cap: number | null
+  per_type_sold: number
+}

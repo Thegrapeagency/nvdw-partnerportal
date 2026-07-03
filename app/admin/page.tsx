@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import type { Partner, PartnerVraag, Product, FAQ, PortalTekst, Admin, Document, ActiviteitLog, CrewLid } from '@/lib/supabase'
+import type { Partner, PartnerVraag, Product, FAQ, PortalTekst, Admin, Document, ActiviteitLog, CrewLid, Proeverij, ExtraTicketType } from '@/lib/supabase'
 import { LOG_TABEL_LABEL, LOG_ACTIE_LABEL } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 
@@ -16,6 +16,14 @@ const PAKKET_LABELS: Record<string, string> = {
 }
 
 const DAGEN = ['vrijdag', 'zaterdag', 'zondag']
+const PROGRAMMA_DAGEN: { value: 'fri' | 'sat' | 'sun'; label: string; datum: string }[] = [
+  { value: 'fri', label: 'Vrijdag 6 nov', datum: '2026-11-06' },
+  { value: 'sat', label: 'Zaterdag 7 nov', datum: '2026-11-07' },
+  { value: 'sun', label: 'Zondag 8 nov', datum: '2026-11-08' },
+]
+const slugify = (s: string) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
+const euro = (cents: number) => '€' + (cents / 100).toFixed(2).replace('.', ',')
+const tijdUit = (iso: string | null) => iso ? new Date(iso).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Amsterdam' }) : ''
 
 const FAQ_CATEGORIEEN = ['logistiek', 'systemen', 'huisregels', 'catering', 'algemeen']
 const DOC_CATEGORIEEN = ['draaiboek', 'plattegrond', 'huisstijl', 'contracten', 'overig']
@@ -119,6 +127,13 @@ export default function AdminPage() {
   const [partnerDocs, setPartnerDocs] = useState<Document[]>([])
   const [pDocUpload, setPDocUpload] = useState({ naam: '', file: null as File | null })
   const [pUploading, setPUploading] = useState(false)
+  const [proeverijen, setProeverijen] = useState<Proeverij[]>([])
+  const [extraTypes, setExtraTypes] = useState<ExtraTicketType[]>([])
+  const [newProeverij, setNewProeverij] = useState({
+    soort: 'proeverij' as 'proeverij' | 'restaurant', titel: '', host: '', beschrijving: '',
+    dag: 'fri' as 'fri' | 'sat' | 'sun', start_tijd: '', eind_tijd: '', locatie: '',
+    capaciteit: '20', prijs: '', partner_id: '',
+  })
 
   const flash = (m: string, ms = 3500) => { setSaveMsg(m); setTimeout(() => setSaveMsg(''), ms) }
 
@@ -160,6 +175,15 @@ export default function AdminPage() {
     setLog(data || [])
   }
 
+  const loadProeverijen = async () => {
+    const [pv, tt] = await Promise.all([
+      supabase.from('proeverijen').select('*').order('volgorde'),
+      supabase.from('ticket_types').select('id, price_cents, active, per_type_cap, per_type_sold').eq('category', 'extra'),
+    ])
+    setProeverijen((pv.data || []) as Proeverij[])
+    setExtraTypes((tt.data || []) as ExtraTicketType[])
+  }
+
   useEffect(() => {
     const init = async () => {
       const { data: { user } } = await supabase.auth.getUser()
@@ -169,6 +193,7 @@ export default function AdminPage() {
       const { data: me } = await supabase.from('admins').select('naam').eq('email', user.email).maybeSingle()
       setMijnNaam(me?.naam || user.email || '')
       await loadAll()
+      await loadProeverijen()
       setLoading(false)
     }
     init()
@@ -297,6 +322,68 @@ export default function AdminPage() {
     if (!confirm('Product verwijderen?')) return
     await supabase.from('producten_catalogus').delete().eq('id', id)
     setProducten(producten.filter(p => p.id !== id)); flash('Verwijderd')
+  }
+
+  // ---- Proeverijen & Restaurant (boekbare momenten) ----
+  // Elk moment krijgt een eigen ticket_types-rij (category='extra', public=false,
+  // active=false). Zo verschijnt hij NOOIT in de publieke kassa op nachtvandewijn.nl,
+  // en is hij pas echt boekbaar in de bezoekers-app zodra jij hier "Boekbaar" aanzet.
+  const addProeverij = async () => {
+    const { soort, titel, host, beschrijving, dag, start_tijd, eind_tijd, locatie, capaciteit, prijs, partner_id } = newProeverij
+    if (!titel.trim() || !capaciteit || !prijs) { flash('Vul titel, capaciteit en prijs in.', 5000); return }
+    const dagInfo = PROGRAMMA_DAGEN.find(d => d.value === dag)!
+    let typeId = (soort === 'restaurant' ? 'resto_' : 'proef_') + (slugify(titel) || 'moment')
+    if (extraTypes.some(t => t.id === typeId) || proeverijen.some(p => p.ticket_type_id === typeId)) typeId += '_' + Date.now().toString(36)
+
+    const { error: ttErr } = await supabase.from('ticket_types').insert({
+      id: typeId, name_nl: titel, name_en: titel,
+      price_cents: Math.round(parseFloat(prijs) * 100),
+      valid_days: [dag], stock_days: [],
+      admits_count: 1, max_per_order: soort === 'restaurant' ? 8 : 6,
+      per_type_cap: parseInt(capaciteit), category: 'extra', public: false, active: false,
+      description_nl: beschrijving || '', description_en: beschrijving || '',
+    })
+    if (ttErr) { flash('Fout bij aanmaken: ' + ttErr.message, 6000); return }
+
+    const { error } = await supabase.from('proeverijen').insert({
+      partner_id: partner_id || null, ticket_type_id: typeId, titel, host: host || null,
+      beschrijving: beschrijving || null, dag,
+      start_tijd: start_tijd ? `${dagInfo.datum}T${start_tijd}:00+01:00` : null,
+      eind_tijd: eind_tijd ? `${dagInfo.datum}T${eind_tijd}:00+01:00` : null,
+      locatie: locatie || null, capaciteit: parseInt(capaciteit), volgorde: proeverijen.length + 1,
+      actief: true, soort,
+    })
+    if (error) { flash('Fout: ' + error.message, 6000); await supabase.from('ticket_types').delete().eq('id', typeId); return }
+
+    flash('Toegevoegd, nog NIET boekbaar. Zet "Boekbaar" aan zodra je het wilt openstellen.', 7000)
+    setNewProeverij({ soort: 'proeverij', titel: '', host: '', beschrijving: '', dag: 'fri', start_tijd: '', eind_tijd: '', locatie: '', capaciteit: '20', prijs: '', partner_id: '' })
+    await loadProeverijen()
+  }
+
+  const updateProeverij = async (id: string, patch: Partial<Proeverij>) => {
+    await supabase.from('proeverijen').update(patch).eq('id', id)
+    setProeverijen(proeverijen.map(p => p.id === id ? { ...p, ...patch } : p))
+  }
+
+  const updateExtraType = async (typeId: string, patch: Partial<ExtraTicketType>) => {
+    await supabase.from('ticket_types').update(patch).eq('id', typeId)
+    setExtraTypes(extraTypes.map(t => t.id === typeId ? { ...t, ...patch } : t))
+  }
+
+  const toggleBoekbaar = async (typeId: string, active: boolean) => {
+    await updateExtraType(typeId, { active })
+    flash(active ? 'Boekbaar. Bezoekers kunnen dit nu echt afrekenen in de app.' : 'Niet meer boekbaar.', 5000)
+  }
+
+  const deleteProeverij = async (p: Proeverij) => {
+    const t = extraTypes.find(x => x.id === p.ticket_type_id)
+    if ((t?.per_type_sold ?? 0) > 0) { flash('Hier zijn al boekingen op -- verwijderen kan niet. Zet "Boekbaar" uit om te stoppen.', 8000); return }
+    if (!confirm(`"${p.titel}" verwijderen?`)) return
+    await supabase.from('proeverijen').delete().eq('id', p.id)
+    await supabase.from('ticket_types').delete().eq('id', p.ticket_type_id)
+    setProeverijen(proeverijen.filter(x => x.id !== p.id))
+    setExtraTypes(extraTypes.filter(x => x.id !== p.ticket_type_id))
+    flash('Verwijderd')
   }
 
   // ---- FAQ ----
@@ -477,6 +564,7 @@ export default function AdminPage() {
     { id: 'partners', label: 'Partners' },
     { id: 'toevoegen', label: 'Partner toevoegen' },
     { id: 'producten', label: 'Producten' },
+    { id: 'programma', label: 'Proeverijen & Restaurant' },
     { id: 'faq', label: 'FAQ & spelregels' },
     { id: 'crew', label: 'Crew' },
     { id: 'documenten', label: 'Documenten' },
@@ -972,6 +1060,115 @@ export default function AdminPage() {
             </div>
           </>
         )}
+
+        {/* PROEVERIJEN & RESTAURANT */}
+        {activeTab === 'programma' && (() => {
+          const typeById = new Map(extraTypes.map(t => [t.id, t]))
+          return (
+            <>
+              <div style={S.title}>Proeverijen &amp; Restaurant</div>
+              <div style={S.sub}>Boekbare momenten voor de bezoekers-app. Elk moment is een los ticket via dezelfde kassa als de festivaltickets.</div>
+              <div style={{ background: '#fff3e0', border: '1px solid #ffb74d', color: '#8a5a00', padding: '12px 16px', borderRadius: '2px', fontSize: '13px', marginBottom: '20px' }}>
+                <strong>Let op:</strong> een nieuw moment staat standaard NIET boekbaar. Zet &quot;Boekbaar&quot; pas aan zodra alles klopt, dan pas kan iemand er in de app echt voor afrekenen.
+              </div>
+
+              {proeverijen.length > 0 && (
+                <div style={S.card}>
+                  <div style={S.cardTitle}>Huidige momenten</div>
+                  <table style={S.table}>
+                    <thead><tr>{['Titel', 'Soort', 'Dag & tijd', 'Locatie', 'Capaciteit', 'Prijs', 'Verkocht', 'Boekbaar', ''].map(h => <th key={h} style={S.th}>{h}</th>)}</tr></thead>
+                    <tbody>
+                      {proeverijen.map(p => {
+                        const t = typeById.get(p.ticket_type_id)
+                        const dagLabel = PROGRAMMA_DAGEN.find(d => d.value === p.dag)?.label || p.dag
+                        return (
+                          <tr key={p.id}>
+                            <td style={S.td}>
+                              <input style={{ ...S.input, fontWeight: '600' }} defaultValue={p.titel} onBlur={e => e.target.value !== p.titel && updateProeverij(p.id, { titel: e.target.value })} />
+                              <input style={{ ...S.input, marginTop: '4px', fontSize: '11px' }} defaultValue={p.host || ''} placeholder="Host" onBlur={e => e.target.value !== (p.host || '') && updateProeverij(p.id, { host: e.target.value || null })} />
+                            </td>
+                            <td style={S.td}>{p.soort === 'restaurant' ? 'Restaurant' : 'Proeverij'}</td>
+                            <td style={{ ...S.td, fontSize: '12px' }}>{dagLabel}<br />{tijdUit(p.start_tijd)}{p.eind_tijd ? `–${tijdUit(p.eind_tijd)}` : ''}</td>
+                            <td style={S.td}><input style={S.input} defaultValue={p.locatie || ''} onBlur={e => e.target.value !== (p.locatie || '') && updateProeverij(p.id, { locatie: e.target.value || null })} /></td>
+                            <td style={{ ...S.td, width: '90px' }}><input style={S.input} type="number" defaultValue={t?.per_type_cap ?? p.capaciteit} onBlur={e => { const n = parseInt(e.target.value); if (n !== t?.per_type_cap) { updateExtraType(p.ticket_type_id, { per_type_cap: n }); updateProeverij(p.id, { capaciteit: n }) } }} /></td>
+                            <td style={{ ...S.td, width: '90px' }}><input style={S.input} type="number" step="0.01" defaultValue={t ? (t.price_cents / 100).toFixed(2) : ''} onBlur={e => { const cents = Math.round(parseFloat(e.target.value) * 100); if (cents !== t?.price_cents) updateExtraType(p.ticket_type_id, { price_cents: cents }) }} /></td>
+                            <td style={S.td}>{t ? `${t.per_type_sold}/${t.per_type_cap ?? '∞'}` : '–'}</td>
+                            <td style={S.td}>
+                              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', cursor: 'pointer' }}>
+                                <input type="checkbox" checked={t?.active ?? false} onChange={e => toggleBoekbaar(p.ticket_type_id, e.target.checked)} />
+                                {t?.active ? <span style={{ color: '#2e7d32', fontWeight: 700 }}>Ja</span> : <span style={{ color: '#999' }}>Nee</span>}
+                              </label>
+                            </td>
+                            <td style={S.td}><button style={S.btnSm} onClick={() => deleteProeverij(p)}>Verwijder</button></td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              <div style={S.card}>
+                <div style={S.cardTitle}>Nieuw moment</div>
+                <div style={S.grid2}>
+                  <div>
+                    <label style={S.label}>Soort</label>
+                    <select style={S.input} value={newProeverij.soort} onChange={e => setNewProeverij({ ...newProeverij, soort: e.target.value as 'proeverij' | 'restaurant' })}>
+                      <option value="proeverij">Proeverij / masterclass</option>
+                      <option value="restaurant">Restaurant-shift</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style={S.label}>Titel</label>
+                    <input style={S.input} value={newProeverij.titel} onChange={e => setNewProeverij({ ...newProeverij, titel: e.target.value })} placeholder="bijv. Masterclass Bourgogne" />
+                  </div>
+                  <div>
+                    <label style={S.label}>Host</label>
+                    <input style={S.input} value={newProeverij.host} onChange={e => setNewProeverij({ ...newProeverij, host: e.target.value })} placeholder="bijv. Sommelier team NvdW" />
+                  </div>
+                  <div>
+                    <label style={S.label}>Gekoppelde partner (optioneel)</label>
+                    <select style={S.input} value={newProeverij.partner_id} onChange={e => setNewProeverij({ ...newProeverij, partner_id: e.target.value })}>
+                      <option value="">Geen (organisatie)</option>
+                      {partners.map(p => <option key={p.id} value={p.id}>{p.bedrijfsnaam}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={S.label}>Dag</label>
+                    <select style={S.input} value={newProeverij.dag} onChange={e => setNewProeverij({ ...newProeverij, dag: e.target.value as 'fri' | 'sat' | 'sun' })}>
+                      {PROGRAMMA_DAGEN.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={S.label}>Locatie</label>
+                    <input style={S.input} value={newProeverij.locatie} onChange={e => setNewProeverij({ ...newProeverij, locatie: e.target.value })} placeholder="bijv. Podium / Mezzanine" />
+                  </div>
+                  <div>
+                    <label style={S.label}>Starttijd</label>
+                    <input style={S.input} type="time" value={newProeverij.start_tijd} onChange={e => setNewProeverij({ ...newProeverij, start_tijd: e.target.value })} />
+                  </div>
+                  <div>
+                    <label style={S.label}>Eindtijd</label>
+                    <input style={S.input} type="time" value={newProeverij.eind_tijd} onChange={e => setNewProeverij({ ...newProeverij, eind_tijd: e.target.value })} />
+                  </div>
+                  <div>
+                    <label style={S.label}>Capaciteit (plekken)</label>
+                    <input style={S.input} type="number" value={newProeverij.capaciteit} onChange={e => setNewProeverij({ ...newProeverij, capaciteit: e.target.value })} />
+                  </div>
+                  <div>
+                    <label style={S.label}>Prijs per persoon (€)</label>
+                    <input style={S.input} type="number" step="0.01" value={newProeverij.prijs} onChange={e => setNewProeverij({ ...newProeverij, prijs: e.target.value })} placeholder="0.00" />
+                  </div>
+                </div>
+                <div>
+                  <label style={S.label}>Beschrijving</label>
+                  <textarea style={{ ...S.input, height: '70px', resize: 'vertical' }} value={newProeverij.beschrijving} onChange={e => setNewProeverij({ ...newProeverij, beschrijving: e.target.value })} />
+                </div>
+                <button style={S.btn} onClick={addProeverij}>Toevoegen</button>
+              </div>
+            </>
+          )
+        })()}
 
         {/* FAQ */}
         {activeTab === 'faq' && (
