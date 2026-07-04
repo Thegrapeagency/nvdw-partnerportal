@@ -104,7 +104,7 @@ export default function AdminPage() {
   const [crew, setCrew] = useState<CrewLid[]>([])
   const [internCrew, setInternCrew] = useState<{ naam: string; functie: string; email: string; dagen: string[]; catering_dagen: string[]; dieet: string }>({ naam: '', functie: '', email: '', dagen: [], catering_dagen: [], dieet: '' })
   const [mijnNaam, setMijnNaam] = useState('')
-  const [activeTab, setActiveTab] = useState('overzicht')
+  const [activeTab, setActiveTab] = useState('start')
   const [appMetrics, setAppMetrics] = useState<any>(null)
   const [appMetricsLoading, setAppMetricsLoading] = useState(false)
   // Kassa & omzet (festival_pos koppeling)
@@ -265,7 +265,7 @@ export default function AdminPage() {
     }
   }
   useEffect(() => {
-    if (activeTab !== 'status') return
+    if (activeTab !== 'status' && activeTab !== 'start') return
     laadStatus()
     const iv = setInterval(laadStatus, 60000)
     return () => clearInterval(iv)
@@ -683,6 +683,7 @@ export default function AdminPage() {
   const openVragen = vragen.filter(v => v.status === 'open')
 
   const NAV = [
+    { id: 'start', label: 'Start' },
     { id: 'overzicht', label: 'Overzicht' },
     { id: 'partners', label: 'Partners' },
     { id: 'toevoegen', label: 'Partner toevoegen' },
@@ -736,6 +737,52 @@ export default function AdminPage() {
 
       <main style={S.main}>
         {saveMsg && <div style={S.successMsg}>{saveMsg}</div>}
+
+        {/* START (launcher: 4 grote tegels naar de systemen, met live status) */}
+        {activeTab === 'start' && (() => {
+          const st = (key: string) => health?.systems.find(s => s.key === key)
+          const TEGELS: { key: string; titel: string; onder: string; ga: () => void; extern?: string }[] = [
+            { key: 'ticketing', titel: 'Tickets', onder: 'Ticketverkoop, bestellingen, scanner', ga: () => window.open('https://nachtvandewijn.nl/admin', '_blank'), extern: 'nachtvandewijn.nl/admin' },
+            { key: 'kassa', titel: 'POS / Kassa', onder: 'Omzet, voorraad, dagstaat, refunds', ga: () => window.open('https://thegrapeagency.github.io/festival-pos-demo/admin/', '_blank'), extern: 'kassa-beheer' },
+            { key: 'portal', titel: 'Partners', onder: 'Partners, contracten, crew, producten', ga: () => setActiveTab('partners') },
+            { key: 'app', titel: 'Bezoekersapp', onder: 'Cijfers hier, of open de app', ga: () => setActiveTab('app'), extern: 'nvdw-bezoekers-app.vercel.app' },
+          ]
+          return <>
+            <div style={S.title}>Start</div>
+            <div style={S.sub}>
+              Je vier systemen op één plek{healthTijd ? ` · status bijgewerkt ${healthTijd.toLocaleTimeString('nl-NL')}` : ''}. Klik een tegel om erin te duiken.
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px' }}>
+              {TEGELS.map(t => {
+                const s = st(t.key)
+                const kleur = !health ? '#bbb' : s?.ok ? '#2e7d32' : '#b3261e'
+                return (
+                  <button key={t.key} onClick={t.ga} style={{
+                    ...S.card, marginBottom: 0, textAlign: 'left', cursor: 'pointer',
+                    padding: '26px 24px', display: 'flex', flexDirection: 'column', gap: '10px',
+                    fontFamily: 'inherit', minHeight: '150px',
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: '22px', fontWeight: 700, color: 'var(--navy)' }}>{t.titel}</div>
+                      <span title={s?.detail || 'status onbekend'} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: '#888' }}>
+                        <span style={{ width: '9px', height: '9px', borderRadius: '50%', background: kleur, display: 'inline-block' }} />
+                        {!health ? 'checken…' : s?.ok ? 'werkt' : 'storing'}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: '13px', color: '#666', lineHeight: 1.5, flex: 1 }}>{t.onder}</div>
+                    <div style={{ fontSize: '11px', color: 'var(--bordeaux)', fontWeight: 600, letterSpacing: '0.5px' }}>
+                      {t.extern ? `Open ${t.extern} ↗` : 'Openen ›'}
+                    </div>
+                    {s?.detail && <div style={{ fontSize: '11px', color: '#999' }}>{s.detail}</div>}
+                  </button>
+                )
+              })}
+            </div>
+            <div style={{ marginTop: '16px', fontSize: '12px', color: '#999' }}>
+              Tip: het volledige statusoverzicht staat onder <button onClick={() => setActiveTab('status')} style={{ background: 'none', border: 'none', color: 'var(--bordeaux)', cursor: 'pointer', padding: 0, fontSize: '12px', textDecoration: 'underline' }}>Status</button>.
+            </div>
+          </>
+        })()}
 
         {/* OVERZICHT */}
         {activeTab === 'overzicht' && (
