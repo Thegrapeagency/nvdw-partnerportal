@@ -241,24 +241,38 @@ export type Product = {
   volgorde?: number
 }
 
-// Boekbare programma-momenten (proeverijen/masterclasses + restaurant-shifts).
-// Elk moment hoort bij een eigen ticket_types-rij (category='extra') die de
-// prijs/capaciteit/boekbaarheid regelt via de bestaande ticketing (Mollie).
+// Programma-items (proeverijen, masterclasses, restaurant-shifts, podium...).
+// Dit is de ene bron van waarheid: bij status 'live' maakt een database-trigger
+// automatisch het tickettype (prijs/capaciteit) aan en houdt het in sync.
+// Flow: concept -> review -> live -> (eventueel) geannuleerd.
+export type ProgrammaStatus = 'concept' | 'review' | 'live' | 'geannuleerd'
+export type ProgrammaSoort = 'proeverij' | 'restaurant' | 'podium' | 'silent_disco' | 'workshop' | 'overig'
 export type Proeverij = {
   id: string
   partner_id: string | null
-  ticket_type_id: string
+  ticket_type_id: string | null
   titel: string
   host: string | null
   beschrijving: string | null
+  beschrijving_kort: string | null
+  social_copy: string | null
+  steekwoorden: string | null
   dag: 'fri' | 'sat' | 'sun'
   start_tijd: string | null
   eind_tijd: string | null
   locatie: string | null
-  capaciteit: number
+  capaciteit: number | null
+  prijs_cents: number | null
+  foto_url: string | null
   volgorde: number
   actief: boolean
-  soort: 'proeverij' | 'restaurant'
+  soort: ProgrammaSoort
+  status: ProgrammaStatus
+  gen_model: string | null
+  gen_at: string | null
+  published_at: string | null
+  geannuleerd_at: string | null
+  annulering_reden: string | null
 }
 export type ExtraTicketType = {
   id: string
