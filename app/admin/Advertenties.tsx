@@ -27,6 +27,24 @@ type AppAd = {
 
 type PartnerOptie = { id: string; bedrijfsnaam: string; type: string }
 
+// Aanvragen die partners zelf doen via Extra bestellen in hun portal
+// (catalogusproducten "App-advertentie: ..."). Hier richt je ze in.
+type AdAanvraag = {
+  id: string
+  partner_id: string
+  product: string
+  prijs_per_stuk: number | null
+  created_at: string
+}
+
+function productNaarPositie(product: string): Positie {
+  const p = product.toLowerCase()
+  if (p.includes('wijn')) return 'wijnen'
+  if (p.includes('food')) return 'food'
+  if (p.includes('programma')) return 'programma'
+  return 'home'
+}
+
 const POSITIES: { value: Positie; label: string; uitleg: string }[] = [
   { value: 'home', label: 'Home', uitleg: 'Banner tussen de secties op het homescherm' },
   { value: 'wijnen', label: 'Wijnen', uitleg: 'Kaart tussen de wijnlijst' },
@@ -113,20 +131,45 @@ export default function Advertenties({ flash }: { flash: (m: string, ms?: number
   const [openId, setOpenId] = useState<string | 'nieuw' | null>(null)
   const [draft, setDraft] = useState<Draft>(leegDraft)
   const [busy, setBusy] = useState(false)
+  const [aanvragen, setAanvragen] = useState<AdAanvraag[]>([])
+  const [vanAanvraag, setVanAanvraag] = useState<string | null>(null)
 
   const laad = async () => {
-    const [ads, pt] = await Promise.all([
+    const [ads, pt, av] = await Promise.all([
       supabase.from('app_ads').select('*').order('positie').order('volgorde'),
       supabase.from('partners').select('id, bedrijfsnaam, type').order('bedrijfsnaam'),
+      supabase.from('extra_bestellingen')
+        .select('id, partner_id, product, prijs_per_stuk, created_at')
+        .ilike('product', 'App-advertentie%').eq('status', 'aangevraagd')
+        .order('created_at'),
     ])
     setItems((ads.data || []) as AppAd[])
     setPartners((pt.data || []) as PartnerOptie[])
+    setAanvragen((av.data || []) as AdAanvraag[])
     setGeladen(true)
   }
   useEffect(() => { laad() }, [])
 
-  const open = (a: AppAd) => { setOpenId(a.id); setDraft(naarDraft(a)) }
-  const sluit = () => { setOpenId(null); setDraft(leegDraft) }
+  const open = (a: AppAd) => { setOpenId(a.id); setDraft(naarDraft(a)); setVanAanvraag(null) }
+  const sluit = () => { setOpenId(null); setDraft(leegDraft); setVanAanvraag(null) }
+
+  // aanvraag uit het partnerportal inrichten: formulier voorinvullen
+  const richtIn = (av: AdAanvraag) => {
+    setOpenId('nieuw')
+    setVanAanvraag(av.id)
+    setDraft({
+      ...leegDraft,
+      positie: productNaarPositie(av.product),
+      partner_id: av.partner_id,
+      prijs: av.prijs_per_stuk != null ? av.prijs_per_stuk.toFixed(2) : '',
+    })
+  }
+
+  const markeerAfgehandeld = async (av: AdAanvraag, melding = 'Aanvraag afgehandeld.') => {
+    await supabase.from('extra_bestellingen').update({ status: 'verwerkt' }).eq('id', av.id)
+    flash(melding)
+    await laad()
+  }
   const huidige = openId && openId !== 'nieuw' ? items.find(i => i.id === openId) : null
 
   const adverteerder = (a: AppAd): string => {
@@ -152,6 +195,9 @@ export default function Advertenties({ flash }: { flash: (m: string, ms?: number
     const { error } = await supabase.from('app_ads').insert({ ...draftNaarRij(draft), volgorde })
     setBusy(false)
     if (error) { flash('Opslaan mislukt: ' + error.message, 7000); return }
+    if (vanAanvraag) {
+      await supabase.from('extra_bestellingen').update({ status: 'verwerkt' }).eq('id', vanAanvraag)
+    }
     flash(draft.actief ? 'Advertentie opgeslagen en actief. De app toont hem binnen de periode.' : 'Advertentie opgeslagen als concept. Zet hem op actief zodra alles klopt.')
     sluit(); await laad()
   }
@@ -326,7 +372,40 @@ export default function Advertenties({ flash }: { flash: (m: string, ms?: number
             </div>
           ))}
         </div>
+        <div style={{ fontSize: '12px', color: '#888', marginTop: '14px' }}>
+          Partners kunnen adruimte zelf aanvragen via Extra bestellen in hun portal
+          (de vier App-advertentie-producten in de catalogus). Aanvragen verschijnen hieronder.
+        </div>
       </div>
+
+      {aanvragen.length > 0 && (
+        <div style={{ ...AS.card, border: '1px solid var(--gold)' }}>
+          <div style={AS.cardTitle}>Aanvragen uit het partnerportal ({aanvragen.length})</div>
+          <table style={AS.table}>
+            <thead><tr>{['Partner', 'Product', 'Prijs', 'Aangevraagd op', ''].map(h => <th key={h} style={AS.th}>{h}</th>)}</tr></thead>
+            <tbody>
+              {aanvragen.map(av => (
+                <tr key={av.id}>
+                  <td style={{ ...AS.td, fontWeight: 600 }}>{partners.find(p => p.id === av.partner_id)?.bedrijfsnaam || 'Onbekende partner'}</td>
+                  <td style={AS.td}>{av.product}</td>
+                  <td style={AS.td}>{av.prijs_per_stuk != null ? '€' + av.prijs_per_stuk.toFixed(2).replace('.', ',') : '-'}</td>
+                  <td style={{ ...AS.td, fontSize: '12px' }}>{new Date(av.created_at).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' })}</td>
+                  <td style={AS.td}>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <button style={{ ...AS.btnSm, background: 'var(--navy)', color: 'var(--cream)', borderColor: 'var(--navy)' }} onClick={() => richtIn(av)}>Richt in</button>
+                      <button style={AS.btnSm} onClick={() => { if (confirm('Deze aanvraag afhandelen zonder advertentie in te richten?')) markeerAfgehandeld(av) }}>Afhandelen</button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div style={{ fontSize: '12px', color: '#888', marginTop: '10px' }}>
+            Richt in vult het formulier alvast met de juiste positie, partner en prijs.
+            Na het opslaan wordt de aanvraag automatisch afgehandeld. Neem zelf contact op met de partner voor beeld en tekst.
+          </div>
+        </div>
+      )}
 
       {openId === 'nieuw' && formulier(true)}
       {huidige && formulier(false)}
