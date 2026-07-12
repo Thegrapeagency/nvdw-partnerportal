@@ -5,6 +5,12 @@ import type { Partner, PartnerVraag, Product, FAQ, PortalTekst, Admin, Document,
 import { LOG_TABEL_LABEL, LOG_ACTIE_LABEL } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import Programma from './Programma'
+import Dashboard from './Dashboard'
+import Attributie from './Attributie'
+import CrewRooster from './CrewRooster'
+import Financieel from './Financieel'
+import Advertenties from './Advertenties'
+import Push from './Push'
 
 const PAKKET_LABELS: Record<string, string> = {
   branded_bar: 'Branded Bar',
@@ -598,13 +604,18 @@ export default function AdminPage() {
   const NAV = [
     { id: 'start', label: 'Start' },
     { id: 'overzicht', label: 'Overzicht' },
+    { id: 'programma', label: 'Programma' },
+    { id: 'attributie', label: 'Marketing & attributie' },
+    { id: 'crewrooster', label: 'Crew-rooster' },
+    { id: 'push', label: 'Pushberichten' },
+    { id: 'financieel', label: 'Financieel' },
+    { id: 'advertenties', label: 'App-advertenties' },
     { id: 'partners', label: 'Partners' },
     { id: 'toevoegen', label: 'Partner toevoegen' },
     { id: 'producten', label: 'Producten' },
     { id: 'kassa', label: 'Kassa & omzet' },
-    { id: 'programma', label: 'Programma' },
     { id: 'faq', label: 'FAQ & spelregels' },
-    { id: 'crew', label: 'Crew' },
+    { id: 'crew', label: 'Partnercrew & catering' },
     { id: 'documenten', label: 'Documenten' },
     { id: 'teksten', label: 'Teksten & deadlines' },
     { id: 'team', label: 'Team' },
@@ -665,6 +676,7 @@ export default function AdminPage() {
             <div style={S.sub}>
               Je vier systemen op één plek{healthTijd ? ` · status bijgewerkt ${healthTijd.toLocaleTimeString('nl-NL')}` : ''}. Klik een tegel om erin te duiken.
             </div>
+            <Dashboard />
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px' }}>
               {TEGELS.map(t => {
                 const s = st(t.key)
@@ -1279,6 +1291,12 @@ export default function AdminPage() {
         {activeTab === 'programma' && (
           <Programma partners={partners.map(p => ({ id: p.id, bedrijfsnaam: p.bedrijfsnaam }))} flash={flash} />
         )}
+
+        {activeTab === 'attributie' && <Attributie flash={flash} />}
+        {activeTab === 'crewrooster' && <CrewRooster flash={flash} />}
+        {activeTab === 'push' && <Push flash={flash} />}
+        {activeTab === 'financieel' && <Financieel flash={flash} />}
+        {activeTab === 'advertenties' && <Advertenties flash={flash} />}
 
         {/* FAQ */}
         {activeTab === 'faq' && (
