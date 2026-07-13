@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300">
+  <!-- NvdW-beeldmerk (druiventros + gouden maan) op navy tegel -->
+  <rect width="300" height="300" rx="64" fill="#010341"/>
+  <g transform="translate(54 30) scale(0.8)" fill="none">
+    <path d="M118 64 C104 40 78 30 60 36 C70 56 92 70 116 70 Z" fill="#fdf6e3"/>
+    <path d="M122 64 C136 40 162 30 180 36 C170 56 148 70 124 70 Z" fill="#fdf6e3"/>
+    <path fill-rule="evenodd" clip-rule="evenodd" fill="#fdf6e3" d="
+      M120 78 a36 36 0 1 1 -0.1 0 Z
+      M64 116 a32 32 0 1 1 -0.1 0 Z
+      M176 116 a32 32 0 1 1 -0.1 0 Z
+      M92 160 a32 32 0 1 1 -0.1 0 Z
+      M148 160 a32 32 0 1 1 -0.1 0 Z
+      M120 204 a32 32 0 1 1 -0.1 0 Z
+    "/>
+    <path d="M214 104 a30 30 0 1 0 0 44 a24 24 0 1 1 0 -44 Z" fill="#feb72a"/>
+  </g>
+</svg>
