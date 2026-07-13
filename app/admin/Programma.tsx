@@ -6,7 +6,19 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import type { Proeverij, ProgrammaSoort, ProgrammaStatus } from '@/lib/supabase'
-import { AS, PROGRAMMA_DAGEN, euro, tijdUit } from './ui'
+import { AS, PROGRAMMA_DAGEN, euro, tijdUit, carouselUrl } from './ui'
+
+// bouwt de tekst waarmee de carousel-generator zijn slides destilleert
+function socialTekst(d: Draft): string {
+  const dag = PROGRAMMA_DAGEN.find(x => x.value === d.dag)?.label || ''
+  const wanneer = [dag, d.start_tijd].filter(Boolean).join(' · ')
+  return [
+    `${d.titel}${d.host ? ` met ${d.host}` : ''}`,
+    wanneer ? `Wanneer: ${wanneer}` : '',
+    d.social_copy || d.beschrijving_kort,
+    'Nacht van de Wijn · 6, 7 en 8 november 2026 · Werkspoorkathedraal Utrecht',
+  ].filter(Boolean).join('\n\n')
+}
 
 type TicketInfo = { id: string; price_cents: number; active: boolean; per_type_cap: number | null; per_type_sold: number; sale_state: string }
 type PartnerOptie = { id: string; bedrijfsnaam: string }
@@ -295,9 +307,15 @@ export default function Programma({ partners, flash }: { partners: PartnerOptie[
       <textarea style={{ ...AS.input, height: '60px', resize: 'vertical' }} value={draft.social_copy}
         onChange={e => setDraft({ ...draft, social_copy: e.target.value })} placeholder="Tekst voor Instagram-post of story." />
       {draft.social_copy && (
-        <button style={{ ...AS.btnSm, marginTop: '8px' }} onClick={() => { navigator.clipboard.writeText(draft.social_copy); flash('Social copy gekopieerd. Plak hem in de carousel-generator.') }}>
-          Kopieer voor carousel-generator
-        </button>
+        <div style={{ display: 'flex', gap: '8px', marginTop: '8px', flexWrap: 'wrap' }}>
+          <a href={carouselUrl(socialTekst(draft))} target="_blank" rel="noreferrer"
+            style={{ ...AS.btnSm, textDecoration: 'none', display: 'inline-block' }}>
+            Open in carousel-generator
+          </a>
+          <button style={AS.btnSm} onClick={() => { navigator.clipboard.writeText(draft.social_copy); flash('Social copy gekopieerd.') }}>
+            Kopieer social copy
+          </button>
+        </div>
       )}
 
       <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginTop: '8px' }}>

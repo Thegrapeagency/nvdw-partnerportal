@@ -11,6 +11,7 @@ import CrewRooster from './CrewRooster'
 import Financieel from './Financieel'
 import Advertenties from './Advertenties'
 import Push from './Push'
+import Aankondigingen from './Aankondigingen'
 
 const PAKKET_LABELS: Record<string, string> = {
   branded_bar: 'Branded Bar',
@@ -605,6 +606,7 @@ export default function AdminPage() {
     { id: 'start', label: 'Start' },
     { id: 'overzicht', label: 'Overzicht' },
     { id: 'programma', label: 'Programma' },
+    { id: 'aankondigingen', label: 'Aankondigingen' },
     { id: 'attributie', label: 'Marketing & attributie' },
     { id: 'crewrooster', label: 'Crew-rooster' },
     { id: 'push', label: 'Pushberichten' },
@@ -1292,6 +1294,7 @@ export default function AdminPage() {
           <Programma partners={partners.map(p => ({ id: p.id, bedrijfsnaam: p.bedrijfsnaam }))} flash={flash} />
         )}
 
+        {activeTab === 'aankondigingen' && <Aankondigingen flash={flash} />}
         {activeTab === 'attributie' && <Attributie flash={flash} />}
         {activeTab === 'crewrooster' && <CrewRooster flash={flash} />}
         {activeTab === 'push' && <Push flash={flash} />}

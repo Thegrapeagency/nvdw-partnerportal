@@ -1,4 +1,5 @@
-// generate-copy: schrijft wervende teksten voor een proeverij/programma-item.
+// generate-copy: schrijft wervende teksten voor een programma-item of
+// partner-aankondiging (proeverij, artiest, foodtruck, wijnhuis, restaurant).
 // Alleen voor ingelogde admins. De teksten gaan ALTIJD door de reviewstap in
 // het portal; deze function zet nooit zelf iets live.
 // Sleutel: ANTHROPIC_API_KEY als function-secret, of als rij in app_config.
@@ -50,6 +51,19 @@ Deno.serve(async (req) => {
     const { proeverij } = await req.json()
     if (!proeverij?.titel) return json({ error: "titel_verplicht" }, 400)
 
+    // toon per soort: waar gaat dit item over en welke woorden passen erbij
+    const SOORT_INSTRUCTIE: Record<string, string> = {
+      proeverij: "Dit is een begeleide proeverij of masterclass met tickets. Benadruk wat je proeft en wat je ervan opsteekt.",
+      workshop: "Dit is een workshop met tickets. Benadruk wat je zelf doet en leert.",
+      restaurant: "Dit is een shift in het pop-uprestaurant. Benadruk het menu, de producent en het samen aan tafel zitten.",
+      podium: "Dit is een artiest of act op het podium, gratis bij je festivalticket. Schrijf als een line-up-aankondiging: energie, sfeer, waarom je erbij wil staan. Geen ticketverkoop-taal.",
+      silent_disco: "Dit is de silent disco, gratis bij je festivalticket. Licht en speels.",
+      foodtruck: "Dit is een foodtruck op het festivalterrein, geen reservering nodig. Schrijf over het eten: wat er uit de keuken komt, welke wijn erbij past als dat gegeven is. Hongermakend maar concreet.",
+      wijnhuis: "Dit is een wijnhuis of wijnbar op het festival. Schrijf over de maker, de streek en wat er in het glas komt.",
+      overig: "Dit is een programma-onderdeel van het festival.",
+    }
+    const toon = SOORT_INSTRUCTIE[proeverij.soort as string] ?? SOORT_INSTRUCTIE.overig
+
     const tijd = proeverij.start_tijd
       ? new Date(proeverij.start_tijd).toLocaleTimeString("nl-NL", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Amsterdam" })
       : null
@@ -84,7 +98,7 @@ Deno.serve(async (req) => {
         ].join(" "),
         messages: [{
           role: "user",
-          content: `Schrijf teksten voor dit programma-item:\n\n${feiten}\n\nLever drie teksten:\n1. beschrijving: wervende beschrijving voor website en app, 60 tot 100 woorden, twee alinea's mag.\n2. beschrijving_kort: een variant van maximaal 25 woorden voor overzichten en de ticketshop.\n3. social_copy: tekst voor een Instagram-post of story, maximaal 50 woorden, mag met een vraag of aansporing eindigen, geen hashtags.`,
+          content: `${toon}\n\nSchrijf teksten voor dit item:\n\n${feiten}\n\nLever drie teksten:\n1. beschrijving: wervende beschrijving voor website en app, 60 tot 100 woorden, twee alinea's mag.\n2. beschrijving_kort: een variant van maximaal 25 woorden voor overzichten en de ticketshop.\n3. social_copy: tekst voor een Instagram-post of story, maximaal 50 woorden, mag met een vraag of aansporing eindigen, geen hashtags.`,
         }],
         output_config: {
           format: {

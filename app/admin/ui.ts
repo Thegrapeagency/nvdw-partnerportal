@@ -25,5 +25,10 @@ export const PROGRAMMA_DAGEN: { value: 'fri' | 'sat' | 'sun'; label: string; dat
   { value: 'sun', label: 'Zondag 8 nov', datum: '2026-11-08' },
 ]
 
+// Opent de carousel-generator op de site met de aankondigingstekst al in het
+// AI-vak. Eén klik op "Genereer slides" daar en de social post staat klaar.
+export const carouselUrl = (tekst: string) =>
+  'https://www.nachtvandewijn.nl/tools/carousel-generator?tekst=' + encodeURIComponent(tekst)
+
 export const euro = (cents: number) => '€' + (cents / 100).toFixed(2).replace('.', ',')
 export const tijdUit = (iso: string | null) => iso ? new Date(iso).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Amsterdam' }) : ''
