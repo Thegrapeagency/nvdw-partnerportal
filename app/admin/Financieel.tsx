@@ -17,6 +17,7 @@ type BudgetPost = {
   categorie: string
   naam: string
   begroot_cents: number
+  vorig_cents: number
   notitie: string | null
   volgorde: number
 }
@@ -30,7 +31,7 @@ type Boeking = {
   datum: string
   status: BoekingStatus
 }
-type PostDraft = { categorie: string; naam: string; begroot: string }
+type PostDraft = { categorie: string; naam: string; begroot: string; vorig: string }
 type BoekingDraft = { omschrijving: string; leverancier: string; bedrag: string; datum: string; status: BoekingStatus }
 type TicketRegel = { naam: string; aantal: number; omzet_cents: number }
 type ImportRij = {
@@ -160,12 +161,12 @@ export default function Financieel({ flash }: { flash: (m: string, ms?: number) 
   const zetPosten = (rijen: BudgetPost[]) => {
     setPosten(rijen)
     const d: Record<string, PostDraft> = {}
-    for (const p of rijen) d[p.id] = { categorie: p.categorie, naam: p.naam, begroot: naarInvoer(p.begroot_cents) }
+    for (const p of rijen) d[p.id] = { categorie: p.categorie, naam: p.naam, begroot: naarInvoer(p.begroot_cents), vorig: naarInvoer(p.vorig_cents) }
     setDrafts(d)
   }
 
   const laadPosten = async () => {
-    const { data, error } = await supabase.from('budget_posten').select('id, type, categorie, naam, begroot_cents, notitie, volgorde').order('type').order('categorie').order('volgorde')
+    const { data, error } = await supabase.from('budget_posten').select('id, type, categorie, naam, begroot_cents, vorig_cents, notitie, volgorde').order('type').order('categorie').order('volgorde')
     if (error) { flash('Begroting laden mislukt: ' + error.message, 7000); return }
     zetPosten((data || []) as BudgetPost[])
   }
@@ -259,16 +260,18 @@ export default function Financieel({ flash }: { flash: (m: string, ms?: number) 
   const somWerkelijk = (l: BudgetPost[]) => l.reduce((s, p) => s + (perPost.get(p.id)?.werkelijk || 0), 0)
   const somVerwacht = (l: BudgetPost[]) => l.reduce((s, p) => s + (perPost.get(p.id)?.verwacht || 0), 0)
   const somBegroot = (l: BudgetPost[]) => l.reduce((s, p) => s + Number(p.begroot_cents), 0)
+  const somVorig = (l: BudgetPost[]) => l.reduce((s, p) => s + Number(p.vorig_cents), 0)
 
   const totalen = useMemo(() => {
     const posDeel = posStatus === 'ok' ? posNvdw : 0
     const kostenBegroot = somBegroot(kostenPosten)
     const kostenWerkelijk = somWerkelijk(kostenPosten)
     const kostenVerwacht = somVerwacht(kostenPosten)
+    const kostenVorig = somVorig(kostenPosten)
     const omzetBegroot = somBegroot(omzetPosten)
     const omzetGerealiseerd = ticketTotaal + posDeel + standgelden + somWerkelijk(omzetPosten)
     return {
-      kostenBegroot, kostenWerkelijk, kostenVerwacht,
+      kostenBegroot, kostenWerkelijk, kostenVerwacht, kostenVorig,
       omzetBegroot, omzetGerealiseerd,
       resultaatNu: omzetGerealiseerd - kostenWerkelijk,
       resultaatBegroot: omzetBegroot - kostenBegroot,
@@ -277,9 +280,10 @@ export default function Financieel({ flash }: { flash: (m: string, ms?: number) 
   }, [ticketTotaal, posNvdw, posStatus, standgelden, kostenPosten, omzetPosten, perPost])
 
   // ---------- scenario ----------
+  // Vorige editie: 4750 bezoekers (bron: kostenspreadsheet 2025).
   const scenarioDefaults = (): Scenario => ({
-    capaciteit: 4500,
-    bezoekers: ticketAantal > 0 ? Math.min(4500, Math.max(ticketAantal, 100)) : 3000,
+    capaciteit: 6000,
+    bezoekers: ticketAantal > 100 ? Math.min(6000, ticketAantal) : 4750,
     ticketprijs: ticketAantal > 0 ? Math.round(ticketTotaal / ticketAantal / 100 * 2) / 2 : 30.5,
     barPerBezoeker: 25,
     afdrachtPct: posAfdrachtGem,
@@ -333,21 +337,23 @@ export default function Financieel({ flash }: { flash: (m: string, ms?: number) 
     const d = drafts[p.id]
     if (!d) return
     const begroot = parseEuro(d.begroot)
-    if (begroot === null) {
+    const vorig = parseEuro(d.vorig)
+    if (begroot === null || vorig === null) {
       flash('Dat bedrag kan ik niet lezen. Gebruik bijvoorbeeld 1250 of 1250,50.', 6000)
-      setDrafts(x => ({ ...x, [p.id]: { ...x[p.id], begroot: naarInvoer(p.begroot_cents) } }))
+      setDrafts(x => ({ ...x, [p.id]: { ...x[p.id], begroot: naarInvoer(p.begroot_cents), vorig: naarInvoer(p.vorig_cents) } }))
       return
     }
     const upd = {
       categorie: d.categorie.trim().toLowerCase() || 'overig',
       naam: d.naam.trim() || p.naam,
       begroot_cents: begroot,
+      vorig_cents: vorig,
     }
-    if (upd.categorie === p.categorie && upd.naam === p.naam && begroot === p.begroot_cents) return
+    if (upd.categorie === p.categorie && upd.naam === p.naam && begroot === p.begroot_cents && vorig === p.vorig_cents) return
     const { error } = await supabase.from('budget_posten').update(upd).eq('id', p.id)
     if (error) { flash('Opslaan mislukt: ' + error.message, 6000); return }
     setPosten(ps => ps.map(x => x.id === p.id ? { ...x, ...upd } : x))
-    setDrafts(x => ({ ...x, [p.id]: { categorie: upd.categorie, naam: upd.naam, begroot: naarInvoer(begroot) } }))
+    setDrafts(x => ({ ...x, [p.id]: { categorie: upd.categorie, naam: upd.naam, begroot: naarInvoer(begroot), vorig: naarInvoer(vorig) } }))
   }
 
   const voegPostToe = async (type: BudgetType, categorie: string, naam: string, begrootTekst: string) => {
@@ -532,7 +538,7 @@ export default function Financieel({ flash }: { flash: (m: string, ms?: number) 
 
   // Eén postrij binnen een categorie.
   const postRij = (p: BudgetPost) => {
-    const d = drafts[p.id] || { categorie: p.categorie, naam: p.naam, begroot: naarInvoer(p.begroot_cents) }
+    const d = drafts[p.id] || { categorie: p.categorie, naam: p.naam, begroot: naarInvoer(p.begroot_cents), vorig: naarInvoer(p.vorig_cents) }
     const info = perPost.get(p.id)
     const werkelijk = info?.werkelijk || 0
     const verwacht = info?.verwacht || 0
@@ -548,7 +554,12 @@ export default function Financieel({ flash }: { flash: (m: string, ms?: number) 
           </button>
           <input style={{ ...AS.input, flex: 1, minWidth: '150px' }} value={d.naam}
             onChange={e => wijzigDraft(p.id, 'naam', e.target.value)} onBlur={() => bewaarPost(p)} />
-          <div style={{ width: '110px', flexShrink: 0 }}>{geldInput(d.begroot, v => wijzigDraft(p.id, 'begroot', v), () => bewaarPost(p))}</div>
+          <div style={{ width: '100px', flexShrink: 0 }}>
+            <input style={{ ...AS.input, width: '100px', textAlign: 'right', color: '#999', background: '#faf7f0' }} inputMode="decimal" value={d.vorig}
+              onChange={e => wijzigDraft(p.id, 'vorig', e.target.value)} onBlur={() => bewaarPost(p)}
+              onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }} />
+          </div>
+          <div style={{ width: '100px', flexShrink: 0 }}>{geldInput(d.begroot, v => wijzigDraft(p.id, 'begroot', v), () => bewaarPost(p))}</div>
           <button onClick={() => toggle(openPosten, setOpenPosten, p.id)}
             style={{ border: 'none', background: 'transparent', cursor: 'pointer', width: '120px', flexShrink: 0, textAlign: 'right', fontSize: '13px', fontWeight: 700, color: werkelijk > 0 ? 'var(--navy)' : '#bbb', whiteSpace: 'nowrap', padding: 0 }}>
             {euro(werkelijk)}{verwacht > 0 && <span style={{ display: 'block', fontSize: '10px', fontWeight: 600, color: STATUS_KLEUR.verwacht }}>+{euro(verwacht)} verwacht</span>}
@@ -578,6 +589,7 @@ export default function Financieel({ flash }: { flash: (m: string, ms?: number) 
               {open ? '▾' : '▸'} {cat} <span style={{ color: '#bbb', fontWeight: 400, letterSpacing: 0 }}>({rijen.length})</span>
             </div>
             <div style={{ fontSize: '12px', color: '#666', whiteSpace: 'nowrap' }}>
+              <span style={{ color: '#aaa' }}>vorig {euro(somVorig(rijen))} · </span>
               <b style={{ color: werkelijk > begroot ? 'var(--bordeaux)' : 'var(--navy)' }}>{euro(werkelijk)}</b> van {euro(begroot)}
               {verwacht > 0 && <span style={{ color: STATUS_KLEUR.verwacht }}> · +{euro(verwacht)} verwacht</span>}
             </div>
@@ -589,7 +601,8 @@ export default function Financieel({ flash }: { flash: (m: string, ms?: number) 
             <div style={{ display: 'flex', gap: '10px', fontSize: '10px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: '#999', padding: '4px 0', borderBottom: '2px solid #eee' }}>
               <span style={{ width: '18px' }}></span>
               <span style={{ flex: 1 }}>Post</span>
-              <span style={{ width: '110px', textAlign: 'right' }}>Begroot</span>
+              <span style={{ width: '100px', textAlign: 'right' }}>Vorige editie</span>
+              <span style={{ width: '100px', textAlign: 'right' }}>Begroot</span>
               <span style={{ width: '120px', textAlign: 'right' }}>Werkelijk</span>
               <span style={{ width: '110px', textAlign: 'right' }}>Restant</span>
               <span style={{ width: '34px' }}></span>
@@ -632,7 +645,7 @@ export default function Financieel({ flash }: { flash: (m: string, ms?: number) 
       {/* Grote cijfers */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
         {tegel('Omzet gerealiseerd', totalen.omzetGerealiseerd, `Begroot ${euroRond(totalen.omzetBegroot)} (excl. live bronnen)`, undefined, posNoot)}
-        {tegel('Kosten werkelijk', totalen.kostenWerkelijk, `Begroot ${euroRond(totalen.kostenBegroot)}${totalen.kostenVerwacht > 0 ? ` · nog ${euroRond(totalen.kostenVerwacht)} verwacht` : ''}`)}
+        {tegel('Kosten werkelijk', totalen.kostenWerkelijk, `Begroot ${euroRond(totalen.kostenBegroot)} · vorige editie ${euroRond(totalen.kostenVorig)}${totalen.kostenVerwacht > 0 ? ` · nog ${euroRond(totalen.kostenVerwacht)} verwacht` : ''}`)}
         {tegel('Resultaat nu', totalen.resultaatNu, 'Gerealiseerde omzet min werkelijke kosten', totalen.resultaatNu > 0 ? GROEN : totalen.resultaatNu < 0 ? 'var(--bordeaux)' : undefined)}
         {u ? tegel('Scenario-resultaat', u.resultaat, 'Uit de sliders hieronder', u.resultaat > 0 ? GROEN : 'var(--bordeaux)') : <div />}
       </div>
@@ -847,7 +860,8 @@ export default function Financieel({ flash }: { flash: (m: string, ms?: number) 
           <div style={{ display: 'flex', gap: '10px', fontSize: '10px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: '#999', padding: '4px 0', borderBottom: '2px solid #eee' }}>
             <span style={{ width: '18px' }}></span>
             <span style={{ flex: 1 }}>Post</span>
-            <span style={{ width: '110px', textAlign: 'right' }}>Begroot</span>
+            <span style={{ width: '100px', textAlign: 'right' }}>Vorige editie</span>
+            <span style={{ width: '100px', textAlign: 'right' }}>Begroot</span>
             <span style={{ width: '120px', textAlign: 'right' }}>Ontvangen</span>
             <span style={{ width: '110px', textAlign: 'right' }}>Verschil</span>
             <span style={{ width: '34px' }}></span>
