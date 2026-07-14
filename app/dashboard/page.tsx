@@ -66,6 +66,7 @@ export default function Dashboard() {
   const [newWijn, setNewWijn] = useState({ naam: '', producent: '', regio: '', land: '', druif: '', jaar: '', prijs_half_glas: '', prijs_heel_glas: '', prijs_fles: '', beschrijving: '' })
   const [menu, setMenu] = useState<MenukaartItem[]>([])
   const [crew, setCrew] = useState<CrewLid[]>([])
+  const [mijnBestellingen, setMijnBestellingen] = useState<{ id: string; product: string; aantal: number; prijs_per_stuk: number; status: string; created_at: string }[]>([])
   const [newCrew, setNewCrew] = useState<{ naam: string; functie: string; email: string; dagen: string[]; catering_dagen: string[]; dieet: string }>({ naam: '', functie: '', email: '', dagen: [], catering_dagen: [], dieet: '' })
   const [newGerecht, setNewGerecht] = useState<{ naam: string; omschrijving: string; prijs: string; allergenen: string[] }>({ naam: '', omschrijving: '', prijs: '', allergenen: [] })
   const [techForm, setTechForm] = useState({ stroom_kw: '', stroom_aansluitingen: '', gas_nodig: false, water_nodig: false, techniek_opmerkingen: '' })
@@ -115,7 +116,7 @@ export default function Dashboard() {
         gas_nodig: !!p.gas_nodig, water_nodig: !!p.water_nodig,
         techniek_opmerkingen: p.techniek_opmerkingen || '',
       })
-      const [{ data: w }, { data: m }, { data: c }, { data: cr }, { data: f }, { data: v }, { data: pr }, { data: t }, { data: d }] = await Promise.all([
+      const [{ data: w }, { data: m }, { data: c }, { data: cr }, { data: f }, { data: v }, { data: pr }, { data: t }, { data: d }, { data: eb }] = await Promise.all([
         supabase.from('wijnlijst').select('*').eq('partner_id', p.id).order('volgorde'),
         supabase.from('menukaart').select('*').eq('partner_id', p.id).order('volgorde'),
         supabase.from('crewcatering').select('*').eq('partner_id', p.id),
@@ -125,8 +126,10 @@ export default function Dashboard() {
         supabase.from('producten_catalogus').select('*').eq('actief', true).order('volgorde'),
         supabase.from('portal_teksten').select('*'),
         supabase.from('documenten').select('*').order('created_at', { ascending: false }),
+        supabase.from('extra_bestellingen').select('id, product, aantal, prijs_per_stuk, status, created_at').eq('partner_id', p.id).order('created_at', { ascending: false }),
       ])
       setWijnen(w || []); setMenu(m || []); setCatering(c || []); setCrew(cr || []); setFaqItems(f || []); setVragen(v || []); setProducten(pr || [])
+      setMijnBestellingen(eb || [])
       const tmap: Record<string, string> = {}
       ;(t as PortalTekst[] || []).forEach(x => { tmap[x.sleutel] = x.waarde })
       setTeksten(tmap); setDocumenten(d || [])
@@ -304,9 +307,14 @@ export default function Dashboard() {
 
   const bestelExtra = async (product: Product) => {
     if (!partner) return
-    await supabase.from('extra_bestellingen').insert({ partner_id: partner.id, product: product.naam, omschrijving: product.omschrijving, aantal: 1, prijs_per_stuk: product.prijs })
+    const { data } = await supabase.from('extra_bestellingen').insert({ partner_id: partner.id, product: product.naam, omschrijving: product.omschrijving, aantal: 1, prijs_per_stuk: product.prijs }).select().single()
+    if (data) setMijnBestellingen([data, ...mijnBestellingen])
     flash(`${product.naam} aangevraagd`)
   }
+
+  const euroFmt = (n: number) => '€' + n.toFixed(2).replace('.', ',')
+  const cateringTotaal = catering.reduce((s, c) => s + c.aantal_personen, 0) * cateringPrijs
+  const extrasTotaal = mijnBestellingen.reduce((s, e) => s + e.aantal * e.prijs_per_stuk, 0)
 
   const stuurVraag = async () => {
     if (!partner || !newVraag.onderwerp || !newVraag.bericht) return
@@ -751,6 +759,31 @@ export default function Dashboard() {
               </div>
             ))}
           </div>
+          {(catering.some(c => c.aantal_personen > 0) || mijnBestellingen.length > 0) && (
+            <div style={{ marginTop: '32px', padding: '20px', background: 'var(--card)', border: '1px solid rgba(1,3,65,0.08)', borderRadius: '14px' }}>
+              <div style={{ fontSize: '12px', fontWeight: '600', color: 'rgba(1,3,65,0.5)', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '1px' }}>Wat je betaalt aan NvdW</div>
+              {cateringTotaal > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid rgba(1,3,65,0.07)', fontSize: '13px' }}>
+                  <span>Crewcatering ({catering.reduce((s, c) => s + c.aantal_personen, 0)} personen × {euroFmt(cateringPrijs)})</span>
+                  <strong>{euroFmt(cateringTotaal)}</strong>
+                </div>
+              )}
+              {mijnBestellingen.map(e => (
+                <div key={e.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid rgba(1,3,65,0.07)', fontSize: '13px' }}>
+                  <span>{e.product}{e.aantal > 1 ? ` × ${e.aantal}` : ''} <span style={{ color: 'rgba(1,3,65,0.4)', fontSize: '11px' }}>({e.status})</span></span>
+                  <strong>{euroFmt(e.aantal * e.prijs_per_stuk)}</strong>
+                </div>
+              ))}
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '14px 0 0', fontSize: '15px', fontWeight: 700, color: 'var(--navy)' }}>
+                <span>Totaal vast bedrag</span>
+                <span>{euroFmt(cateringTotaal + extrasTotaal)}</span>
+              </div>
+              <p style={{ fontSize: '12px', color: 'rgba(1,3,65,0.45)', marginTop: '10px' }}>
+                Exclusief de afdracht van {partner.afdracht_percentage}% over je kassaomzet. Die wordt na afloop verrekend op basis van de werkelijke verkoop, zie tab Omzet voor een actuele indicatie.
+              </p>
+            </div>
+          )}
+
           <div style={{ marginTop: '32px', padding: '20px', background: 'var(--card)', border: '1px solid rgba(1,3,65,0.08)', borderRadius: '14px' }}>
             <div style={{ fontSize: '12px', fontWeight: '600', color: 'rgba(1,3,65,0.5)', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '1px' }}>Contract &amp; voorwaarden</div>
             <p style={{ fontSize: '13px', color: 'rgba(1,3,65,0.65)', lineHeight: '1.7', whiteSpace: 'pre-line' }}>
@@ -1011,6 +1044,25 @@ export default function Dashboard() {
         {tab === 'extras' && <>
           <div style={S.pageTitle}>Extra bestellen</div>
           <div style={S.pageDesc}>Alles optioneel, naar wens bij te boeken. Prijzen exclusief btw.</div>
+
+          {mijnBestellingen.length > 0 && (
+            <div style={{ borderTop: '1px solid rgba(1,3,65,0.1)', paddingTop: '28px', marginBottom: '12px' }}>
+              <div style={S.sectionTitle}>Jouw bestellingen ({mijnBestellingen.length})</div>
+              {mijnBestellingen.map(e => (
+                <div key={e.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid rgba(1,3,65,0.07)' }}>
+                  <div>
+                    <div style={{ fontSize: '13px', fontWeight: '500', color: 'var(--navy)' }}>{e.product}{e.aantal > 1 ? ` × ${e.aantal}` : ''}</div>
+                    <div style={{ fontSize: '11px', color: 'rgba(1,3,65,0.4)', marginTop: '2px' }}>{e.status} · {new Date(e.created_at).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' })}</div>
+                  </div>
+                  <span style={{ fontSize: '13px', fontWeight: '600', color: 'var(--bordeaux)' }}>{euroFmt(e.aantal * e.prijs_per_stuk)}</span>
+                </div>
+              ))}
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0 0', fontSize: '13px', fontWeight: 700, color: 'var(--navy)' }}>
+                <span>Totaal</span><span>{euroFmt(extrasTotaal)}</span>
+              </div>
+            </div>
+          )}
+
           <div style={{ borderTop: '1px solid rgba(1,3,65,0.1)', paddingTop: '28px', display: 'flex', flexDirection: 'column', gap: '1px' }}>
             {producten.map(p => (
               <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '18px 0', borderBottom: '1px solid rgba(1,3,65,0.07)' }}>

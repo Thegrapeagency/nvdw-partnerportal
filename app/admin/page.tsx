@@ -12,6 +12,9 @@ import Financieel from './Financieel'
 import Advertenties from './Advertenties'
 import Push from './Push'
 import Aankondigingen from './Aankondigingen'
+import Draaiboek from './Draaiboek'
+import Carousel from './Carousel'
+import Nieuwsbrief from './Nieuwsbrief'
 
 const PAKKET_LABELS: Record<string, string> = {
   branded_bar: 'Branded Bar',
@@ -102,6 +105,8 @@ export default function AdminPage() {
   const [documenten, setDocumenten] = useState<Document[]>([])
   const [log, setLog] = useState<ActiviteitLog[]>([])
   const [crew, setCrew] = useState<CrewLid[]>([])
+  const [extraBestellingen, setExtraBestellingen] = useState<{ id: string; partner_id: string; product: string; aantal: number; prijs_per_stuk: number; status: string }[]>([])
+  const [crewcatering, setCrewcatering] = useState<{ id: string; partner_id: string; avond: string; aantal_personen: number; dieetwensen: string | null }[]>([])
   const [internCrew, setInternCrew] = useState<{ naam: string; functie: string; email: string; dagen: string[]; catering_dagen: string[]; dieet: string }>({ naam: '', functie: '', email: '', dagen: [], catering_dagen: [], dieet: '' })
   const [mijnNaam, setMijnNaam] = useState('')
   const [activeTab, setActiveTab] = useState('start')
@@ -155,7 +160,7 @@ export default function AdminPage() {
   }
 
   const loadAll = async () => {
-    const [p, v, pr, f, t, a, d, l, cw] = await Promise.all([
+    const [p, v, pr, f, t, a, d, l, cw, eb, cc] = await Promise.all([
       supabase.from('partners').select('*').order('created_at', { ascending: false }),
       supabase.from('partner_vragen').select('*').order('created_at', { ascending: false }),
       supabase.from('producten_catalogus').select('*').order('volgorde'),
@@ -165,10 +170,13 @@ export default function AdminPage() {
       supabase.from('documenten').select('*').order('created_at', { ascending: false }),
       supabase.from('activiteit_log').select('*').order('created_at', { ascending: false }).limit(300),
       supabase.from('crew').select('*').order('created_at'),
+      supabase.from('extra_bestellingen').select('id, partner_id, product, aantal, prijs_per_stuk, status').order('created_at', { ascending: false }),
+      supabase.from('crewcatering').select('id, partner_id, avond, aantal_personen, dieetwensen'),
     ])
     setPartners(p.data || []); setVragen(v.data || []); setProducten(pr.data || [])
     setFaqItems(f.data || []); setTeksten(t.data || []); setAdmins(a.data || []); setDocumenten(d.data || [])
     setLog(l.data || []); setCrew(cw.data || [])
+    setExtraBestellingen(eb.data || []); setCrewcatering(cc.data || [])
     const td: Record<string, string> = {}
     ;(t.data || []).forEach((x: PortalTekst) => { td[x.sleutel] = x.waarde })
     setTekstDraft(td)
@@ -571,6 +579,7 @@ export default function AdminPage() {
     sidebarTop: { padding: '24px 20px', borderBottom: '1px solid rgba(255,255,255,0.08)' } as React.CSSProperties,
     logo: { fontSize: '10px', fontWeight: '700', letterSpacing: '2px', textTransform: 'uppercase' as const, color: 'var(--gold)' },
     adminLabel: { fontSize: '13px', fontWeight: '700', color: 'var(--cream)', marginTop: '4px' },
+    navGroupTitel: { padding: '18px 20px 6px', fontSize: '10px', fontWeight: '700', letterSpacing: '1.5px', textTransform: 'uppercase' as const, color: 'rgba(255,255,255,0.3)' } as React.CSSProperties,
     navItem: (active: boolean) => ({
       display: 'block', width: '100%', padding: '10px 20px', textAlign: 'left' as const,
       background: active ? 'rgba(254,183,42,0.12)' : 'transparent',
@@ -602,30 +611,55 @@ export default function AdminPage() {
 
   const openVragen = vragen.filter(v => v.status === 'open')
 
-  const NAV = [
-    { id: 'start', label: 'Start' },
-    { id: 'overzicht', label: 'Overzicht' },
-    { id: 'programma', label: 'Programma' },
-    { id: 'aankondigingen', label: 'Aankondigingen' },
-    { id: 'attributie', label: 'Marketing & attributie' },
-    { id: 'crewrooster', label: 'Crew-rooster' },
-    { id: 'push', label: 'Pushberichten' },
-    { id: 'financieel', label: 'Financieel' },
-    { id: 'advertenties', label: 'App-advertenties' },
-    { id: 'partners', label: 'Partners' },
-    { id: 'toevoegen', label: 'Partner toevoegen' },
-    { id: 'producten', label: 'Producten' },
-    { id: 'kassa', label: 'Kassa & omzet' },
-    { id: 'faq', label: 'FAQ & spelregels' },
-    { id: 'crew', label: 'Partnercrew & catering' },
-    { id: 'documenten', label: 'Documenten' },
-    { id: 'teksten', label: 'Teksten & deadlines' },
-    { id: 'team', label: 'Team' },
-    { id: 'export', label: 'Exports' },
-    { id: 'vragen', label: `Vragen ${openVragen.length > 0 ? `(${openVragen.length})` : ''}` },
-    { id: 'activiteit', label: 'Activiteit' },
-    { id: 'app', label: 'Bezoekers-app' },
-    { id: 'status', label: 'Status' },
+  // Nav gegroepeerd per thema. 'Start' staat los bovenaan; de rest volgt in
+  // vaste, logische clusters zodat je niet meer 25 losse namen af hoeft te zoeken.
+  const NAV_GROUPS: { titel: string | null; items: { id: string; label: string }[] }[] = [
+    { titel: null, items: [{ id: 'start', label: 'Start' }] },
+    {
+      titel: 'Productie', items: [
+        { id: 'programma', label: 'Programma' },
+        { id: 'crewrooster', label: 'Crew-rooster' },
+        { id: 'draaiboek', label: 'Draaiboek' },
+      ]
+    },
+    {
+      titel: 'Partners', items: [
+        { id: 'overzicht', label: 'Overzicht' },
+        { id: 'partners', label: 'Partners' },
+        { id: 'toevoegen', label: 'Partner toevoegen' },
+        { id: 'producten', label: 'Producten' },
+        { id: 'crew', label: 'Partnercrew & catering' },
+        { id: 'faq', label: 'FAQ & spelregels' },
+        { id: 'documenten', label: 'Documenten' },
+        { id: 'teksten', label: 'Teksten & deadlines' },
+        { id: 'export', label: 'Exports' },
+        { id: 'vragen', label: `Vragen ${openVragen.length > 0 ? `(${openVragen.length})` : ''}` },
+      ]
+    },
+    {
+      titel: 'Marketing', items: [
+        { id: 'aankondigingen', label: 'Aankondigingen' },
+        { id: 'carousel', label: 'Carousel & stories' },
+        { id: 'attributie', label: 'Marketing & attributie' },
+        { id: 'push', label: 'Pushberichten' },
+        { id: 'advertenties', label: 'App-advertenties' },
+        { id: 'nieuwsbrief', label: 'Nieuwsbrief' },
+      ]
+    },
+    {
+      titel: 'Financieel', items: [
+        { id: 'financieel', label: 'Financieel' },
+        { id: 'kassa', label: 'Kassa & omzet' },
+      ]
+    },
+    { titel: 'Bezoekers-app', items: [{ id: 'app', label: 'Bezoekers-app' }] },
+    {
+      titel: 'Beheer', items: [
+        { id: 'status', label: 'Status' },
+        { id: 'activiteit', label: 'Activiteit' },
+        { id: 'team', label: 'Team' },
+      ]
+    },
   ]
 
   const aantalFood = partners.filter(p => p.type === 'food').length
@@ -647,9 +681,14 @@ export default function AdminPage() {
           <div style={S.logo}>NvdW 2026</div>
           <div style={S.adminLabel}>Organisatie</div>
         </div>
-        <nav style={{ padding: '16px 0', flex: 1, overflowY: 'auto' }}>
-          {NAV.map(item => (
-            <button key={item.id} style={S.navItem(activeTab === item.id)} onClick={() => setActiveTab(item.id)}>{item.label}</button>
+        <nav style={{ padding: '8px 0 16px', flex: 1, overflowY: 'auto' }}>
+          {NAV_GROUPS.map(g => (
+            <div key={g.titel || 'top'}>
+              {g.titel && <div style={S.navGroupTitel}>{g.titel}</div>}
+              {g.items.map(item => (
+                <button key={item.id} style={S.navItem(activeTab === item.id)} onClick={() => setActiveTab(item.id)}>{item.label}</button>
+              ))}
+            </div>
           ))}
         </nav>
         <div style={{ padding: '16px 20px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
@@ -1066,6 +1105,12 @@ export default function AdminPage() {
           const sp = partners.find(p => p.id === selectedId)
           if (!sp) return <button style={S.btnSm} onClick={() => setSelectedId(null)}>← Terug</button>
           const num = (v: string) => v === '' ? null : Number(v)
+          const euroFmt = (n: number) => '€' + n.toFixed(2).replace('.', ',')
+          const cateringPrijs = parseFloat(tekstDraft['prijs_catering_pp'] || '19.50') || 19.5
+          const spCatering = crewcatering.filter(c => c.partner_id === sp.id)
+          const cateringTotaal = spCatering.reduce((s, c) => s + c.aantal_personen, 0) * cateringPrijs
+          const spExtras = extraBestellingen.filter(e => e.partner_id === sp.id)
+          const extrasTotaal = spExtras.reduce((s, e) => s + e.aantal * e.prijs_per_stuk, 0)
           return (
             <>
               <button style={{ ...S.btnSm, marginBottom: '16px' }} onClick={() => { setSelectedId(null); setPartnerDocs([]) }}>← Terug naar overzicht</button>
@@ -1126,6 +1171,36 @@ export default function AdminPage() {
                     <button style={S.btnSm} onClick={() => stuurInlog(sp)}>{sp.user_id ? 'Inlogmail opnieuw sturen' : 'Stuur inlogmail'}</button>
                   </div>
                 </div>
+              </div>
+
+              {/* Wat de partner betaalt aan NvdW */}
+              <div style={S.card}>
+                <div style={S.cardTitle}>Wat {sp.bedrijfsnaam} betaalt aan NvdW</div>
+                {spCatering.length === 0 && spExtras.length === 0 ? (
+                  <p style={{ fontSize: '13px', color: '#999' }}>Nog niets besteld of ingevuld voor crewcatering.</p>
+                ) : (
+                  <>
+                    {spCatering.length > 0 && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #f0f0f0', fontSize: '13px' }}>
+                        <span>Crewcatering ({spCatering.reduce((s, c) => s + c.aantal_personen, 0)} personen × {euroFmt(cateringPrijs)})</span>
+                        <strong>{euroFmt(cateringTotaal)}</strong>
+                      </div>
+                    )}
+                    {spExtras.map(e => (
+                      <div key={e.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #f0f0f0', fontSize: '13px' }}>
+                        <span>{e.product} {e.aantal > 1 ? `× ${e.aantal}` : ''} <span style={{ color: '#999', fontSize: '11px' }}>({e.status})</span></span>
+                        <strong>{euroFmt(e.aantal * e.prijs_per_stuk)}</strong>
+                      </div>
+                    ))}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0 0', fontSize: '14px', fontWeight: 700, color: 'var(--navy)' }}>
+                      <span>Totaal vast bedrag</span>
+                      <span>{euroFmt(cateringTotaal + extrasTotaal)}</span>
+                    </div>
+                  </>
+                )}
+                <p style={{ fontSize: '12px', color: '#999', marginTop: '12px' }}>
+                  Exclusief de afdracht van {sp.afdracht_percentage}% over de kassaomzet, die wordt na afloop verrekend op basis van de werkelijke verkoop.
+                </p>
               </div>
 
               {/* Persoonlijke documenten */}
@@ -1295,6 +1370,9 @@ export default function AdminPage() {
         )}
 
         {activeTab === 'aankondigingen' && <Aankondigingen flash={flash} />}
+        {activeTab === 'draaiboek' && <Draaiboek flash={flash} />}
+        {activeTab === 'carousel' && <Carousel />}
+        {activeTab === 'nieuwsbrief' && <Nieuwsbrief flash={flash} />}
         {activeTab === 'attributie' && <Attributie flash={flash} />}
         {activeTab === 'crewrooster' && <CrewRooster flash={flash} />}
         {activeTab === 'push' && <Push flash={flash} />}

@@ -56,6 +56,7 @@ export default function CrewRooster({ flash }: { flash: (m: string, ms?: number)
 
   const [sectie, setSectie] = useState<Sectie>('rooster')
   const [dag, setDag] = useState<Dag>('fri')
+  const [weergave, setWeergave] = useState<'lijst' | 'blokken'>('lijst')
 
   const [shiftFormOpen, setShiftFormOpen] = useState(false)
   const [shiftDraft, setShiftDraft] = useState<ShiftDraft>(leegShift)
@@ -406,6 +407,18 @@ export default function CrewRooster({ flash }: { flash: (m: string, ms?: number)
           </button>
         ))}
         <div style={{ flex: 1 }} />
+        <div style={{ display: 'flex', border: '1px solid #ccc', borderRadius: '2px', overflow: 'hidden' }}>
+          {(['lijst', 'blokken'] as const).map(w => (
+            <button key={w} onClick={() => setWeergave(w)} style={{
+              padding: '7px 14px', fontSize: '11px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase',
+              cursor: 'pointer', fontFamily: 'Inter, sans-serif', border: 'none',
+              background: weergave === w ? 'var(--navy)' : 'transparent',
+              color: weergave === w ? 'var(--cream)' : 'var(--navy)',
+            }}>
+              {w === 'lijst' ? 'Lijst' : 'Blokkenschema'}
+            </button>
+          ))}
+        </div>
         <button style={{ ...AS.btnSm }} onClick={printDag}>Print dagrooster</button>
         <button style={{ ...AS.btn, marginTop: 0, padding: '8px 16px' }} onClick={() => { setShiftFormOpen(!shiftFormOpen); setShiftDraft({ ...leegShift, dag }) }}>
           {shiftFormOpen ? 'Sluit formulier' : '+ Nieuwe shift'}
@@ -467,16 +480,89 @@ export default function CrewRooster({ flash }: { flash: (m: string, ms?: number)
         <div style={AS.card}>
           <div style={{ color: '#888', fontSize: '14px' }}>Nog geen shifts voor {DAG_NAAM[dag]}. Maak de eerste aan.</div>
         </div>
-      ) : (
+      ) : weergave === 'lijst' ? (
         tijdGroepen.map(g => (
           <div key={g.tijd} style={{ marginBottom: '18px' }}>
             <div style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: '16px', fontWeight: 700, color: 'var(--navy)', margin: '0 0 8px 2px' }}>{g.tijd}</div>
             {g.shifts.map(s => shiftKaart(s))}
           </div>
         ))
-      )}
+      ) : blokkenSchema()}
     </>
   )
+
+  // ---------- Blokkenschema: horizontaal, per rol een rij, shifts als blokken op de tijdas ----------
+  const PX_PER_UUR = 110
+  const RIJ_HOOGTE = 56
+
+  const blokkenSchema = () => {
+    const HOUR = 3600000
+    const startenMs = dagShifts.map(s => new Date(s.start_tijd).getTime())
+    const eindenMs = dagShifts.map(s => new Date(s.eind_tijd).getTime())
+    const asStart = Math.floor(Math.min(...startenMs) / HOUR) * HOUR
+    const asEind = Math.ceil(Math.max(...eindenMs) / HOUR) * HOUR
+    const totaalUur = (asEind - asStart) / HOUR
+    const x = (ms: number) => ((ms - asStart) / HOUR) * PX_PER_UUR
+    const uren = Array.from({ length: totaalUur + 1 }, (_, i) => asStart + i * HOUR)
+    const uurLabel = (ms: number) => new Date(ms).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Amsterdam' })
+    const rollenVandaag = rollen.filter(r => dagShifts.some(s => s.rol_id === r.id))
+    const breedte = totaalUur * PX_PER_UUR
+
+    return (
+      <div style={{ ...AS.card, padding: '20px', overflow: 'hidden' }}>
+        <div style={{ display: 'flex' }}>
+          <div style={{ width: '130px', flex: 'none' }}>
+            <div style={{ height: '32px' }} />
+            {rollenVandaag.map(r => (
+              <div key={r.id} style={{ height: `${RIJ_HOOGTE}px`, display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 700, color: 'var(--navy)', borderTop: '1px solid #f0f0f0' }}>
+                <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: r.kleur, display: 'inline-block', flexShrink: 0 }} />
+                {r.naam}
+              </div>
+            ))}
+          </div>
+          <div style={{ flex: 1, overflowX: 'auto' }}>
+            <div style={{ position: 'relative', width: `${breedte}px`, minWidth: '100%' }}>
+              <div style={{ height: '32px', position: 'relative', borderBottom: '1px solid #ddd' }}>
+                {uren.map(u => (
+                  <div key={u} style={{ position: 'absolute', left: `${x(u)}px`, top: 0, fontSize: '10px', color: '#999', transform: 'translateX(-50%)' }}>{uurLabel(u)}</div>
+                ))}
+              </div>
+              {rollenVandaag.map(r => {
+                const shiftsVanRol = dagShifts.filter(s => s.rol_id === r.id)
+                return (
+                  <div key={r.id} style={{ height: `${RIJ_HOOGTE}px`, position: 'relative', borderTop: '1px solid #f0f0f0' }}>
+                    {uren.map(u => (
+                      <div key={u} style={{ position: 'absolute', left: `${x(u)}px`, top: 0, bottom: 0, width: '1px', background: '#f5f5f5' }} />
+                    ))}
+                    {shiftsVanRol.map(s => {
+                      const opShift = bezetting(s.id)
+                      const compleet = opShift.length >= s.aantal_nodig
+                      const links = x(new Date(s.start_tijd).getTime())
+                      const wijd = Math.max(x(new Date(s.eind_tijd).getTime()) - links, 40)
+                      const namen = opShift.map(t => lidVan(t.lid_id)?.naam || '?').join(', ')
+                      const titel = `${r.naam}: ${tijdUit(s.start_tijd)} tot ${tijdUit(s.eind_tijd)}${s.locatie ? ` · ${s.locatie}` : ''} · ${opShift.length}/${s.aantal_nodig}${namen ? ` · ${namen}` : ''}`
+                      return (
+                        <div key={s.id} title={titel} style={{
+                          position: 'absolute', left: `${links}px`, width: `${wijd}px`, top: '5px', bottom: '5px',
+                          background: r.kleur, borderRadius: '4px', padding: '4px 8px', overflow: 'hidden',
+                          border: compleet ? 'none' : '2px dashed #b71c1c',
+                          color: '#fff', fontSize: '11px', lineHeight: 1.3, cursor: 'default',
+                        }}>
+                          <div style={{ fontWeight: 700, whiteSpace: 'nowrap' }}>{tijdUit(s.start_tijd)}–{tijdUit(s.eind_tijd)}</div>
+                          <div style={{ whiteSpace: 'nowrap', opacity: 0.9 }}>{opShift.length}/{s.aantal_nodig}{s.locatie ? ` · ${s.locatie}` : ''}</div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+        <div style={{ fontSize: '11px', color: '#999', marginTop: '14px' }}>Gestreepte rand betekent dat de shift nog niet vol is. Hover op een blok voor details.</div>
+      </div>
+    )
+  }
 
   const ledenSectie = () => (
     <>
