@@ -201,6 +201,7 @@ export type Wijn = {
   prijs_fles: number | null
   beschrijving: string | null
   volgorde: number
+  foto_url: string | null
 }
 
 export type Crewcatering = {

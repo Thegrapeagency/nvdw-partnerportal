@@ -64,6 +64,8 @@ export default function Dashboard() {
   const [log, setLog] = useState<ActiviteitLog[]>([])
   const [msg, setMsg] = useState('')
   const [newWijn, setNewWijn] = useState({ naam: '', producent: '', regio: '', land: '', druif: '', jaar: '', prijs_half_glas: '', prijs_heel_glas: '', prijs_fles: '', beschrijving: '' })
+  const [newWijnFoto, setNewWijnFoto] = useState<File | null>(null)
+  const [wijnFotoBusy, setWijnFotoBusy] = useState<string | null>(null)
   const [menu, setMenu] = useState<MenukaartItem[]>([])
   const [crew, setCrew] = useState<CrewLid[]>([])
   const [mijnBestellingen, setMijnBestellingen] = useState<{ id: string; product: string; aantal: number; prijs_per_stuk: number; status: string; created_at: string }[]>([])
@@ -191,8 +193,19 @@ export default function Dashboard() {
     return isNaN(n) ? null : n
   }
 
+  // Uploadt naar wijnfotos/<partner_id>/... en levert de publieke URL terug.
+  const uploadWijnFoto = async (file: File): Promise<string | null> => {
+    if (!partner) return null
+    const ext = file.name.split('.').pop() || 'jpg'
+    const path = `${partner.id}/${Date.now()}.${ext}`
+    const { error } = await supabase.storage.from('wijnfotos').upload(path, file)
+    if (error) { flash('Foto uploaden mislukte: ' + error.message); return null }
+    return supabase.storage.from('wijnfotos').getPublicUrl(path).data.publicUrl
+  }
+
   const addWijn = async () => {
     if (!partner || !newWijn.naam) return
+    const foto_url = newWijnFoto ? await uploadWijnFoto(newWijnFoto) : null
     const { data, error } = await supabase.from('wijnlijst').insert({
       partner_id: partner.id, naam: newWijn.naam, producent: newWijn.producent || null,
       regio: newWijn.regio || null, land: newWijn.land || null, druif: newWijn.druif || null,
@@ -200,10 +213,26 @@ export default function Dashboard() {
       prijs_half_glas: leesPrijs(newWijn.prijs_half_glas),
       prijs_heel_glas: leesPrijs(newWijn.prijs_heel_glas),
       prijs_fles: leesPrijs(newWijn.prijs_fles),
-      beschrijving: newWijn.beschrijving || null, volgorde: wijnen.length,
+      beschrijving: newWijn.beschrijving || null, volgorde: wijnen.length, foto_url,
     }).select().single()
-    if (!error && data) { setWijnen([...wijnen, data]); setNewWijn({ naam: '', producent: '', regio: '', land: '', druif: '', jaar: '', prijs_half_glas: '', prijs_heel_glas: '', prijs_fles: '', beschrijving: '' }); flash('Wijn toegevoegd. Staat direct in de kassa.') }
+    if (!error && data) { setWijnen([...wijnen, data]); setNewWijn({ naam: '', producent: '', regio: '', land: '', druif: '', jaar: '', prijs_half_glas: '', prijs_heel_glas: '', prijs_fles: '', beschrijving: '' }); setNewWijnFoto(null); flash('Wijn toegevoegd. Staat direct in de kassa.') }
     else if (error) flash(error.message)
+  }
+
+  const wijzigWijnFoto = async (wijn: Wijn, file: File) => {
+    setWijnFotoBusy(wijn.id)
+    const foto_url = await uploadWijnFoto(file)
+    if (foto_url) {
+      await supabase.from('wijnlijst').update({ foto_url }).eq('id', wijn.id)
+      setWijnen(wijnen.map(w => w.id === wijn.id ? { ...w, foto_url } : w))
+      flash('Foto opgeslagen.')
+    }
+    setWijnFotoBusy(null)
+  }
+
+  const verwijderWijnFoto = async (wijn: Wijn) => {
+    await supabase.from('wijnlijst').update({ foto_url: null }).eq('id', wijn.id)
+    setWijnen(wijnen.map(w => w.id === wijn.id ? { ...w, foto_url: null } : w))
   }
 
   const deleteWijn = async (id: string) => { await supabase.from('wijnlijst').delete().eq('id', id); setWijnen(wijnen.filter(w => w.id !== id)) }
@@ -829,17 +858,32 @@ export default function Dashboard() {
             {wijnen.length > 0 && <>
               <div style={S.sectionTitle}>{wijnen.length} {wijnen.length === 1 ? 'wijn' : 'wijnen'} ingevoerd</div>
               {wijnen.map(w => (
-                <div key={w.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 0', borderBottom: '1px solid rgba(1,3,65,0.07)' }}>
-                  <div>
-                    <div style={{ fontSize: '14px', fontWeight: '500', color: 'var(--navy)' }}>{w.naam}</div>
-                    <div style={{ fontSize: '12px', color: 'rgba(1,3,65,0.4)', marginTop: '2px' }}>
-                      {[w.producent, w.regio, w.land, w.druif, w.jaar].filter(Boolean).join(' · ')}
-                    </div>
-                    <div style={{ fontSize: '12px', color: 'var(--bordeaux)', marginTop: '2px' }}>
-                      {[w.prijs_half_glas && `½ €${w.prijs_half_glas}`, w.prijs_heel_glas && `glas €${w.prijs_heel_glas}`, w.prijs_fles && `fles €${w.prijs_fles}`].filter(Boolean).join(' · ')}
+                <div key={w.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 0', borderBottom: '1px solid rgba(1,3,65,0.07)', gap: '14px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flex: 1, minWidth: 0 }}>
+                    {w.foto_url ? (
+                      <img src={w.foto_url} alt={w.naam} style={{ width: '48px', height: '48px', objectFit: 'cover', borderRadius: '8px', flexShrink: 0 }} />
+                    ) : (
+                      <div style={{ width: '48px', height: '48px', borderRadius: '8px', background: 'rgba(1,3,65,0.06)', flexShrink: 0 }} />
+                    )}
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: '14px', fontWeight: '500', color: 'var(--navy)' }}>{w.naam}</div>
+                      <div style={{ fontSize: '12px', color: 'rgba(1,3,65,0.4)', marginTop: '2px' }}>
+                        {[w.producent, w.regio, w.land, w.druif, w.jaar].filter(Boolean).join(' · ')}
+                      </div>
+                      <div style={{ fontSize: '12px', color: 'var(--bordeaux)', marginTop: '2px' }}>
+                        {[w.prijs_half_glas && `½ €${w.prijs_half_glas}`, w.prijs_heel_glas && `glas €${w.prijs_heel_glas}`, w.prijs_fles && `fles €${w.prijs_fles}`].filter(Boolean).join(' · ')}
+                      </div>
                     </div>
                   </div>
-                  <button onClick={() => deleteWijn(w.id)} style={S.btnOutline}>Verwijder</button>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+                    <label style={{ ...S.btnOutline, cursor: 'pointer', display: 'inline-block' }}>
+                      {wijnFotoBusy === w.id ? 'Bezig...' : w.foto_url ? 'Foto wijzigen' : 'Foto toevoegen'}
+                      <input type="file" accept="image/*" style={{ display: 'none' }} disabled={wijnFotoBusy === w.id}
+                        onChange={e => { const f = e.target.files?.[0]; if (f) wijzigWijnFoto(w, f); e.target.value = '' }} />
+                    </label>
+                    {w.foto_url && <button onClick={() => verwijderWijnFoto(w)} style={S.btnOutline}>Foto verwijderen</button>}
+                    <button onClick={() => deleteWijn(w.id)} style={S.btnOutline}>Verwijder</button>
+                  </div>
                 </div>
               ))}
             </>}
@@ -865,6 +909,8 @@ export default function Dashboard() {
               </div>
               <label style={S.label}>Omschrijving</label>
               <textarea style={{ ...S.input, height: '72px', resize: 'vertical' }} value={newWijn.beschrijving} onChange={e => setNewWijn({ ...newWijn, beschrijving: e.target.value })} />
+              <label style={S.label}>Foto van de fles (optioneel)</label>
+              <input type="file" accept="image/*" onChange={e => setNewWijnFoto(e.target.files?.[0] || null)} style={{ fontSize: '13px', marginTop: '4px' }} />
               <button style={S.btn} onClick={addWijn}>Toevoegen</button>
             </div>
           </div>
