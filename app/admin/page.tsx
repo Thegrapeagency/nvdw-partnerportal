@@ -17,6 +17,7 @@ import Carousel from './Carousel'
 import Nieuwsbrief from './Nieuwsbrief'
 import Todo from './Todo'
 import Overleg from './Overleg'
+import BezoekerVragen from './BezoekerVragen'
 
 const PAKKET_LABELS: Record<string, string> = {
   branded_bar: 'Branded Bar',
@@ -636,6 +637,7 @@ export default function AdminPage() {
         { id: 'teksten', label: 'Teksten & deadlines' },
         { id: 'export', label: 'Exports' },
         { id: 'vragen', label: `Vragen ${openVragen.length > 0 ? `(${openVragen.length})` : ''}` },
+        { id: 'bezoekersvragen', label: 'Bezoekersvragen' },
       ]
     },
     {
@@ -1589,6 +1591,8 @@ export default function AdminPage() {
             {vragen.length === 0 && <p style={{ color: '#999', fontSize: '14px' }}>Geen vragen.</p>}
           </>
         )}
+
+        {activeTab === 'bezoekersvragen' && <BezoekerVragen flash={flash} />}
       </main>
     </div>
   )
