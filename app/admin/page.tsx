@@ -15,6 +15,8 @@ import Aankondigingen from './Aankondigingen'
 import Draaiboek from './Draaiboek'
 import Carousel from './Carousel'
 import Nieuwsbrief from './Nieuwsbrief'
+import Todo from './Todo'
+import Overleg from './Overleg'
 
 const PAKKET_LABELS: Record<string, string> = {
   branded_bar: 'Branded Bar',
@@ -655,6 +657,8 @@ export default function AdminPage() {
     { titel: 'Bezoekers-app', items: [{ id: 'app', label: 'Bezoekers-app' }] },
     {
       titel: 'Beheer', items: [
+        { id: 'todo', label: 'To-do' },
+        { id: 'overleg', label: 'Overleg' },
         { id: 'status', label: 'Status' },
         { id: 'activiteit', label: 'Activiteit' },
         { id: 'team', label: 'Team' },
@@ -712,6 +716,16 @@ export default function AdminPage() {
             { key: 'portal', titel: 'Partners', onder: 'Partners, contracten, crew, producten', ga: () => setActiveTab('partners') },
             { key: 'app', titel: 'Bezoekersapp', onder: 'Cijfers hier, of open de app', ga: () => setActiveTab('app'), extern: 'nvdw-bezoekers-app.vercel.app' },
           ]
+          const OVERIGE_LINKS: { label: string; url: string }[] = [
+            { label: 'Live website', url: 'https://www.nachtvandewijn.nl' },
+            { label: 'Carousel-generator (los)', url: 'https://www.nachtvandewijn.nl/tools/carousel-generator' },
+            { label: 'Nieuwsbrief-archief', url: `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/newsletter/archief` },
+            { label: 'GitHub · website', url: 'https://github.com/Thegrapeagency/Nachtvandewijn-website' },
+            { label: 'GitHub · organisatieportal', url: 'https://github.com/Thegrapeagency/nvdw-partnerportal' },
+            { label: 'GitHub · bezoekers-app', url: 'https://github.com/Thegrapeagency/nvdw-bezoekers-app' },
+            { label: 'Vercel · dashboards', url: 'https://vercel.com/thegrapeagencys-projects' },
+            { label: 'Supabase · database', url: 'https://supabase.com/dashboard/project/snfojphxsbzfewwfbfka' },
+          ]
           return <>
             <div style={S.title}>Start</div>
             <div style={S.sub}>
@@ -746,6 +760,17 @@ export default function AdminPage() {
             </div>
             <div style={{ marginTop: '16px', fontSize: '12px', color: '#999' }}>
               Tip: het volledige statusoverzicht staat onder <button onClick={() => setActiveTab('status')} style={{ background: 'none', border: 'none', color: 'var(--bordeaux)', cursor: 'pointer', padding: 0, fontSize: '12px', textDecoration: 'underline' }}>Status</button>.
+            </div>
+
+            <div style={{ ...S.card, marginTop: '24px' }}>
+              <div style={S.cardTitle}>Overige links</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '4px 24px' }}>
+                {OVERIGE_LINKS.map(l => (
+                  <a key={l.label} href={l.url} target="_blank" rel="noreferrer" style={{ display: 'block', padding: '9px 0', fontSize: '13px', color: 'var(--navy)', textDecoration: 'none', borderBottom: '1px solid #f0f0f0' }}>
+                    {l.label} <span style={{ color: 'var(--bordeaux)' }}>↗</span>
+                  </a>
+                ))}
+              </div>
             </div>
           </>
         })()}
@@ -1373,6 +1398,8 @@ export default function AdminPage() {
         {activeTab === 'draaiboek' && <Draaiboek flash={flash} />}
         {activeTab === 'carousel' && <Carousel />}
         {activeTab === 'nieuwsbrief' && <Nieuwsbrief flash={flash} />}
+        {activeTab === 'todo' && <Todo flash={flash} />}
+        {activeTab === 'overleg' && <Overleg flash={flash} />}
         {activeTab === 'attributie' && <Attributie flash={flash} />}
         {activeTab === 'crewrooster' && <CrewRooster flash={flash} />}
         {activeTab === 'push' && <Push flash={flash} />}

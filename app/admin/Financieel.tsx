@@ -222,6 +222,9 @@ export default function Financieel({ flash }: { flash: (m: string, ms?: number) 
   const [scenario, setScenario] = useState<Scenario | null>(null)
   // CSV-import
   const [importOpen, setImportOpen] = useState(false)
+  const [logOpen, setLogOpen] = useState(false)
+  const [logBusy, setLogBusy] = useState(false)
+  const [log, setLog] = useState<{ id: string; tabel: string; actie: string; veld: string | null; oude_waarde: string | null; nieuwe_waarde: string | null; wie: string | null; wanneer: string }[]>([])
   const [importTekst, setImportTekst] = useState('')
   const [importBusy, setImportBusy] = useState(false)
 
@@ -502,6 +505,21 @@ export default function Financieel({ flash }: { flash: (m: string, ms?: number) 
     if (error) { flash('Vastklikken mislukt: ' + error.message, 6000); return }
     setPosten(ps => ps.map(x => ({ ...x, baseline_cents: x.begroot_cents })))
     flash('Begroting vastgeklikt als baseline')
+  }
+
+  const CENT_VELDEN = new Set(['begroot_cents', 'gerealiseerd_cents', 'vorig_cents', 'baseline_cents', 'bedrag_cents'])
+  const logWaarde = (veld: string | null, waarde: string | null) => {
+    if (waarde === null) return '-'
+    if (veld && CENT_VELDEN.has(veld)) { const n = Number(waarde); return Number.isFinite(n) ? euro(n) : waarde }
+    return waarde
+  }
+  const laadLog = async () => {
+    setLogOpen(o => !o)
+    if (log.length > 0 || logOpen) return
+    setLogBusy(true)
+    const { data } = await supabase.from('budget_log').select('*').order('wanneer', { ascending: false }).limit(300)
+    setLog(data || [])
+    setLogBusy(false)
   }
 
   // ---------- CRUD boekingen (optimistisch, geen herlaad-rondjes) ----------
@@ -841,8 +859,41 @@ export default function Financieel({ flash }: { flash: (m: string, ms?: number) 
             <button style={AS.btnSm} onClick={() => setImportOpen(o => !o)}>
               {importOpen ? 'Sluit import' : 'Import'}
             </button>
+            <button style={AS.btnSm} onClick={laadLog}>
+              {logOpen ? 'Sluit wijzigingslog' : 'Wijzigingslog'}
+            </button>
           </div>
         </div>
+
+        {logOpen && (
+          <div style={{ background: '#f7f4ec', borderRadius: '8px', padding: '16px', marginBottom: '20px' }}>
+            <div style={{ fontSize: '13px', color: '#666', marginBottom: '10px' }}>
+              Elke wijziging aan de begroting en boekingen, los van de algemene activiteitenlog.
+            </div>
+            {logBusy ? (
+              <div style={{ fontSize: '13px', color: '#888' }}>Laden...</div>
+            ) : log.length === 0 ? (
+              <div style={{ fontSize: '13px', color: '#888' }}>Nog geen wijzigingen gelogd.</div>
+            ) : (
+              <table style={AS.table}>
+                <thead><tr>{['Wanneer', 'Tabel', 'Actie', 'Veld', 'Van', 'Naar', 'Wie'].map(h => <th key={h} style={AS.th}>{h}</th>)}</tr></thead>
+                <tbody>
+                  {log.map(l => (
+                    <tr key={l.id}>
+                      <td style={AS.td}>{new Date(l.wanneer).toLocaleString('nl-NL', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</td>
+                      <td style={AS.td}>{l.tabel === 'budget_posten' ? 'post' : 'boeking'}</td>
+                      <td style={AS.td}>{l.actie}</td>
+                      <td style={AS.td}>{l.veld || '-'}</td>
+                      <td style={AS.td}>{logWaarde(l.veld, l.oude_waarde)}</td>
+                      <td style={AS.td}>{logWaarde(l.veld, l.nieuwe_waarde)}</td>
+                      <td style={AS.td}>{l.wie || '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
 
         {/* Snelboekbalk */}
         <div style={{ background: '#f7f4ec', borderRadius: '8px', padding: '12px 14px', marginBottom: '14px' }}>
