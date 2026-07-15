@@ -480,6 +480,17 @@ export default function AdminPage() {
     await supabase.from('admins').update({ actief: !a.actief }).eq('id', a.id)
     setAdmins(admins.map(x => x.id === a.id ? { ...x, actief: !a.actief } : x))
   }
+  const stuurTeamToegang = async (a: Admin, type: 'recovery' | 'magiclink') => {
+    const { data: { session } } = await supabase.auth.getSession()
+    const res = await fetch('/api/team-toegang', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token || ''}` },
+      body: JSON.stringify({ email: a.email, naam: a.naam, type }),
+    })
+    const j = await res.json().catch(() => ({}))
+    if (res.ok && j.ok) flash(`${type === 'recovery' ? 'Wachtwoord-link' : 'Magic link'} verstuurd naar ${a.email}.`, 8000)
+    else flash('Versturen mislukt: ' + (j.error || res.status), 8000)
+  }
 
   // ---- Documenten ----
   const uploadDoc = async () => {
@@ -1525,7 +1536,13 @@ export default function AdminPage() {
                       <td style={S.td}>{a.email}</td>
                       <td style={S.td}>{a.rol}</td>
                       <td style={S.td}><span style={S.badge(a.actief)}>{a.actief ? 'actief' : 'inactief'}</span></td>
-                      <td style={S.td}>{a.rol !== 'owner' && <button style={S.btnSm} onClick={() => toggleAdmin(a)}>{a.actief ? 'Deactiveer' : 'Activeer'}</button>}</td>
+                      <td style={S.td}>
+                        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                          <button style={S.btnSm} onClick={() => stuurTeamToegang(a, 'recovery')}>Nieuw wachtwoord</button>
+                          <button style={S.btnSm} onClick={() => stuurTeamToegang(a, 'magiclink')}>Magic link</button>
+                          {a.rol !== 'owner' && <button style={S.btnSm} onClick={() => toggleAdmin(a)}>{a.actief ? 'Deactiveer' : 'Activeer'}</button>}
+                        </div>
+                      </td>
                     </tr>
                   ))}
                 </tbody>

@@ -12,10 +12,14 @@ export default function WachtwoordPage() {
   const [error, setError] = useState('')
   const [done, setDone] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [isMagic, setIsMagic] = useState(false)
 
   useEffect(() => {
-    // De recovery-link kan in 3 vormen binnenkomen: #access_token (impliciet,
-    // auto via detectSessionInUrl), ?code= (PKCE) of ?token_hash=&type= (OTP).
+    // De link kan in 3 vormen binnenkomen: #access_token (impliciet, auto via
+    // detectSessionInUrl), ?code= (PKCE) of ?token_hash=&type= (OTP). Bij een
+    // magic link (?magic=1) is er geen wachtwoord nodig, alleen doorsturen.
+    const magic = new URL(window.location.href).searchParams.get('magic') === '1'
+    setIsMagic(magic)
     const run = async () => {
       try {
         const url = new URL(window.location.href)
@@ -31,9 +35,18 @@ export default function WachtwoordPage() {
       const { data: { session } } = await supabase.auth.getSession()
       setHasSession(!!session)
       setReady(true)
+      if (session && magic) {
+        const { data: isAdmin } = await supabase.rpc('is_admin')
+        router.push(isAdmin ? '/admin' : '/dashboard')
+      }
     }
     const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
-      if (session) { setHasSession(true); setReady(true) }
+      if (session) {
+        setHasSession(true); setReady(true)
+        if (magic) {
+          supabase.rpc('is_admin').then(({ data: isAdmin }) => router.push(isAdmin ? '/admin' : '/dashboard'))
+        }
+      }
     })
     run()
     return () => { sub.subscription.unsubscribe() }
@@ -61,7 +74,7 @@ export default function WachtwoordPage() {
       <div style={{ width: '100%', maxWidth: '380px' }}>
         <div style={{ marginBottom: '32px' }}>
           <div style={{ fontSize: '11px', fontWeight: 500, letterSpacing: '3px', textTransform: 'uppercase', color: 'var(--bordeaux)', marginBottom: '10px' }}>Partner Portal</div>
-          <div style={{ fontFamily: 'GoboldBlocky, sans-serif', fontSize: '28px', textTransform: 'uppercase', color: 'var(--navy)', lineHeight: 1 }}>Wachtwoord<br />instellen</div>
+          <div style={{ fontFamily: 'GoboldBlocky, sans-serif', fontSize: '28px', textTransform: 'uppercase', color: 'var(--navy)', lineHeight: 1 }}>{isMagic ? <>Inloggen</> : <>Wachtwoord<br />instellen</>}</div>
         </div>
 
         {!ready && <div style={{ fontSize: '13px', color: 'rgba(1,3,65,0.4)' }}>Even geduld...</div>}
@@ -70,16 +83,20 @@ export default function WachtwoordPage() {
           <div style={{ fontSize: '14px', color: '#2e7d32', fontWeight: 500 }}>✓ Je wachtwoord is opgeslagen. Je wordt doorgestuurd...</div>
         )}
 
+        {ready && isMagic && hasSession && (
+          <div style={{ fontSize: '14px', color: '#2e7d32', fontWeight: 500 }}>✓ Ingelogd. Je wordt doorgestuurd...</div>
+        )}
+
         {ready && !done && !hasSession && (
           <div>
             <p style={{ fontSize: '14px', color: 'var(--navy)', marginBottom: '16px', lineHeight: 1.6 }}>
-              Deze link is verlopen of niet meer geldig. Log in en kies daar &quot;Wachtwoord wijzigen&quot;, of vraag een nieuwe link aan.
+              Deze link is verlopen of niet meer geldig. {isMagic ? 'Vraag een nieuwe inloglink aan of log in met je wachtwoord.' : <>Log in en kies daar &quot;Wachtwoord wijzigen&quot;, of vraag een nieuwe link aan.</>}
             </p>
             <button onClick={() => router.push('/')} style={{ padding: '12px 22px', background: 'var(--navy)', color: 'var(--cream)', border: 'none', fontSize: '11px', fontWeight: 600, letterSpacing: '2px', textTransform: 'uppercase', cursor: 'pointer' }}>Naar inloggen</button>
           </div>
         )}
 
-        {ready && !done && hasSession && (
+        {ready && !done && !isMagic && hasSession && (
           <form onSubmit={opslaan} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
             <div>
               <label style={labelStyle}>Nieuw wachtwoord</label>
