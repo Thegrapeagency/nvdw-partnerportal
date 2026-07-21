@@ -137,7 +137,8 @@ export default function Advertenties({ flash }: { flash: (m: string, ms?: number
   const laad = async () => {
     const [ads, pt, av] = await Promise.all([
       supabase.from('app_ads').select('*').order('positie').order('volgorde'),
-      supabase.from('partners').select('id, bedrijfsnaam, type').order('bedrijfsnaam'),
+      // via partners_publiek: alleen naam en soort, geen contractgegevens
+      supabase.from('partners_publiek').select('id, bedrijfsnaam, type').order('bedrijfsnaam'),
       supabase.from('extra_bestellingen')
         .select('id, partner_id, product, prijs_per_stuk, created_at')
         .ilike('product', 'App-advertentie%').eq('status', 'aangevraagd')

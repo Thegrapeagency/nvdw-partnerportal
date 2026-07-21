@@ -5,12 +5,13 @@
 // afgedwongen door de RLS-policies in Supabase (functie mag()). Een tab
 // verbergen is comfort, geen beveiliging.
 
-export type Gebied = 'programma' | 'partners' | 'marketing' | 'financieel' | 'crew' | 'bezoekers' | 'beheer'
+export type Gebied = 'programma' | 'partners' | 'marketing' | 'nieuwsbrief' | 'financieel' | 'crew' | 'bezoekers' | 'beheer'
 
 export const GEBIEDEN: { id: Gebied; naam: string; uitleg: string }[] = [
   { id: 'programma', naam: 'Programma', uitleg: 'Proeverijen, artiesten, plattegrond en tickettypes' },
   { id: 'partners', naam: 'Partners', uitleg: 'Partnergegevens, contracten, wijnlijsten, documenten en vragen' },
-  { id: 'marketing', naam: 'Marketing', uitleg: 'Aankondigingen, schrijfstijl, advertenties, push en nieuwsbrief' },
+  { id: 'marketing', naam: 'Marketing', uitleg: 'Aankondigingen, schrijfstijl, carousel, advertenties, attributie en push' },
+  { id: 'nieuwsbrief', naam: 'Nieuwsbrief', uitleg: 'Het abonneebestand en het versturen van mailings. Los te geven, want hier hangt het hele adressenbestand aan' },
   { id: 'financieel', naam: 'Financieel', uitleg: 'Begroting, omzet, orders en ticketverkoop' },
   { id: 'crew', naam: 'Crew & draaiboek', uitleg: 'Roosters, crewleden en het draaiboek' },
   { id: 'bezoekers', naam: 'Bezoekers', uitleg: 'Bezoekers-app, stempels en bezoekersvragen' },
@@ -40,7 +41,9 @@ export const TAB_GEBIED: Record<string, Gebied> = {
   attributie: 'marketing',
   push: 'marketing',
   advertenties: 'marketing',
-  nieuwsbrief: 'marketing',
+  // Bewust een eigen gebied: aan de nieuwsbrief hangt het volledige
+  // abonneebestand, dus die geef je los van de rest van marketing.
+  nieuwsbrief: 'nieuwsbrief',
 
   financieel: 'financieel',
   kassa: 'financieel',

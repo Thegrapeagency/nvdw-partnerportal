@@ -28,8 +28,11 @@ export default function Aankondigingen({ flash }: { flash: (m: string, ms?: numb
   const [genBusy, setGenBusy] = useState(false)
 
   const laad = async () => {
-    const { data } = await supabase.from('partners')
-      .select('id, bedrijfsnaam, type, notities, publiek_beschrijving, publiek_foto_url, social_copy, aangekondigd, aangekondigd_op, zichtbaar_in_app')
+    // Bewust via partners_publiek en niet via de partners-tabel: die bevat
+    // contractgegevens, afdracht en e-mailadressen. Zo werkt deze tab ook voor
+    // iemand die alleen marketing-rechten heeft, zonder dat die data meekomt.
+    const { data } = await supabase.from('partners_publiek')
+      .select('id, bedrijfsnaam, type, publiek_beschrijving, publiek_foto_url, social_copy, aangekondigd, aangekondigd_op, zichtbaar_in_app')
       .order('type').order('bedrijfsnaam')
     setPartners((data || []) as PartnerRij[])
   }
@@ -80,12 +83,16 @@ export default function Aankondigingen({ flash }: { flash: (m: string, ms?: numb
   const bewaar = async (extra: Partial<PartnerRij> = {}, melding = 'Opgeslagen') => {
     if (!huidige) return
     setBusy(true)
-    const { error } = await supabase.from('partners').update({
-      publiek_beschrijving: beschrijving.trim() || null,
-      social_copy: social.trim() || null,
-      publiek_foto_url: foto.trim() || null,
-      ...extra,
-    }).eq('id', huidige.id)
+    // Schrijven via een RPC die alleen de publieke velden aanraakt, zodat deze
+    // tab geen update-rechten op de hele partners-tabel nodig heeft.
+    const { error } = await supabase.rpc('partner_aankondiging_bijwerken', {
+      p_id: huidige.id,
+      p_beschrijving: beschrijving.trim() || null,
+      p_social_copy: social.trim() || null,
+      p_foto_url: foto.trim() || null,
+      p_aangekondigd: 'aangekondigd' in extra ? (extra.aangekondigd ?? null) : null,
+      p_zichtbaar_in_app: 'zichtbaar_in_app' in extra ? (extra.zichtbaar_in_app ?? null) : null,
+    })
     setBusy(false)
     if (error) { flash('Opslaan mislukt: ' + error.message, 7000); return }
     flash(melding, 6000)
