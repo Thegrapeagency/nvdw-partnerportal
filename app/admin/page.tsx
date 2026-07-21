@@ -796,7 +796,10 @@ export default function AdminPage() {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px' }}>
               {TEGELS.map(t => {
                 const s = st(t.key)
-                const kleur = !health ? '#bbb' : s?.ok ? '#2e7d32' : '#b3261e'
+                // health geeft alleen de systemen terug waar je recht op hebt.
+                // Ontbreekt er een, dan is dat geen storing maar geen toegang.
+                const geenToegang = !!health && !s
+                const kleur = !health ? '#bbb' : geenToegang ? '#ccc' : s?.ok ? '#2e7d32' : '#b3261e'
                 return (
                   <button key={t.key} onClick={t.ga} style={{
                     ...S.card, marginBottom: 0, textAlign: 'left', cursor: 'pointer',
@@ -807,7 +810,7 @@ export default function AdminPage() {
                       <div style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: '22px', fontWeight: 700, color: 'var(--navy)' }}>{t.titel}</div>
                       <span title={s?.detail || 'status onbekend'} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: '#888' }}>
                         <span style={{ width: '9px', height: '9px', borderRadius: '50%', background: kleur, display: 'inline-block' }} />
-                        {!health ? 'checken…' : s?.ok ? 'werkt' : 'storing'}
+                        {!health ? 'checken…' : geenToegang ? 'geen toegang' : s?.ok ? 'werkt' : 'storing'}
                       </span>
                     </div>
                     <div style={{ fontSize: '13px', color: '#666', lineHeight: 1.5, flex: 1 }}>{t.onder}</div>

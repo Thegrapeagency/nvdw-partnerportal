@@ -41,13 +41,21 @@ Deno.serve(async (req) => {
     const { data: isAdmin } = await caller.rpc("is_admin")
     if (!isAdmin) return json({ error: "forbidden" }, 403)
 
+    // Deze function leest met de service-role en gaat dus langs RLS heen.
+    // Daarom filteren we hier zelf op rechten: anders zou een login met alleen
+    // marketing alsnog zien wanneer de laatste ticketverkoop was en hoeveel
+    // partners er zijn. rechten null = volledige toegang (bestaande admins).
+    const { data: rechten } = await caller.rpc("mijn_rechten")
+    const alles = rechten === null || rechten === undefined
+    const mag = (gebied: string) => alles || (rechten as string[]).includes(gebied)
+
     const db = createClient(URL, SERVICE, { auth: { persistSession: false } })
     const pos = createClient(URL, SERVICE, { db: { schema: "festival_pos" }, auth: { persistSession: false } })
 
     const systems: { key: string; label: string; ok: boolean; detail: string }[] = []
 
     // 1. Ticketshop (edge function shop-config = hart van de verkoop) + laatste bestelling
-    try {
+    if (mag("financieel")) try {
       const [cfg, lastOrder] = await Promise.all([
         fetchMetTimeout(`${URL}/functions/v1/shop-config`, { headers: { apikey: ANON } }),
         db.from("orders").select("created_at").eq("status", "paid").order("created_at", { ascending: false }).limit(1).maybeSingle(),
@@ -61,7 +69,7 @@ Deno.serve(async (req) => {
     }
 
     // 2. Kassa (festival_pos): edge function leeft (401 op nep-token = gezond) + laatste verkoop
-    try {
+    if (mag("financieel")) try {
       const [boot, lastSale] = await Promise.all([
         fetchMetTimeout(`${URL}/functions/v1/pos-bootstrap`, {
           method: "POST", headers: { apikey: ANON, "Content-Type": "application/json" },
@@ -79,7 +87,7 @@ Deno.serve(async (req) => {
     }
 
     // 3. Portal-data (partners + teksten lezen)
-    try {
+    if (mag("partners")) try {
       const { error, count } = await db.from("partners").select("id", { count: "exact", head: true })
       systems.push({
         key: "portal", label: "Partnerportal", ok: !error,
@@ -90,7 +98,7 @@ Deno.serve(async (req) => {
     }
 
     // 4. Bezoekersapp (views waar de app op draait)
-    try {
+    if (mag("bezoekers")) try {
       const { error } = await db.from("app_wijnen").select("*", { head: true, count: "exact" })
       systems.push({
         key: "app", label: "Bezoekersapp (Nocturne)", ok: !error,
