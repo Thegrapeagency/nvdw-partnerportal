@@ -39,8 +39,15 @@ export async function POST(req: Request) {
     const asUser = createClient(SUPABASE_URL, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
       global: { headers: { Authorization: `Bearer ${token}` } },
     })
-    const { data: isAdmin } = await asUser.rpc('is_admin')
-    if (!isAdmin) return Response.json({ error: 'Alleen admins mogen dit' }, { status: 403 })
+    // Partnerlogins aanmaken hoort bij partnerbeheer. Beheer mag het ook,
+    // want die maakt teamleden aan via dezelfde mail.
+    const [{ data: magPartners }, { data: magBeheer }] = await Promise.all([
+      asUser.rpc('mag', { gebied: 'partners' }),
+      asUser.rpc('mag', { gebied: 'beheer' }),
+    ])
+    if (!magPartners && !magBeheer) {
+      return Response.json({ error: 'Hiervoor heb je partner- of beheer-rechten nodig' }, { status: 403 })
+    }
 
     const body = await req.json()
     const email: string = (body.email || '').trim().toLowerCase()

@@ -143,6 +143,10 @@ export type Admin = {
   rol: string
   actief: boolean
   created_at: string
+  // null = volledige toegang. Anders een lijst gebieden (zie app/admin/rechten.ts
+  // voor de mogelijke waarden). De echte afdwinging zit in de RLS-policies via
+  // de SQL-functie mag().
+  rechten: import('@/app/admin/rechten').Gebied[] | null
 }
 
 export type PortalTekst = {

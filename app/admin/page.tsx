@@ -15,6 +15,7 @@ import Aankondigingen from './Aankondigingen'
 import Draaiboek from './Draaiboek'
 import Carousel from './Carousel'
 import Schrijfstijl from './Schrijfstijl'
+import { heeftTab, GEBIEDEN, type Gebied } from './rechten'
 import Huisstijl from './Huisstijl'
 import Nieuwsbrief from './Nieuwsbrief'
 import Todo from './Todo'
@@ -143,6 +144,11 @@ export default function AdminPage() {
   const [newFaq, setNewFaq] = useState({ vraag: '', antwoord: '', categorie: 'logistiek' })
   const [tekstDraft, setTekstDraft] = useState<Record<string, string>>({})
   const [newTeamlid, setNewTeamlid] = useState({ email: '', naam: '' })
+  // null = volledige toegang (alle huidige admins). Een array betekent beperkt.
+  const [mijnRechten, setMijnRechten] = useState<Gebied[] | null>(null)
+  const [mijnEmail, setMijnEmail] = useState('')
+  const [rechtenOpen, setRechtenOpen] = useState<string | null>(null)
+  const magTab = (tab: string) => heeftTab(mijnRechten, tab)
   const [docUpload, setDocUpload] = useState({ naam: '', categorie: 'draaiboek', file: null as File | null })
   const [uploading, setUploading] = useState(false)
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -164,19 +170,24 @@ export default function AdminPage() {
     } catch (e) { return { ok: false, error: (e as Error)?.message } }
   }
 
-  const loadAll = async () => {
+  const loadAll = async (rechten: Gebied[] | null = mijnRechten) => {
+    // Alleen ophalen waar deze gebruiker recht op heeft. RLS zou het anders
+    // toch blokkeren, maar dan met een lege lijst en onnodige verzoeken.
+    const leeg = Promise.resolve({ data: [] as never[] })
+    const magPartners = heeftTab(rechten, 'partners')
+    const magBeheer = heeftTab(rechten, 'team')
     const [p, v, pr, f, t, a, d, l, cw, eb, cc] = await Promise.all([
-      supabase.from('partners').select('*').order('created_at', { ascending: false }),
-      supabase.from('partner_vragen').select('*').order('created_at', { ascending: false }),
-      supabase.from('producten_catalogus').select('*').order('volgorde'),
-      supabase.from('faq').select('*').order('categorie').order('volgorde'),
-      supabase.from('portal_teksten').select('*').order('volgorde'),
-      supabase.from('admins').select('*').order('created_at'),
-      supabase.from('documenten').select('*').order('created_at', { ascending: false }),
-      supabase.from('activiteit_log').select('*').order('created_at', { ascending: false }).limit(300),
-      supabase.from('crew').select('*').order('created_at'),
-      supabase.from('extra_bestellingen').select('id, partner_id, product, aantal, prijs_per_stuk, status').order('created_at', { ascending: false }),
-      supabase.from('crewcatering').select('id, partner_id, avond, aantal_personen, dieetwensen'),
+      magPartners ? supabase.from('partners').select('*').order('created_at', { ascending: false }) : leeg,
+      magPartners ? supabase.from('partner_vragen').select('*').order('created_at', { ascending: false }) : leeg,
+      magPartners ? supabase.from('producten_catalogus').select('*').order('volgorde') : leeg,
+      magPartners ? supabase.from('faq').select('*').order('categorie').order('volgorde') : leeg,
+      magPartners ? supabase.from('portal_teksten').select('*').order('volgorde') : leeg,
+      magBeheer ? supabase.from('admins').select('*').order('created_at') : leeg,
+      magPartners ? supabase.from('documenten').select('*').order('created_at', { ascending: false }) : leeg,
+      magBeheer ? supabase.from('activiteit_log').select('*').order('created_at', { ascending: false }).limit(300) : leeg,
+      magPartners ? supabase.from('crew').select('*').order('created_at') : leeg,
+      magPartners ? supabase.from('extra_bestellingen').select('id, partner_id, product, aantal, prijs_per_stuk, status').order('created_at', { ascending: false }) : leeg,
+      magPartners ? supabase.from('crewcatering').select('id, partner_id, avond, aantal_personen, dieetwensen') : leeg,
     ])
     setPartners(p.data || []); setVragen(v.data || []); setProducten(pr.data || [])
     setFaqItems(f.data || []); setTeksten(t.data || []); setAdmins(a.data || []); setDocumenten(d.data || [])
@@ -192,15 +203,27 @@ export default function AdminPage() {
     setLog(data || [])
   }
 
+  // Val terug naar Start zodra de actieve tab niet (meer) mag. Vangt zowel een
+  // gedeelde link als het moment waarop iemands rechten net zijn ingeperkt.
+  useEffect(() => {
+    if (!loading && !heeftTab(mijnRechten, activeTab)) setActiveTab('start')
+  }, [mijnRechten, activeTab, loading])
+
   useEffect(() => {
     const init = async () => {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { router.push('/'); return }
       const { data: isAdmin } = await supabase.rpc('is_admin')
       if (!isAdmin) { router.push('/dashboard'); return }
+      // Rechten via een eigen functie, niet via de admins-tabel: wie geen
+      // beheer-recht heeft mag die tabel namelijk niet lezen.
+      const { data: rechten } = await supabase.rpc('mijn_rechten')
+      const rechtenLijst = (rechten as Gebied[] | null) ?? null
+      setMijnRechten(rechtenLijst)
       const { data: me } = await supabase.from('admins').select('naam').eq('email', user.email).maybeSingle()
       setMijnNaam(me?.naam || user.email || '')
-      await loadAll()
+      setMijnEmail(user.email || '')
+      await loadAll(rechtenLijst)
       setLoading(false)
     }
     init()
@@ -482,6 +505,21 @@ export default function AdminPage() {
     await supabase.from('admins').update({ actief: !a.actief }).eq('id', a.id)
     setAdmins(admins.map(x => x.id === a.id ? { ...x, actief: !a.actief } : x))
   }
+  // Rechten van een teamlid aanpassen. null = alles mogen.
+  const zetRechten = async (a: Admin, rechten: Gebied[] | null) => {
+    const { error } = await supabase.from('admins').update({ rechten } as never).eq('id', a.id)
+    if (error) { flash('Opslaan mislukte: ' + error.message, 7000); return }
+    setAdmins(admins.map(x => x.id === a.id ? ({ ...x, rechten } as Admin) : x))
+    if (a.email.toLowerCase() === (mijnEmail || '').toLowerCase()) setMijnRechten(rechten)
+  }
+  const samenvattingRechten = (a: Admin) => {
+    const r = (a as Admin & { rechten: Gebied[] | null }).rechten
+    if (r === null) return 'Alles'
+    if (!r.length) return 'Niets'
+    if (r.length === GEBIEDEN.length) return 'Alles'
+    return r.map(id => GEBIEDEN.find(g => g.id === id)?.naam || id).join(', ')
+  }
+
   const stuurTeamToegang = async (a: Admin, type: 'recovery' | 'magiclink') => {
     const { data: { session } } = await supabase.auth.getSession()
     const res = await fetch('/api/team-toegang', {
@@ -629,7 +667,7 @@ export default function AdminPage() {
 
   // Nav gegroepeerd per thema. 'Start' staat los bovenaan; de rest volgt in
   // vaste, logische clusters zodat je niet meer 25 losse namen af hoeft te zoeken.
-  const NAV_GROUPS: { titel: string | null; items: { id: string; label: string }[] }[] = [
+  const NAV_GROUPS: { titel: string | null; items: { id: string; label: string }[] }[] = ([
     { titel: null, items: [{ id: 'start', label: 'Start' }] },
     {
       titel: 'Productie', items: [
@@ -681,7 +719,12 @@ export default function AdminPage() {
         { id: 'team', label: 'Team' },
       ]
     },
-  ]
+  ] as { titel: string | null; items: { id: string; label: string }[] }[])
+    // Alleen tabs tonen waar deze gebruiker recht op heeft. Dit is puur comfort:
+    // de echte grens ligt in de database (RLS via mag()), zodat verbergen niet
+    // te omzeilen is door de API rechtstreeks aan te roepen.
+    .map(g => ({ ...g, items: g.items.filter(i => magTab(i.id)) }))
+    .filter(g => g.items.length > 0)
 
   const aantalFood = partners.filter(p => p.type === 'food').length
   const aantalWijn = partners.length - aantalFood
@@ -1532,16 +1575,26 @@ export default function AdminPage() {
         {activeTab === 'team' && (
           <>
             <div style={S.title}>Team</div>
-            <div style={S.sub}>Beheerders van de portal. Iedereen hier heeft volledige toegang.</div>
+            <div style={S.sub}>
+              Beheerders van de portal. Vink per persoon aan waar diegene bij mag.
+              Niets aangevinkt laten betekent volledige toegang.
+            </div>
             <div style={S.card}>
               <table style={S.table}>
-                <thead><tr>{['Naam', 'E-mail', 'Rol', 'Status', ''].map(h => <th key={h} style={S.th}>{h}</th>)}</tr></thead>
+                <thead><tr>{['Naam', 'E-mail', 'Toegang', 'Status', ''].map(h => <th key={h} style={S.th}>{h}</th>)}</tr></thead>
                 <tbody>
                   {admins.map(a => (
                     <tr key={a.id}>
-                      <td style={S.td}><div style={{ fontWeight: '600' }}>{a.naam}</div></td>
+                      <td style={S.td}>
+                        <div style={{ fontWeight: '600' }}>{a.naam}</div>
+                        <div style={{ fontSize: '11px', color: '#999' }}>{a.rol}</div>
+                      </td>
                       <td style={S.td}>{a.email}</td>
-                      <td style={S.td}>{a.rol}</td>
+                      <td style={S.td}>
+                        <button style={S.btnSm} onClick={() => setRechtenOpen(rechtenOpen === a.id ? null : a.id)}>
+                          {samenvattingRechten(a)}
+                        </button>
+                      </td>
                       <td style={S.td}><span style={S.badge(a.actief)}>{a.actief ? 'actief' : 'inactief'}</span></td>
                       <td style={S.td}>
                         <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
@@ -1555,6 +1608,55 @@ export default function AdminPage() {
                 </tbody>
               </table>
             </div>
+
+            {rechtenOpen && (() => {
+              const a = admins.find(x => x.id === rechtenOpen)
+              if (!a) return null
+              const huidig = (a as Admin & { rechten: Gebied[] | null }).rechten
+              const alles = huidig === null
+              return (
+                <div style={{ ...S.card, borderLeft: '3px solid var(--bordeaux)' }}>
+                  <div style={S.cardTitle}>Toegang van {a.naam}</div>
+                  <label style={{ display: 'flex', gap: '10px', alignItems: 'center', marginBottom: '14px', cursor: 'pointer' }}>
+                    <input type="checkbox" checked={alles} onChange={e => zetRechten(a, e.target.checked ? null : [])} />
+                    <span style={{ fontSize: '13px', fontWeight: 600 }}>Volledige toegang (alles, ook toekomstige onderdelen)</span>
+                  </label>
+                  {!alles && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                      {GEBIEDEN.map(g => (
+                        <label key={g.id} style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', cursor: 'pointer' }}>
+                          <input
+                            type="checkbox"
+                            style={{ marginTop: '3px' }}
+                            checked={(huidig || []).includes(g.id)}
+                            onChange={e => {
+                              const nu = huidig || []
+                              zetRechten(a, e.target.checked ? [...nu, g.id] : nu.filter(x => x !== g.id))
+                            }}
+                          />
+                          <span>
+                            <span style={{ fontSize: '13px', fontWeight: 600 }}>{g.naam}</span>
+                            <span style={{ fontSize: '12px', color: '#888', display: 'block' }}>{g.uitleg}</span>
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                  {!alles && (huidig || []).length === 0 && (
+                    <p style={{ fontSize: '12px', color: 'var(--bordeaux)', marginTop: '12px' }}>
+                      Zonder vinkjes kan deze persoon inloggen maar verder niets zien. Vink minstens één gebied aan.
+                    </p>
+                  )}
+                  {!alles && !(huidig || []).includes('beheer') && (
+                    <p style={{ fontSize: '12px', color: '#888', marginTop: '12px', lineHeight: 1.5 }}>
+                      Zonder Beheer kan diegene het team en deze rechten niet zien of aanpassen. Dat is meestal precies
+                      wat je wil bij iemand van buiten.
+                    </p>
+                  )}
+                  <button style={{ ...S.btnSm, marginTop: '14px' }} onClick={() => setRechtenOpen(null)}>Sluiten</button>
+                </div>
+              )
+            })()}
             <div style={S.card}>
               <div style={S.cardTitle}>Teamlid toevoegen</div>
               <div style={S.grid2}>

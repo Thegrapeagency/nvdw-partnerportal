@@ -53,8 +53,11 @@ export async function POST(req: Request) {
     const asUser = createClient(SUPABASE_URL, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
       global: { headers: { Authorization: `Bearer ${token}` } },
     })
-    const { data: isAdmin } = await asUser.rpc('is_admin')
-    if (!isAdmin) return Response.json({ error: 'Alleen admins mogen dit' }, { status: 403 })
+    // Teamtoegang regelen valt onder beheer. Een login met alleen bijvoorbeeld
+    // marketing-rechten mag hier dus niet bij, anders kon die zichzelf of
+    // anderen via een wachtwoordlink toegang verschaffen.
+    const { data: magBeheer } = await asUser.rpc('mag', { gebied: 'beheer' })
+    if (!magBeheer) return Response.json({ error: 'Hiervoor heb je beheer-rechten nodig' }, { status: 403 })
 
     const body = await req.json()
     const email: string = (body.email || '').trim().toLowerCase()
