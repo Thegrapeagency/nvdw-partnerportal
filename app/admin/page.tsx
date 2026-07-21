@@ -14,6 +14,7 @@ import Push from './Push'
 import Aankondigingen from './Aankondigingen'
 import Draaiboek from './Draaiboek'
 import Carousel from './Carousel'
+import Huisstijl from './Huisstijl'
 import Nieuwsbrief from './Nieuwsbrief'
 import Todo from './Todo'
 import Overleg from './Overleg'
@@ -655,6 +656,7 @@ export default function AdminPage() {
       titel: 'Marketing', items: [
         { id: 'aankondigingen', label: 'Aankondigingen' },
         { id: 'carousel', label: 'Carousel & stories' },
+        { id: 'huisstijl', label: 'Huisstijl' },
         { id: 'attributie', label: 'Marketing & attributie' },
         { id: 'push', label: 'Pushberichten' },
         { id: 'advertenties', label: 'App-advertenties' },
@@ -732,6 +734,7 @@ export default function AdminPage() {
           const OVERIGE_LINKS: { label: string; url: string }[] = [
             { label: 'Live website', url: 'https://www.nachtvandewijn.nl' },
             { label: 'Carousel-generator (los)', url: 'https://www.nachtvandewijn.nl/tools/carousel-generator' },
+            { label: 'Huisstijl (deelbare link)', url: 'https://www.nachtvandewijn.nl/styleguide' },
             { label: 'Nieuwsbrief-archief', url: `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/newsletter/archief` },
             { label: 'GitHub · website', url: 'https://github.com/Thegrapeagency/Nachtvandewijn-website' },
             { label: 'GitHub · organisatieportal', url: 'https://github.com/Thegrapeagency/nvdw-partnerportal' },
@@ -1410,6 +1413,7 @@ export default function AdminPage() {
         {activeTab === 'aankondigingen' && <Aankondigingen flash={flash} />}
         {activeTab === 'draaiboek' && <Draaiboek flash={flash} />}
         {activeTab === 'carousel' && <Carousel />}
+        {activeTab === 'huisstijl' && <Huisstijl />}
         {activeTab === 'nieuwsbrief' && <Nieuwsbrief flash={flash} />}
         {activeTab === 'todo' && <Todo flash={flash} />}
         {activeTab === 'overleg' && <Overleg flash={flash} />}
