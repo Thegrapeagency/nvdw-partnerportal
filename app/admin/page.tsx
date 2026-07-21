@@ -14,6 +14,7 @@ import Push from './Push'
 import Aankondigingen from './Aankondigingen'
 import Draaiboek from './Draaiboek'
 import Carousel from './Carousel'
+import Schrijfstijl from './Schrijfstijl'
 import Huisstijl from './Huisstijl'
 import Nieuwsbrief from './Nieuwsbrief'
 import Todo from './Todo'
@@ -655,6 +656,7 @@ export default function AdminPage() {
     {
       titel: 'Marketing', items: [
         { id: 'aankondigingen', label: 'Aankondigingen' },
+        { id: 'schrijfstijl', label: 'Schrijfstijl & teksten' },
         { id: 'carousel', label: 'Carousel & stories' },
         { id: 'huisstijl', label: 'Huisstijl' },
         { id: 'attributie', label: 'Marketing & attributie' },
@@ -1412,6 +1414,7 @@ export default function AdminPage() {
 
         {activeTab === 'aankondigingen' && <Aankondigingen flash={flash} />}
         {activeTab === 'draaiboek' && <Draaiboek flash={flash} />}
+        {activeTab === 'schrijfstijl' && <Schrijfstijl flash={flash} />}
         {activeTab === 'carousel' && <Carousel />}
         {activeTab === 'huisstijl' && <Huisstijl />}
         {activeTab === 'nieuwsbrief' && <Nieuwsbrief flash={flash} />}
