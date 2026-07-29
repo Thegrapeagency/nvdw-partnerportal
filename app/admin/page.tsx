@@ -705,7 +705,7 @@ export default function AdminPage() {
     },
     {
       titel: 'Financieel', items: [
-        { id: 'financieel', label: 'Financieel' },
+        { id: 'financieel', label: 'Begroting & kosten' },
         { id: 'kassa', label: 'Kassa & omzet' },
       ]
     },

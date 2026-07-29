@@ -37,6 +37,19 @@ type Boeking = {
   datum: string
   status: BoekingStatus
 }
+// Offertes, facturen en bonnen die aan een boeking hangen. Bewust per boeking:
+// bij elk bedrag hoort het bewijsstuk waar dat bedrag vandaan komt.
+type BijlageSoort = 'offerte' | 'factuur' | 'bon' | 'contract' | 'overig'
+type Bijlage = {
+  id: string
+  boeking_id: string
+  naam: string
+  bestandsnaam: string
+  storage_path: string
+  soort: BijlageSoort
+  geupload_door: string | null
+  created_at: string
+}
 type PostDraft = { categorie: string; naam: string; begroot: string; vorig: string }
 type BoekingDraft = { omschrijving: string; leverancier: string; bedrag: string; datum: string; status: BoekingStatus }
 type TicketRegel = { naam: string; aantal: number; omzet_cents: number }
@@ -66,6 +79,11 @@ const MARKETING_CATEGORIE = 'promotie'
 // Referentie vorige editie (bron: Calculatie NVDW Utrecht 2026 - 3 daags.xlsx, totaaloverzicht)
 const VORIGE_EDITIE = { bezoekers: 4750, omzet_cents: 13061375 }
 const STATUS_LABEL: Record<BoekingStatus, string> = { verwacht: 'Verwacht', factuur: 'Factuur', betaald: 'Betaald' }
+const SOORT_LABEL: Record<BijlageSoort, string> = { offerte: 'Offerte', factuur: 'Factuur', bon: 'Bon', contract: 'Contract', overig: 'Overig' }
+// Wat de bucket accepteert. Ruim genoeg voor een offerte uit de mail of een
+// foto van een bon, zonder uitvoerbare bestanden.
+const BIJLAGE_TYPES = '.pdf,.jpg,.jpeg,.png,.heic,.webp,.doc,.docx,.xls,.xlsx,.txt'
+const MAX_BIJLAGE = 25 * 1024 * 1024
 const STATUS_KLEUR: Record<BoekingStatus, string> = { verwacht: '#9c7a1e', factuur: '#546e7a', betaald: GROEN }
 // Kolombreedtes van het kostengrid, gedeeld door koppen, categorierijen en postrijen.
 const KOL = { vorig: 86, begroot: 92, werkelijk: 96, prognose: 96, delta: 84 }
@@ -210,6 +228,9 @@ export default function Financieel({ flash }: { flash: (m: string, ms?: number) 
   const [drafts, setDrafts] = useState<Record<string, PostDraft>>({})
   const [openPosten, setOpenPosten] = useState<Set<string>>(new Set())
   const [nieuweBoeking, setNieuweBoeking] = useState<Record<string, BoekingDraft>>({})
+  const [bijlagen, setBijlagen] = useState<Bijlage[]>([])
+  const [openBijlagen, setOpenBijlagen] = useState<Set<string>>(new Set())
+  const [uploadBezig, setUploadBezig] = useState<string | null>(null)
   const [nieuweCat, setNieuweCat] = useState({ categorie: '', naam: '', begroot: '' })
   const [nieuwOmzet, setNieuwOmzet] = useState({ categorie: '', naam: '', begroot: '' })
   const [baselineBezig, setBaselineBezig] = useState(false)
@@ -251,6 +272,14 @@ export default function Financieel({ flash }: { flash: (m: string, ms?: number) 
     } catch (e) {
       flash('Boekingen laden mislukt: ' + (e instanceof Error ? e.message : 'onbekende fout'), 7000)
     }
+  }
+
+  const laadBijlagen = async () => {
+    const { data, error } = await supabase.from('budget_bijlagen')
+      .select('id, boeking_id, naam, bestandsnaam, storage_path, soort, geupload_door, created_at')
+      .order('created_at', { ascending: false })
+    if (error) { flash('Bijlagen laden mislukt: ' + error.message, 7000); return }
+    setBijlagen((data || []) as Bijlage[])
   }
 
   const laadTicketing = async () => {
@@ -309,7 +338,7 @@ export default function Financieel({ flash }: { flash: (m: string, ms?: number) 
   }
 
   useEffect(() => {
-    Promise.all([laadTicketing(), laadPos(), laadStandgelden(), laadPosten(), laadBoekingen()]).finally(() => setGeladen(true))
+    Promise.all([laadTicketing(), laadPos(), laadStandgelden(), laadPosten(), laadBoekingen(), laadBijlagen()]).finally(() => setGeladen(true))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -560,6 +589,50 @@ export default function Financieel({ flash }: { flash: (m: string, ms?: number) 
     }
   }
 
+  // ---------- bijlagen ----------
+  const bijlagenVan = (boekingId: string) => bijlagen.filter(x => x.boeking_id === boekingId)
+
+  const uploadBijlage = async (b: Boeking, file: File, soort: BijlageSoort) => {
+    if (file.size > MAX_BIJLAGE) {
+      flash(`"${file.name}" is ${Math.round(file.size / 1024 / 1024)} MB en dat is te groot. Maximaal 25 MB.`, 7000)
+      return
+    }
+    setUploadBezig(b.id)
+    const veilig = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
+    const path = `boeking/${b.id}/${Date.now()}_${veilig}`
+    const { error: upFout } = await supabase.storage.from('begroting').upload(path, file)
+    if (upFout) { flash('Uploaden mislukt: ' + upFout.message, 7000); setUploadBezig(null); return }
+    const { data: { user } } = await supabase.auth.getUser()
+    const { data, error } = await supabase.from('budget_bijlagen').insert({
+      boeking_id: b.id, naam: file.name, bestandsnaam: file.name,
+      storage_path: path, soort, geupload_door: user?.email || null,
+    }).select('id, boeking_id, naam, bestandsnaam, storage_path, soort, geupload_door, created_at').single()
+    if (error) {
+      // Bestand staat er wel, rij niet: haal het bestand weer weg zodat er geen wees achterblijft.
+      await supabase.storage.from('begroting').remove([path])
+      flash('Bijlage opslaan mislukt: ' + error.message, 7000)
+      setUploadBezig(null)
+      return
+    }
+    setBijlagen(x => [data as Bijlage, ...x])
+    setUploadBezig(null)
+    flash(`${SOORT_LABEL[soort]} "${file.name}" toegevoegd`)
+  }
+
+  const openBijlage = async (bl: Bijlage) => {
+    const { data, error } = await supabase.storage.from('begroting').createSignedUrl(bl.storage_path, 120)
+    if (error || !data?.signedUrl) { flash('Openen mislukt: ' + (error?.message || 'geen link gekregen'), 6000); return }
+    window.open(data.signedUrl, '_blank')
+  }
+
+  const verwijderBijlage = async (bl: Bijlage) => {
+    if (!confirm(`Bijlage "${bl.naam}" verwijderen?`)) return
+    const { error } = await supabase.from('budget_bijlagen').delete().eq('id', bl.id)
+    if (error) { flash('Verwijderen mislukt: ' + error.message, 6000); return }
+    await supabase.storage.from('begroting').remove([bl.storage_path])
+    setBijlagen(x => x.filter(y => y.id !== bl.id))
+  }
+
   const zetBoekingStatus = async (b: Boeking, status: BoekingStatus) => {
     const { error } = await supabase.from('budget_boekingen').update({ status }).eq('id', b.id)
     if (error) { flash('Status wijzigen mislukt: ' + error.message, 6000); return }
@@ -567,10 +640,15 @@ export default function Financieel({ flash }: { flash: (m: string, ms?: number) 
   }
 
   const verwijderBoeking = async (b: Boeking) => {
-    if (!confirm(`Boeking "${b.omschrijving}" (${euro(Number(b.bedrag_cents))}) verwijderen?`)) return
+    const hangt = bijlagenVan(b.id)
+    const waarschuwing = hangt.length > 0 ? `\n\nDe ${hangt.length} bijlage${hangt.length === 1 ? '' : 'n'} eronder verdwijnt ook.` : ''
+    if (!confirm(`Boeking "${b.omschrijving}" (${euro(Number(b.bedrag_cents))}) verwijderen?${waarschuwing}`)) return
     const { error } = await supabase.from('budget_boekingen').delete().eq('id', b.id)
     if (error) { flash('Verwijderen mislukt: ' + error.message, 6000); return }
+    // De rijen gaan mee via cascade, de bestanden moeten we zelf opruimen.
+    if (hangt.length > 0) await supabase.storage.from('begroting').remove(hangt.map(x => x.storage_path))
     setBoekingen(bs => bs.filter(x => x.id !== b.id))
+    setBijlagen(x => x.filter(y => y.boeking_id !== b.id))
   }
 
   // ---------- import ----------
@@ -667,6 +745,73 @@ export default function Financieel({ flash }: { flash: (m: string, ms?: number) 
     </div>
   )
 
+  // Paperclip achter een boeking. Toont het aantal bijlagen en klapt ze uit.
+  const bijlageKnop = (b: Boeking) => {
+    const n = bijlagenVan(b.id).length
+    const open = openBijlagen.has(b.id)
+    return (
+      <button
+        title={n === 0 ? 'Offerte of factuur toevoegen' : `${n} bijlage${n === 1 ? '' : 'n'}`}
+        onClick={() => setOpenBijlagen(s => {
+          const next = new Set(s)
+          if (next.has(b.id)) next.delete(b.id); else next.add(b.id)
+          return next
+        })}
+        style={{
+          border: 'none', background: open ? '#efe7d3' : 'transparent', borderRadius: '3px', cursor: 'pointer',
+          padding: '2px 6px', fontSize: '11px', whiteSpace: 'nowrap', flexShrink: 0,
+          color: n > 0 ? 'var(--navy)' : '#bbb', fontWeight: n > 0 ? 700 : 400,
+        }}>
+        📎{n > 0 ? ` ${n}` : ''}
+      </button>
+    )
+  }
+
+  // Bijlagen onder een boeking: openen, verwijderen en nieuwe toevoegen.
+  const bijlagenBlok = (b: Boeking) => {
+    const lijst = bijlagenVan(b.id)
+    const bezig = uploadBezig === b.id
+    return (
+      <div style={{ background: '#fff', border: '1px solid #eee5d0', borderRadius: '6px', padding: '10px 12px', margin: '2px 0 8px 58px' }}>
+        {lijst.length === 0 && (
+          <div style={{ fontSize: '11px', color: '#999', marginBottom: '8px' }}>
+            Nog geen bijlage. Hang hier de offerte, de factuur of een foto van de bon aan.
+          </div>
+        )}
+        {lijst.map(bl => (
+          <div key={bl.id} style={{ display: 'flex', gap: '8px', alignItems: 'center', padding: '3px 0', fontSize: '11px' }}>
+            <span style={{ width: '58px', flexShrink: 0, fontWeight: 700, color: 'var(--bordeaux)' }}>{SOORT_LABEL[bl.soort]}</span>
+            <button onClick={() => openBijlage(bl)}
+              style={{ flex: 1, textAlign: 'left', border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--navy)', textDecoration: 'underline', fontSize: '11px', padding: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {bl.naam}
+            </button>
+            <span style={{ color: '#bbb', flexShrink: 0 }}>
+              {new Date(bl.created_at).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' })}
+              {bl.geupload_door ? ' · ' + bl.geupload_door.split('@')[0] : ''}
+            </span>
+            <button style={{ ...AS.btnSm, padding: '1px 6px', fontSize: '9px', flexShrink: 0 }} onClick={() => verwijderBijlage(bl)}>x</button>
+          </div>
+        ))}
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: lijst.length > 0 ? '10px' : 0, flexWrap: 'wrap' }}>
+          <select id={`soort-${b.id}`} defaultValue="offerte" style={{ ...smalInput, width: '110px', fontSize: '11px' }}>
+            {(Object.keys(SOORT_LABEL) as BijlageSoort[]).map(s => <option key={s} value={s}>{SOORT_LABEL[s]}</option>)}
+          </select>
+          <label style={{ ...AS.btnSm, cursor: bezig ? 'wait' : 'pointer', opacity: bezig ? 0.6 : 1, margin: 0 }}>
+            {bezig ? 'Bezig met uploaden…' : '+ Bestand kiezen'}
+            <input type="file" accept={BIJLAGE_TYPES} disabled={bezig} style={{ display: 'none' }}
+              onChange={e => {
+                const file = e.target.files?.[0]
+                const keuze = (document.getElementById(`soort-${b.id}`) as HTMLSelectElement | null)?.value as BijlageSoort | undefined
+                e.target.value = ''
+                if (file) uploadBijlage(b, file, keuze || 'offerte')
+              }} />
+          </label>
+          <span style={{ fontSize: '10px', color: '#bbb' }}>pdf, foto, word of excel · max 25 MB</span>
+        </div>
+      </div>
+    )
+  }
+
   // Eén boekingenblok (uitklap onder een post).
   const boekingenBlok = (p: BudgetPost) => {
     const info = perPost.get(p.id)
@@ -676,17 +821,23 @@ export default function Financieel({ flash }: { flash: (m: string, ms?: number) 
       <div style={{ background: '#faf7f0', borderRadius: '8px', padding: '12px 14px', margin: '4px 0 10px' }}>
         {(info?.rijen.length || 0) === 0 && (
           <div style={{ fontSize: '12px', color: '#999', marginBottom: '8px' }}>
-            Nog geen {isOmzet ? 'ontvangsten' : 'boekingen'}. Tip: de snelboekbalk bovenaan is de snelste route.
+            Nog geen {isOmzet ? 'ontvangsten' : 'boekingen'}. Vul hieronder de leverancier en het bedrag in
+            {isOmzet ? '' : ' (zet een offerte op Verwacht)'} en hang er met 📎 de offerte of factuur aan.
+            Tip: de snelboekbalk bovenaan is de snelste route.
           </div>
         )}
         {(info?.rijen || []).map(b => (
-          <div key={b.id} style={{ display: 'flex', gap: '10px', alignItems: 'center', padding: '5px 0', borderBottom: '1px solid #f0ead9', fontSize: '12px' }}>
-            <span style={{ color: '#999', width: '58px', flexShrink: 0 }}>{datumKort(b.datum)}</span>
-            <span style={{ flex: 1, color: 'var(--navy)' }}>{b.omschrijving}{b.leverancier ? <span style={{ color: '#999' }}> · {b.leverancier}</span> : null}</span>
-            {statusChip(b)}
-            <span style={{ fontWeight: 700, whiteSpace: 'nowrap', width: '90px', textAlign: 'right' }}>{euro(Number(b.bedrag_cents))}</span>
-            <button style={{ ...AS.btnSm, padding: '2px 7px', fontSize: '9px' }} onClick={() => verwijderBoeking(b)}>x</button>
-          </div>
+          <Fragment key={b.id}>
+            <div style={{ display: 'flex', gap: '10px', alignItems: 'center', padding: '5px 0', borderBottom: '1px solid #f0ead9', fontSize: '12px' }}>
+              <span style={{ color: '#999', width: '58px', flexShrink: 0 }}>{datumKort(b.datum)}</span>
+              <span style={{ flex: 1, color: 'var(--navy)' }}>{b.omschrijving}{b.leverancier ? <span style={{ color: '#999' }}> · {b.leverancier}</span> : null}</span>
+              {bijlageKnop(b)}
+              {statusChip(b)}
+              <span style={{ fontWeight: 700, whiteSpace: 'nowrap', width: '90px', textAlign: 'right' }}>{euro(Number(b.bedrag_cents))}</span>
+              <button style={{ ...AS.btnSm, padding: '2px 7px', fontSize: '9px' }} onClick={() => verwijderBoeking(b)}>x</button>
+            </div>
+            {openBijlagen.has(b.id) && bijlagenBlok(b)}
+          </Fragment>
         ))}
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: '10px', flexWrap: 'wrap' }}>
           <input style={{ ...smalInput, flex: 2, minWidth: '160px' }} placeholder={isOmzet ? 'Nieuwe ontvangst (bijv. subsidie deel 1)' : 'Nieuwe boeking (bijv. aanbetaling)'}
@@ -817,10 +968,15 @@ export default function Financieel({ flash }: { flash: (m: string, ms?: number) 
 
   return (
     <>
-      <div style={AS.title}>Financieel</div>
+      <div style={AS.title}>Begroting & kosten</div>
       <div style={AS.sub}>
         Begroting, boekingen en prognose op één plek. Omzet komt live binnen uit ticketing, kassa en partnerportal.
         De prognosekolom is leidend: werkelijk plus toegezegd, minimaal begroot zolang een post loopt.
+      </div>
+      <div style={{ ...AS.sub, background: '#f7f4ec', borderLeft: '3px solid var(--gold)', borderRadius: '4px', padding: '10px 14px', marginBottom: '16px' }}>
+        <b>Begroting aanpassen:</b> klik in het bedrag in de kolom Begroot en typ het nieuwe bedrag. Klaar is opgeslagen.
+        Klik op het pijltje <span style={{ color: 'var(--bordeaux)' }}>▸</span> voor een post om er een leverancier,
+        een bedrag en de bijbehorende offerte of factuur onder te hangen.
       </div>
 
       <datalist id="fin-categorieen">
