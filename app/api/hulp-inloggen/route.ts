@@ -56,9 +56,12 @@ export async function POST(req: Request) {
       email,
       options: { redirectTo: `${origin}/wachtwoord` },
     })
-    if (linkErr || !linkData?.properties?.action_link) return netjes()
+    if (linkErr || !linkData?.properties?.action_link) {
+      console.error('[hulp-inloggen] link genereren mislukt:', linkErr?.message)
+      return netjes()
+    }
 
-    await fetch('https://api.resend.com/emails', {
+    const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -68,9 +71,15 @@ export async function POST(req: Request) {
         html: wachtwoordHtml(teamlid.naam || '', linkData.properties.action_link),
       }),
     })
+    // Naar buiten blijft het antwoord hetzelfde, want anders is aan het
+    // verschil te zien of een adres bestaat. Maar een stille mislukking is
+    // erger dan geen knop, dus die moet in de serverlogs te vinden zijn.
+    if (!res.ok) console.error('[hulp-inloggen] Resend weigerde:', res.status, await res.text())
+    else console.log('[hulp-inloggen] mail verstuurd')
 
     return netjes()
-  } catch {
+  } catch (e) {
+    console.error('[hulp-inloggen] onverwachte fout:', e instanceof Error ? e.message : e)
     return netjes()
   }
 }
