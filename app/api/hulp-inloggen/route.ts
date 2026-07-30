@@ -1,0 +1,76 @@
+import { createClient } from '@supabase/supabase-js'
+import { wachtwoordHtml } from '../team-toegang/mail'
+
+export const runtime = 'nodejs'
+
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!
+const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
+const RESEND_API_KEY = process.env.RESEND_API_KEY
+const MAIL_FROM = process.env.MAIL_FROM || 'Nacht van de Wijn <noreply@nachtvandewijn.nl>'
+
+// Zelf een verse wachtwoordlink aanvragen als je link niet meer werkt, zonder
+// dat er iemand aan de beheerkant iets voor hoeft te doen.
+//
+// Deze route heeft géén login nodig, dus hij is bewust smal gehouden:
+// - hij mailt alleen naar adressen die in het team staan
+// - hij antwoordt altijd hetzelfde, zodat je er niet mee kunt uitvissen welke
+//   adressen een account hebben
+// - hij staat op een slot van één mail per twee minuten per adres
+//
+// Bewust via onze eigen Resend en niet via de ingebouwde mailer van Supabase:
+// die verstuurt vanaf een vreemd afzenderadres en heeft een lage limiet.
+const SLOT_SECONDEN = 120
+
+export async function POST(req: Request) {
+  // Altijd hetzelfde antwoord naar buiten, wat er intern ook gebeurt.
+  const netjes = () => Response.json({ ok: true })
+
+  try {
+    if (!SERVICE_KEY || !RESEND_API_KEY) return netjes()
+
+    const body = await req.json().catch(() => ({}))
+    const email = String(body?.email || '').trim().toLowerCase()
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email) || email.length > 254) return netjes()
+
+    const admin = createClient(SUPABASE_URL, SERVICE_KEY)
+
+    // Slot: recent al een mail voor dit adres de deur uit?
+    const bucket = `hulp-inloggen:${email}`
+    const sinds = new Date(Date.now() - SLOT_SECONDEN * 1000).toISOString()
+    const { count } = await admin.from('rate_events')
+      .select('id', { count: 'exact', head: true })
+      .eq('bucket', bucket).gte('at', sinds)
+    if ((count ?? 0) > 0) return netjes()
+
+    // Alleen voor teamleden. Dit is wat de route ervan weerhoudt een open
+    // mailmachine te zijn.
+    const { data: teamlid } = await admin
+      .from('admins').select('naam, email, actief').ilike('email', email).maybeSingle()
+    if (!teamlid || !teamlid.actief) return netjes()
+
+    await admin.from('rate_events').insert({ bucket, ip: (req.headers.get('x-forwarded-for') || '0.0.0.0').split(',')[0].trim() })
+
+    const origin = process.env.NEXT_PUBLIC_SITE_URL || new URL(req.url).origin
+    const { data: linkData, error: linkErr } = await admin.auth.admin.generateLink({
+      type: 'recovery',
+      email,
+      options: { redirectTo: `${origin}/wachtwoord` },
+    })
+    if (linkErr || !linkData?.properties?.action_link) return netjes()
+
+    await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from: MAIL_FROM,
+        to: [email],
+        subject: 'Nieuwe link voor het partnerportal',
+        html: wachtwoordHtml(teamlid.naam || '', linkData.properties.action_link),
+      }),
+    })
+
+    return netjes()
+  } catch {
+    return netjes()
+  }
+}

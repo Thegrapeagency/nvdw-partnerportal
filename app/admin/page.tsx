@@ -148,6 +148,10 @@ export default function AdminPage() {
   const [mijnRechten, setMijnRechten] = useState<Gebied[] | null>(null)
   const [mijnEmail, setMijnEmail] = useState('')
   const [rechtenOpen, setRechtenOpen] = useState<string | null>(null)
+  const [pwOpen, setPwOpen] = useState<string | null>(null)
+  const [pwVeld, setPwVeld] = useState<Record<string, string>>({})
+  const [pwBezig, setPwBezig] = useState<string | null>(null)
+  const [linkGestuurd, setLinkGestuurd] = useState<Record<string, number>>({})
   const magTab = (tab: string) => heeftTab(mijnRechten, tab)
   const [docUpload, setDocUpload] = useState({ naam: '', categorie: 'draaiboek', file: null as File | null })
   const [uploading, setUploading] = useState(false)
@@ -521,6 +525,19 @@ export default function AdminPage() {
   }
 
   const stuurTeamToegang = async (a: Admin, type: 'recovery' | 'magiclink') => {
+    // Per persoon is er maar één link geldig: een nieuwe maakt de vorige dood.
+    // Twee mails achter elkaar sturen is dus precies hoe je iemand "link
+    // verlopen" laat zien, en daarom waarschuwen we vooraf.
+    const vorige = linkGestuurd[a.email]
+    if (vorige && Date.now() - vorige < 30 * 60 * 1000) {
+      const min = Math.max(1, Math.round((Date.now() - vorige) / 60000))
+      const ok = confirm(
+        `Er is ${min} ${min === 1 ? 'minuut' : 'minuten'} geleden al een link naar ${a.email} gestuurd.\n\n` +
+        `Als je nu een nieuwe stuurt, werkt de vorige mail niet meer. Klikt ${a.naam || 'de ontvanger'} dan op de oudste mail, ` +
+        `dan ziet die "link verlopen".\n\nToch een nieuwe sturen?`
+      )
+      if (!ok) return
+    }
     const { data: { session } } = await supabase.auth.getSession()
     const res = await fetch('/api/team-toegang', {
       method: 'POST',
@@ -528,8 +545,36 @@ export default function AdminPage() {
       body: JSON.stringify({ email: a.email, naam: a.naam, type }),
     })
     const j = await res.json().catch(() => ({}))
-    if (res.ok && j.ok) flash(`${type === 'recovery' ? 'Wachtwoord-link' : 'Magic link'} verstuurd naar ${a.email}.`, 8000)
+    if (res.ok && j.ok) {
+      setLinkGestuurd(x => ({ ...x, [a.email]: Date.now() }))
+      flash(`${type === 'recovery' ? 'Wachtwoord-link' : 'Magic link'} verstuurd naar ${a.email}. Laat ${a.naam || 'de ontvanger'} de nieuwste mail gebruiken; oudere links werken niet meer.`, 10000)
+    }
     else flash('Versturen mislukt: ' + (j.error || res.status), 8000)
+  }
+
+  // Zelf een wachtwoord zetten. Geen mail, geen link die stuk kan.
+  const nieuwWachtwoord = () => {
+    const tekens = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789'
+    const bytes = new Uint8Array(16)
+    crypto.getRandomValues(bytes)
+    return Array.from(bytes, b => tekens[b % tekens.length]).join('')
+  }
+
+  const zetWachtwoord = async (a: Admin) => {
+    const pw = pwVeld[a.id] || ''
+    if (pw.length < 12) { flash('Kies een wachtwoord van minstens 12 tekens, of klik op Genereer.', 6000); return }
+    if (!confirm(`Wachtwoord van ${a.naam || a.email} nu instellen?\n\nDe huidige inlog werkt daarna niet meer. Geef het nieuwe wachtwoord zelf aan ${a.naam || 'deze persoon'} door.`)) return
+    setPwBezig(a.id)
+    const { data: { session } } = await supabase.auth.getSession()
+    const res = await fetch('/api/team-wachtwoord', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token || ''}` },
+      body: JSON.stringify({ email: a.email, wachtwoord: pw }),
+    })
+    const j = await res.json().catch(() => ({}))
+    setPwBezig(null)
+    if (res.ok && j.ok) flash(`Wachtwoord ingesteld voor ${a.naam || a.email}. Geef het nu door; hierna kun je het niet meer terugkijken.`, 12000)
+    else flash('Instellen mislukt: ' + (j.error || res.status), 8000)
   }
 
   // ---- Documenten ----
@@ -1601,10 +1646,35 @@ export default function AdminPage() {
                       <td style={S.td}><span style={S.badge(a.actief)}>{a.actief ? 'actief' : 'inactief'}</span></td>
                       <td style={S.td}>
                         <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                          <button style={S.btnSm} onClick={() => stuurTeamToegang(a, 'recovery')}>Nieuw wachtwoord</button>
+                          <button style={S.btnSm} onClick={() => { setPwOpen(pwOpen === a.id ? null : a.id); setPwVeld(x => ({ ...x, [a.id]: x[a.id] || nieuwWachtwoord() })) }}>
+                            Wachtwoord zetten
+                          </button>
+                          <button style={S.btnSm} onClick={() => stuurTeamToegang(a, 'recovery')}>Mail wachtwoordlink</button>
                           <button style={S.btnSm} onClick={() => stuurTeamToegang(a, 'magiclink')}>Magic link</button>
                           {a.rol !== 'owner' && <button style={S.btnSm} onClick={() => toggleAdmin(a)}>{a.actief ? 'Deactiveer' : 'Activeer'}</button>}
                         </div>
+                        {pwOpen === a.id && (
+                          <div style={{ background: '#f7f4ec', borderRadius: '6px', padding: '12px', marginTop: '10px', maxWidth: '420px' }}>
+                            <div style={{ fontSize: '12px', color: '#555', lineHeight: 1.6, marginBottom: '10px' }}>
+                              Zet het wachtwoord meteen zelf, zonder mail. Geef het daarna door aan {a.naam || a.email};
+                              je kunt het hierna niet meer terugkijken.
+                            </div>
+                            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                              <input
+                                style={{ ...S.input, width: '210px', fontFamily: 'ui-monospace, monospace', fontSize: '13px', padding: '7px 9px' }}
+                                value={pwVeld[a.id] || ''}
+                                onChange={e => setPwVeld(x => ({ ...x, [a.id]: e.target.value }))}
+                                spellCheck={false} autoComplete="off" />
+                              <button style={S.btnSm} onClick={() => setPwVeld(x => ({ ...x, [a.id]: nieuwWachtwoord() }))}>Genereer</button>
+                              <button style={S.btnSm} onClick={() => navigator.clipboard?.writeText(pwVeld[a.id] || '').then(() => flash('Wachtwoord gekopieerd'), () => flash('Kopiëren lukte niet, selecteer het zelf', 6000))}>Kopieer</button>
+                              <button style={{ ...S.btnSm, borderColor: 'var(--navy)', color: 'var(--navy)', fontWeight: 700 }}
+                                disabled={pwBezig === a.id} onClick={() => zetWachtwoord(a)}>
+                                {pwBezig === a.id ? 'Bezig…' : 'Instellen'}
+                              </button>
+                              <button style={S.btnSm} onClick={() => setPwOpen(null)}>Sluit</button>
+                            </div>
+                          </div>
+                        )}
                       </td>
                     </tr>
                   ))}

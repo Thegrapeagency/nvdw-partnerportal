@@ -13,6 +13,10 @@ export default function WachtwoordPage() {
   const [done, setDone] = useState(false)
   const [saving, setSaving] = useState(false)
   const [isMagic, setIsMagic] = useState(false)
+  const [nieuwMail, setNieuwMail] = useState('')
+  const [nieuwBezig, setNieuwBezig] = useState(false)
+  const [nieuwGestuurd, setNieuwGestuurd] = useState(false)
+  const [nieuwFout, setNieuwFout] = useState('')
 
   useEffect(() => {
     // De link kan in 3 vormen binnenkomen: #access_token (impliciet, auto via
@@ -66,6 +70,32 @@ export default function WachtwoordPage() {
     setTimeout(() => router.push(isAdmin ? '/admin' : '/dashboard'), 1500)
   }
 
+  // Zelf een verse link aanvragen, zodat een dode link geen doodlopende weg is
+  // en er niemand aan de beheerkant iets voor hoeft te doen.
+  const vraagNieuwe = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setNieuwFout('')
+    const mail = nieuwMail.trim().toLowerCase()
+    if (!mail) return
+    setNieuwBezig(true)
+    // Via onze eigen route, zodat de mail van het eigen adres komt en in de
+    // huisstijl staat. Die route antwoordt altijd hetzelfde, dus deze pagina
+    // verklapt niet welke adressen een account hebben.
+    try {
+      const res = await fetch('/api/hulp-inloggen', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: mail }),
+      })
+      setNieuwBezig(false)
+      if (!res.ok) { setNieuwFout('Aanvragen lukte even niet. Probeer het opnieuw of vraag het iemand van het team.'); return }
+      setNieuwGestuurd(true)
+    } catch {
+      setNieuwBezig(false)
+      setNieuwFout('Aanvragen lukte even niet. Probeer het opnieuw of vraag het iemand van het team.')
+    }
+  }
+
   const inputStyle: React.CSSProperties = { width: '100%', padding: '11px 14px', background: 'var(--cream)', border: '1px solid rgba(1,3,65,0.15)', color: 'var(--navy)', fontSize: '14px', outline: 'none' }
   const labelStyle: React.CSSProperties = { display: 'block', fontSize: '11px', fontWeight: 600, letterSpacing: '1px', textTransform: 'uppercase', color: 'rgba(1,3,65,0.5)', marginBottom: '6px' }
 
@@ -89,10 +119,33 @@ export default function WachtwoordPage() {
 
         {ready && !done && !hasSession && (
           <div>
-            <p style={{ fontSize: '14px', color: 'var(--navy)', marginBottom: '16px', lineHeight: 1.6 }}>
-              Deze link is verlopen of niet meer geldig. {isMagic ? 'Vraag een nieuwe inloglink aan of log in met je wachtwoord.' : <>Log in en kies daar &quot;Wachtwoord wijzigen&quot;, of vraag een nieuwe link aan.</>}
+            <p style={{ fontSize: '14px', color: 'var(--navy)', marginBottom: '12px', lineHeight: 1.6 }}>
+              Deze link werkt niet meer.
             </p>
-            <button onClick={() => router.push('/')} style={{ padding: '12px 22px', background: 'var(--navy)', color: 'var(--cream)', border: 'none', fontSize: '11px', fontWeight: 600, letterSpacing: '2px', textTransform: 'uppercase', cursor: 'pointer' }}>Naar inloggen</button>
+            <p style={{ fontSize: '13px', color: 'rgba(1,3,65,0.7)', marginBottom: '18px', lineHeight: 1.6 }}>
+              Dat komt bijna altijd doordat er daarna nog een mail is verstuurd, of doordat de link al een keer
+              gebruikt is. Er is er namelijk steeds maar één geldig. Staan er meerdere mails in je inbox, gebruik
+              dan de allerlaatste. Of vraag hieronder een verse link aan.
+            </p>
+            {nieuwGestuurd ? (
+              <div style={{ fontSize: '14px', color: '#2e7d32', fontWeight: 500, lineHeight: 1.6 }}>
+                ✓ Staat dit adres in het team, dan is er nu een verse link onderweg naar {nieuwMail}.
+                Gebruik die mail en negeer de oudere.
+              </div>
+            ) : (
+              <form onSubmit={vraagNieuwe} style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '20px' }}>
+                <div>
+                  <label style={labelStyle}>Je e-mailadres</label>
+                  <input type="email" value={nieuwMail} onChange={e => setNieuwMail(e.target.value)} required
+                    style={inputStyle} placeholder="naam@nachtvandewijn.nl" />
+                </div>
+                {nieuwFout && <div style={{ fontSize: '13px', color: 'var(--bordeaux)' }}>{nieuwFout}</div>}
+                <button type="submit" disabled={nieuwBezig} style={{ padding: '12px', background: 'var(--navy)', color: 'var(--cream)', border: 'none', fontSize: '11px', fontWeight: 600, letterSpacing: '2px', textTransform: 'uppercase', cursor: nieuwBezig ? 'not-allowed' : 'pointer', opacity: nieuwBezig ? 0.6 : 1 }}>
+                  {nieuwBezig ? 'Versturen...' : 'Stuur mij een nieuwe link'}
+                </button>
+              </form>
+            )}
+            <button onClick={() => router.push('/')} style={{ padding: '10px 20px', background: 'transparent', color: 'var(--navy)', border: '1px solid rgba(1,3,65,0.3)', fontSize: '11px', fontWeight: 600, letterSpacing: '2px', textTransform: 'uppercase', cursor: 'pointer' }}>Naar inloggen</button>
           </div>
         )}
 
