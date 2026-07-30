@@ -17,6 +17,8 @@ const S = {
   input: { width: '100%', padding: '10px 12px', background: 'var(--cream)', border: '1px solid rgba(1,3,65,0.12)', color: 'var(--navy)', fontSize: '14px', outline: 'none' } as React.CSSProperties,
   btn: { padding: '10px 20px', background: 'var(--navy)', color: 'var(--cream)', border: 'none', fontSize: '11px', fontWeight: '600', letterSpacing: '1.5px', textTransform: 'uppercase', cursor: 'pointer', marginTop: '20px' } as React.CSSProperties,
   btnOutline: { padding: '7px 14px', background: 'transparent', color: 'var(--bordeaux)', border: '1px solid var(--bordeaux)', fontSize: '10px', fontWeight: '600', letterSpacing: '1px', textTransform: 'uppercase', cursor: 'pointer' } as React.CSSProperties,
+  // Kleine plus- en minknopjes voor de aantallen bij extra producten.
+  btnMini: { width: '28px', height: '28px', padding: 0, background: 'transparent', color: 'var(--navy)', border: '1px solid rgba(1,3,65,0.2)', borderRadius: '4px', fontSize: '15px', lineHeight: 1, cursor: 'pointer', flexShrink: 0 } as React.CSSProperties,
   divider: { borderTop: '1px solid rgba(1,3,65,0.08)', margin: '0' },
   grid2: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' } as React.CSSProperties,
   pageTitle: { fontFamily: 'Fraunces, Georgia, serif', fontWeight: 700, fontSize: '26px', letterSpacing: '0', color: 'var(--navy)', lineHeight: 1.1, marginBottom: '6px' } as React.CSSProperties,
@@ -59,6 +61,7 @@ export default function Dashboard() {
   const [faqItems, setFaqItems] = useState<FAQ[]>([])
   const [vragen, setVragen] = useState<PartnerVraag[]>([])
   const [producten, setProducten] = useState<Product[]>([])
+  const [extraAantal, setExtraAantal] = useState<Record<string, number>>({})
   const [teksten, setTeksten] = useState<Record<string, string>>({})
   const [documenten, setDocumenten] = useState<Document[]>([])
   const [log, setLog] = useState<ActiviteitLog[]>([])
@@ -75,6 +78,7 @@ export default function Dashboard() {
   const [newVraag, setNewVraag] = useState({ onderwerp: '', bericht: '' })
   const [signNaam, setSignNaam] = useState('')
   const [signData, setSignData] = useState<string | null>(null)
+  const [akkoordVoorwaarden, setAkkoordVoorwaarden] = useState(false)
   const [cateringForm, setCateringForm] = useState<Record<string, { aantal: string; dieet: string }>>({
     vrijdag: { aantal: '0', dieet: '' }, zaterdag: { aantal: '0', dieet: '' }, zondag: { aantal: '0', dieet: '' },
   })
@@ -308,15 +312,26 @@ export default function Dashboard() {
 
   const ondertekenContract = async () => {
     if (!partner || !signNaam.trim() || !signData) { flash('Vul je naam in en zet je handtekening.'); return }
-    const nu = new Date().toISOString()
-    const patch = {
-      contract_ondertekend: true, contract_ondertekend_datum: nu, contract_ondertekenaar: signNaam.trim(),
-      contract_handtekening: signData, offerte_akkoord: true, offerte_akkoord_datum: nu, status: 'getekend',
-    }
-    const { error } = await supabase.from('partners').update(patch).eq('id', partner.id)
-    if (error) { flash('Opslaan mislukt: ' + error.message); return }
-    setPartner({ ...partner, ...patch })
-    flash('Contract ondertekend. Bedankt!')
+    if (!akkoordVoorwaarden) { flash('Vink aan dat je akkoord gaat met de voorwaarden.'); return }
+    // Via een RPC, zodat de server de bedragen vastlegt en niet de browser.
+    // Anders kon een partner een contract met nul procent afdracht laten
+    // opslaan.
+    const { data, error } = await supabase.rpc('partner_onderteken_contract', {
+      p_naam: signNaam.trim(),
+      p_handtekening: signData,
+    })
+    if (error) { flash('Ondertekenen mislukt: ' + error.message); return }
+    setPartner({
+      ...partner,
+      contract_ondertekend: true,
+      contract_ondertekend_datum: new Date().toISOString(),
+      contract_ondertekenaar: signNaam.trim(),
+      contract_handtekening: signData,
+      contract_snapshot: data as Record<string, unknown>,
+      offerte_akkoord: true,
+      status: 'getekend',
+    })
+    flash('Ondertekend. Bedankt, je krijgt hier geen papieren versie van nodig.')
   }
 
   const saveCatering = async (avond: string) => {
@@ -334,16 +349,51 @@ export default function Dashboard() {
     flash('Opgeslagen')
   }
 
-  const bestelExtra = async (product: Product) => {
-    if (!partner) return
-    const { data } = await supabase.from('extra_bestellingen').insert({ partner_id: partner.id, product: product.naam, omschrijving: product.omschrijving, aantal: 1, prijs_per_stuk: product.prijs }).select().single()
+  // Extra producten werken als een webshop: je kiest een aantal, en zolang wij
+  // de bestelling nog niet hebben bevestigd kun je hem zelf nog bijstellen.
+  const bestelExtra = async (product: Product, aantal: number) => {
+    if (!partner || aantal < 1) return
+    const bestaand = mijnBestellingen.find(e => e.product === product.naam && e.status === 'aangevraagd')
+    if (bestaand) {
+      const nieuwAantal = bestaand.aantal + aantal
+      const { error } = await supabase.from('extra_bestellingen').update({ aantal: nieuwAantal }).eq('id', bestaand.id)
+      if (error) { flash('Aanpassen mislukt: ' + error.message); return }
+      setMijnBestellingen(mijnBestellingen.map(e => e.id === bestaand.id ? { ...e, aantal: nieuwAantal } : e))
+      flash(`${product.naam} staat nu ${nieuwAantal}× in je aanvraag`)
+      return
+    }
+    const { data, error } = await supabase.from('extra_bestellingen')
+      .insert({ partner_id: partner.id, product: product.naam, omschrijving: product.omschrijving, aantal, prijs_per_stuk: product.prijs })
+      .select().single()
+    if (error) { flash('Aanvragen mislukt: ' + error.message); return }
     if (data) setMijnBestellingen([data, ...mijnBestellingen])
-    flash(`${product.naam} aangevraagd`)
+    flash(`${aantal}× ${product.naam} aangevraagd`)
+  }
+
+  const wijzigAantal = async (id: string, aantal: number) => {
+    if (aantal < 1) return
+    const { error } = await supabase.from('extra_bestellingen').update({ aantal }).eq('id', id)
+    if (error) { flash('Aanpassen lukt niet meer, deze bestelling is al in behandeling.'); return }
+    setMijnBestellingen(mijnBestellingen.map(e => e.id === id ? { ...e, aantal } : e))
+  }
+
+  const verwijderBestelling = async (id: string, naam: string) => {
+    if (!confirm(`"${naam}" uit je aanvraag halen?`)) return
+    const { error } = await supabase.from('extra_bestellingen').delete().eq('id', id)
+    if (error) { flash('Verwijderen lukt niet meer, deze bestelling is al in behandeling.'); return }
+    setMijnBestellingen(mijnBestellingen.filter(e => e.id !== id))
+    flash('Uit je aanvraag gehaald')
   }
 
   const euroFmt = (n: number) => '€' + n.toFixed(2).replace('.', ',')
   const cateringTotaal = catering.reduce((s, c) => s + c.aantal_personen, 0) * cateringPrijs
   const extrasTotaal = mijnBestellingen.reduce((s, e) => s + e.aantal * e.prijs_per_stuk, 0)
+  // De algemene voorwaarden staan als document onder de categorie contracten.
+  const voorwaardenDocs = documenten.filter(d => d.categorie === 'contracten')
+  const stageld = Number(partner?.standplaats_vergoeding || 0)
+  // Eén regel per punt, zoals NvdW het invult.
+  const stageldInbegrepen = (partner?.standplaats_inbegrepen || '').split('\n').map(r => r.trim()).filter(Boolean)
+  const totaalVast = stageld + cateringTotaal + extrasTotaal
 
   const stuurVraag = async () => {
     if (!partner || !newVraag.onderwerp || !newVraag.bericht) return
@@ -491,7 +541,7 @@ export default function Dashboard() {
             ...(isFood
               ? [{ done: menu.length > 0, label: 'Menukaart & allergenen invullen', sub: `Deadline ${T('deadline_wijnlijst', '29 oktober 12:00')}`, go: 'menukaart' },
                  { done: partner.stroom_kw != null, label: 'Technische gegevens doorgeven', sub: 'Stroom, gas en water', go: 'techniek' }]
-              : [{ done: wijnen.length > 0, label: 'Wijnlijst invullen', sub: `Deadline ${T('deadline_wijnlijst', '29 oktober 12:00')}`, go: 'wijnlijst' }]),
+              : [{ done: wijnen.length > 0, label: 'Wijnlijst invullen', sub: wijnen.length === 0 ? 'Verplicht, anders geen kassa en geen menukaart' : `Deadline ${T('deadline_wijnlijst', '29 oktober 12:00')}`, go: 'wijnlijst' }]),
             { done: catering.length > 0, label: 'Crewcatering aanvragen', sub: `Deadline ${T('deadline_catering', '31 oktober')}`, go: 'catering' },
           ]
           const klaar = acties.filter(a => a.done).length
@@ -499,6 +549,19 @@ export default function Dashboard() {
           return <>
             <div style={S.pageTitle}>Welkom terug</div>
             <div style={S.pageDesc}>{partner.bedrijfsnaam} · {partner.avond} · {PAKKET[partner.pakket]}</div>
+
+            {/* Zonder wijnlijst kan deze partner op het festival niets
+                verkopen, dus dat mag niet weggemoffeld worden in een lijstje. */}
+            {isWijn && wijnen.length === 0 && (
+              <div style={{ background: '#fdf3f3', borderTop: '1px solid var(--bordeaux)', borderRight: '1px solid var(--bordeaux)', borderBottom: '1px solid var(--bordeaux)', borderLeft: '3px solid var(--bordeaux)', borderRadius: '14px', padding: '16px 20px', marginBottom: '16px' }}>
+                <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--bordeaux)', marginBottom: '6px' }}>Je wijnlijst is nog leeg</div>
+                <div style={{ fontSize: '13px', color: 'var(--navy)', lineHeight: 1.7 }}>
+                  Zonder wijnlijst staan je wijnen niet in de pinterminal, niet op je menukaart en niet in de bezoekersapp.
+                  Je kunt dan dus niets verkopen. Vul hem in met naam, land, regio, druif en de prijs per fles, glas en half glas.
+                </div>
+                <button onClick={() => setTab('wijnlijst')} style={{ ...S.btn, marginTop: '14px' }}>Naar mijn wijnlijst</button>
+              </div>
+            )}
 
             {/* Voortgang */}
             <div style={{ background: 'var(--card)', border: '1px solid rgba(1,3,65,0.08)', borderRadius: '14px', padding: '20px 22px', marginBottom: '8px' }}>
@@ -779,8 +842,8 @@ export default function Dashboard() {
               ['Avond(en)', partner.avond],
               [isFood ? 'Standplaats' : 'Barlocatie', partner.barlocatie || 'Wordt gecommuniceerd'],
               ['Gratis tickets', `${partner.gratis_tickets} stuks`],
-              ...(isFood && partner.standplaats_vergoeding != null ? [['Standplaatsvergoeding', `€${Number(partner.standplaats_vergoeding).toFixed(2)} excl. btw`]] : []),
               ['Afdracht', `${partner.afdracht_percentage}% van netto-omzet`],
+              ...(stageld > 0 ? [['Stageld', `${euroFmt(stageld)} excl. btw`]] : []),
             ].map(([l, v]) => (
               <div key={l} style={{ display: 'flex', justifyContent: 'space-between', padding: '13px 0', borderBottom: '1px solid rgba(1,3,65,0.07)' }}>
                 <span style={{ fontSize: '13px', color: 'rgba(1,3,65,0.45)' }}>{l}</span>
@@ -788,9 +851,27 @@ export default function Dashboard() {
               </div>
             ))}
           </div>
-          {(catering.some(c => c.aantal_personen > 0) || mijnBestellingen.length > 0) && (
+
+          {/* Wat je voor het stageld krijgt. Wordt door NvdW ingevuld. */}
+          {stageld > 0 && stageldInbegrepen.length > 0 && (
+            <div style={{ marginTop: '20px', background: 'var(--card)', borderTop: '1px solid rgba(1,3,65,0.08)', borderRight: '1px solid rgba(1,3,65,0.08)', borderBottom: '1px solid rgba(1,3,65,0.08)', borderLeft: '3px solid var(--gold)', borderRadius: '14px', padding: '18px 20px' }}>
+              <div style={{ fontSize: '12px', fontWeight: '600', color: 'rgba(1,3,65,0.5)', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '1px' }}>
+                Dit zit bij je stageld in
+              </div>
+              <ul style={{ margin: 0, paddingLeft: '18px', fontSize: '13px', color: 'var(--navy)', lineHeight: '1.9' }}>
+                {stageldInbegrepen.map((r, i) => <li key={i}>{r}</li>)}
+              </ul>
+            </div>
+          )}
+          {(stageld > 0 || catering.some(c => c.aantal_personen > 0) || mijnBestellingen.length > 0) && (
             <div style={{ marginTop: '32px', padding: '20px', background: 'var(--card)', border: '1px solid rgba(1,3,65,0.08)', borderRadius: '14px' }}>
               <div style={{ fontSize: '12px', fontWeight: '600', color: 'rgba(1,3,65,0.5)', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '1px' }}>Wat je betaalt aan NvdW</div>
+              {stageld > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid rgba(1,3,65,0.07)', fontSize: '13px' }}>
+                  <span>Stageld</span>
+                  <strong>{euroFmt(stageld)}</strong>
+                </div>
+              )}
               {cateringTotaal > 0 && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid rgba(1,3,65,0.07)', fontSize: '13px' }}>
                   <span>Crewcatering ({catering.reduce((s, c) => s + c.aantal_personen, 0)} personen × {euroFmt(cateringPrijs)})</span>
@@ -805,10 +886,11 @@ export default function Dashboard() {
               ))}
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '14px 0 0', fontSize: '15px', fontWeight: 700, color: 'var(--navy)' }}>
                 <span>Totaal vast bedrag</span>
-                <span>{euroFmt(cateringTotaal + extrasTotaal)}</span>
+                <span>{euroFmt(totaalVast)}</span>
               </div>
               <p style={{ fontSize: '12px', color: 'rgba(1,3,65,0.45)', marginTop: '10px' }}>
-                Exclusief de afdracht van {partner.afdracht_percentage}% over je kassaomzet. Die wordt na afloop verrekend op basis van de werkelijke verkoop, zie tab Omzet voor een actuele indicatie.
+                Alle bedragen exclusief btw. Hier komt de afdracht van {partner.afdracht_percentage}% over je kassaomzet nog bij.
+                Die wordt na afloop verrekend op basis van je werkelijke verkoop, zie de tab Omzet voor een actuele indicatie.
               </p>
             </div>
           )}
@@ -827,17 +909,90 @@ export default function Dashboard() {
                   Door {partner.contract_ondertekenaar} op {partner.contract_ondertekend_datum ? new Date(partner.contract_ondertekend_datum).toLocaleDateString('nl-NL', { day: 'numeric', month: 'long', year: 'numeric' }) : ''}
                 </div>
                 {partner.contract_handtekening && <img src={partner.contract_handtekening} alt="handtekening" style={{ marginTop: '12px', maxWidth: '260px', height: 'auto', background: '#fff', border: '1px solid rgba(1,3,65,0.12)' }} />}
+                {(() => {
+                  const snap = partner.contract_snapshot as Record<string, any> | null
+                  if (!snap) return null
+                  return (
+                    <div style={{ marginTop: '16px', paddingTop: '14px', borderTop: '1px solid #c8e6c9' }}>
+                      <div style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: 'rgba(1,3,65,0.45)', marginBottom: '8px' }}>Je hebt getekend voor</div>
+                      {[
+                        ['Afdracht', `${snap.afdracht_percentage}% van netto-omzet`],
+                        ...(Number(snap.stageld) > 0 ? [['Stageld', euroFmt(Number(snap.stageld))]] as [string, string][] : []),
+                        ...(Number(snap.crewcatering_totaal) > 0 ? [['Crewcatering', euroFmt(Number(snap.crewcatering_totaal))]] as [string, string][] : []),
+                        ...(Number(snap.extra_producten_totaal) > 0 ? [['Extra producten', euroFmt(Number(snap.extra_producten_totaal))]] as [string, string][] : []),
+                        ['Totaal vast bedrag', euroFmt(Number(snap.totaal_vast || 0))],
+                      ].map(([l, v]) => (
+                        <div key={l} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', padding: '3px 0' }}>
+                          <span style={{ color: 'rgba(1,3,65,0.5)' }}>{l}</span><span style={{ fontWeight: 600, color: 'var(--navy)' }}>{v}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )
+                })()}
               </div>
             ) : (
               <>
-                <p style={{ fontSize: '13px', color: 'rgba(1,3,65,0.55)', marginBottom: '16px' }}>
-                  Zet hieronder je handtekening en vul je naam in. Daarmee onderteken je het contract en ga je akkoord met de afspraken en voorwaarden.
-                </p>
+                {/* Waarvoor teken je. Alles op één plek, zodat er geen los
+                    document nodig is om te weten wat je afspreekt. */}
+                <div style={{ background: 'var(--card)', border: '1px solid rgba(1,3,65,0.08)', borderRadius: '14px', padding: '18px 20px', marginBottom: '20px' }}>
+                  <div style={{ fontSize: '12px', fontWeight: '600', color: 'rgba(1,3,65,0.5)', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '1px' }}>
+                    Hiervoor teken je
+                  </div>
+                  {[
+                    ['Pakket', PAKKET[partner.pakket] || partner.pakket],
+                    ['Afdracht', `${partner.afdracht_percentage}% van je netto kassaomzet`],
+                    ...(stageld > 0 ? [['Stageld', `${euroFmt(stageld)} excl. btw`]] as [string, string][] : []),
+                    ...(cateringTotaal > 0 ? [['Crewcatering', `${catering.reduce((s, c) => s + c.aantal_personen, 0)} personen, ${euroFmt(cateringTotaal)}`]] as [string, string][] : []),
+                    ...(extrasTotaal > 0 ? [['Extra producten', `${mijnBestellingen.length} ${mijnBestellingen.length === 1 ? 'regel' : 'regels'}, ${euroFmt(extrasTotaal)}`]] as [string, string][] : []),
+                  ].map(([l, v]) => (
+                    <div key={l} style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 0', borderBottom: '1px solid rgba(1,3,65,0.07)', fontSize: '13px' }}>
+                      <span style={{ color: 'rgba(1,3,65,0.5)' }}>{l}</span>
+                      <span style={{ fontWeight: 600, color: 'var(--navy)' }}>{v}</span>
+                    </div>
+                  ))}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0 0', fontSize: '15px', fontWeight: 700, color: 'var(--navy)' }}>
+                    <span>Totaal vast bedrag</span><span>{euroFmt(totaalVast)}</span>
+                  </div>
+                  <p style={{ fontSize: '12px', color: 'rgba(1,3,65,0.45)', marginTop: '8px', lineHeight: 1.6 }}>
+                    Plus de afdracht over je werkelijke omzet. Bestel je later nog iets extra bij, dan komt dat hier bovenop.
+                  </p>
+                </div>
+
+                {/* De algemene voorwaarden, te downloaden. */}
+                <div style={{ marginBottom: '20px' }}>
+                  <div style={{ fontSize: '12px', fontWeight: '600', color: 'rgba(1,3,65,0.5)', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '1px' }}>
+                    Algemene voorwaarden
+                  </div>
+                  {voorwaardenDocs.length > 0 ? (
+                    voorwaardenDocs.map(d => (
+                      <div key={d.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', padding: '10px 0', borderBottom: '1px solid rgba(1,3,65,0.07)' }}>
+                        <span style={{ fontSize: '13px', color: 'var(--navy)' }}>{d.naam}</span>
+                        <button onClick={() => downloadDoc(d)} style={S.btnOutline}>Download</button>
+                      </div>
+                    ))
+                  ) : (
+                    <p style={{ fontSize: '13px', color: 'rgba(1,3,65,0.45)', lineHeight: 1.7 }}>
+                      De voorwaarden staan hierboven uitgeschreven onder Contract &amp; voorwaarden. Zodra er een pdf beschikbaar is kun je die hier downloaden.
+                    </p>
+                  )}
+                </div>
+
+                <label style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', fontSize: '13px', color: 'var(--navy)', lineHeight: 1.65, cursor: 'pointer', marginBottom: '20px' }}>
+                  <input type="checkbox" checked={akkoordVoorwaarden} onChange={e => setAkkoordVoorwaarden(e.target.checked)} style={{ marginTop: '3px', flexShrink: 0 }} />
+                  <span>
+                    Ik ga akkoord met de algemene voorwaarden en met de afspraken hierboven: de afdracht van {partner.afdracht_percentage}%
+                    {stageld > 0 ? `, het stageld van ${euroFmt(stageld)}` : ''}
+                    {totaalVast > stageld ? ' en de genoemde extra posten' : ''}. Ik onderteken namens {partner.bedrijfsnaam}.
+                  </span>
+                </label>
+
                 <label style={S.label}>Volledige naam</label>
                 <input style={S.input} value={signNaam} onChange={e => setSignNaam(e.target.value)} placeholder="Voor- en achternaam" />
                 <label style={S.label}>Handtekening</label>
                 <SignaturePad onChange={setSignData} />
-                <button style={{ ...S.btn, opacity: (signNaam.trim() && signData) ? 1 : 0.5 }} disabled={!signNaam.trim() || !signData} onClick={ondertekenContract}>Onderteken contract</button>
+                <button style={{ ...S.btn, opacity: (signNaam.trim() && signData && akkoordVoorwaarden) ? 1 : 0.5 }}
+                  disabled={!signNaam.trim() || !signData || !akkoordVoorwaarden}
+                  onClick={ondertekenContract}>Onderteken</button>
               </>
             )}
           </div>
@@ -847,6 +1002,21 @@ export default function Dashboard() {
         {tab === 'wijnlijst' && <>
           <div style={S.pageTitle}>Wijnlijst</div>
           <div style={S.pageDesc}>Vul hier je volledige wijnassortiment in inclusief prijzen.</div>
+
+          {/* Dit is geen vriendelijk verzoek: zonder wijnlijst kan een partner
+              op het festival niets verkopen. Daarom bovenaan en hard. */}
+          <div style={{ background: wijnen.length === 0 ? '#fdf3f3' : 'var(--card)', borderTop: `1px solid ${wijnen.length === 0 ? 'var(--bordeaux)' : 'rgba(1,3,65,0.08)'}`, borderRight: `1px solid ${wijnen.length === 0 ? 'var(--bordeaux)' : 'rgba(1,3,65,0.08)'}`, borderBottom: `1px solid ${wijnen.length === 0 ? 'var(--bordeaux)' : 'rgba(1,3,65,0.08)'}`, borderLeft: '3px solid var(--bordeaux)', borderRadius: '14px', padding: '16px 20px', marginBottom: '16px', fontSize: '13px', color: 'var(--navy)', lineHeight: '1.7' }}>
+            <div style={{ fontSize: '11px', fontWeight: '700', letterSpacing: '1px', textTransform: 'uppercase', color: 'var(--bordeaux)', marginBottom: '8px' }}>
+              Dit moet je invullen
+            </div>
+            Je wijnlijst is niet optioneel. Vul je een wijn hier niet in, dan kunnen we die op het festival nergens kwijt:
+            <ul style={{ margin: '10px 0 10px', paddingLeft: '20px', lineHeight: '1.9' }}>
+              <li>hij staat <strong>niet in de pinterminal</strong>, dus je kunt hem niet verkopen</li>
+              <li>hij komt <strong>niet op de menukaart</strong> bij je bar</li>
+              <li>hij is <strong>niet te vinden in de bezoekersapp</strong></li>
+            </ul>
+            Per wijn hebben we naam, land, regio, druif en de prijs per fles, per glas en per half glas nodig.
+          </div>
           <div style={{ background: 'var(--card)', borderTop: '1px solid rgba(1,3,65,0.08)', borderRight: '1px solid rgba(1,3,65,0.08)', borderBottom: '1px solid rgba(1,3,65,0.08)', borderLeft: '3px solid var(--gold)', borderRadius: '14px', padding: '14px 18px', marginBottom: '16px', fontSize: '13px', color: 'var(--navy)', lineHeight: '1.7' }}>
             <div style={{ fontSize: '11px', fontWeight: '600', letterSpacing: '1px', textTransform: 'uppercase', color: 'var(--bordeaux)', marginBottom: '6px' }}>Zichtbaar in de bezoekers-app én de kassa</div>
             Alles wat je hier invult (je wijnen, prijzen en omschrijving) tonen we aan bezoekers in de NvdW app, en je wijnen staan direct als knoppen in je kassa. Hoe vollediger en aantrekkelijker je het omschrijft, hoe vaker jouw wijn wordt gekozen.
@@ -1092,36 +1262,78 @@ export default function Dashboard() {
           <div style={S.pageDesc}>Alles optioneel, naar wens bij te boeken. Prijzen exclusief btw.</div>
 
           {mijnBestellingen.length > 0 && (
-            <div style={{ borderTop: '1px solid rgba(1,3,65,0.1)', paddingTop: '28px', marginBottom: '12px' }}>
-              <div style={S.sectionTitle}>Jouw bestellingen ({mijnBestellingen.length})</div>
-              {mijnBestellingen.map(e => (
-                <div key={e.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid rgba(1,3,65,0.07)' }}>
-                  <div>
-                    <div style={{ fontSize: '13px', fontWeight: '500', color: 'var(--navy)' }}>{e.product}{e.aantal > 1 ? ` × ${e.aantal}` : ''}</div>
-                    <div style={{ fontSize: '11px', color: 'rgba(1,3,65,0.4)', marginTop: '2px' }}>{e.status} · {new Date(e.created_at).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' })}</div>
-                  </div>
-                  <span style={{ fontSize: '13px', fontWeight: '600', color: 'var(--bordeaux)' }}>{euroFmt(e.aantal * e.prijs_per_stuk)}</span>
-                </div>
-              ))}
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0 0', fontSize: '13px', fontWeight: 700, color: 'var(--navy)' }}>
-                <span>Totaal</span><span>{euroFmt(extrasTotaal)}</span>
+            <div style={{ background: 'var(--card)', border: '1px solid rgba(1,3,65,0.08)', borderRadius: '14px', padding: '18px 20px', marginBottom: '24px' }}>
+              <div style={{ fontSize: '12px', fontWeight: '600', color: 'rgba(1,3,65,0.5)', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '1px' }}>
+                Jouw aanvraag
               </div>
+              {mijnBestellingen.map(e => {
+                const open = (e.status || 'aangevraagd') === 'aangevraagd'
+                return (
+                  <div key={e.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', padding: '10px 0', borderBottom: '1px solid rgba(1,3,65,0.07)', flexWrap: 'wrap' }}>
+                    <div style={{ flex: 1, minWidth: '140px' }}>
+                      <div style={{ fontSize: '13px', fontWeight: '500', color: 'var(--navy)' }}>{e.product}</div>
+                      <div style={{ fontSize: '11px', color: 'rgba(1,3,65,0.4)', marginTop: '2px' }}>
+                        {euroFmt(e.prijs_per_stuk)} per stuk · {open ? 'nog aan te passen' : e.status}
+                      </div>
+                    </div>
+                    {open ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <button style={S.btnMini} onClick={() => wijzigAantal(e.id, e.aantal - 1)} disabled={e.aantal <= 1}>−</button>
+                        <span style={{ minWidth: '26px', textAlign: 'center', fontSize: '13px', fontWeight: 600 }}>{e.aantal}</span>
+                        <button style={S.btnMini} onClick={() => wijzigAantal(e.id, e.aantal + 1)}>+</button>
+                      </div>
+                    ) : (
+                      <span style={{ fontSize: '13px', fontWeight: 600 }}>{e.aantal}×</span>
+                    )}
+                    <span style={{ fontSize: '13px', fontWeight: '600', color: 'var(--bordeaux)', minWidth: '72px', textAlign: 'right' }}>
+                      {euroFmt(e.aantal * e.prijs_per_stuk)}
+                    </span>
+                    {open && <button style={{ ...S.btnMini, borderColor: 'transparent', color: 'rgba(1,3,65,0.35)' }} title="Uit je aanvraag halen" onClick={() => verwijderBestelling(e.id, e.product)}>×</button>}
+                  </div>
+                )
+              })}
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '14px 0 0', fontSize: '15px', fontWeight: 700, color: 'var(--navy)' }}>
+                <span>Totaal extra&apos;s</span><span>{euroFmt(extrasTotaal)}</span>
+              </div>
+              <p style={{ fontSize: '12px', color: 'rgba(1,3,65,0.45)', marginTop: '10px', lineHeight: 1.6 }}>
+                Zolang er &quot;nog aan te passen&quot; staat kun je het aantal wijzigen of het van je lijst halen.
+                Zodra wij de aanvraag bevestigen staat hij vast. Bij Offerte zie je wat je in totaal betaalt.
+              </p>
             </div>
           )}
 
-          <div style={{ borderTop: '1px solid rgba(1,3,65,0.1)', paddingTop: '28px', display: 'flex', flexDirection: 'column', gap: '1px' }}>
-            {producten.map(p => (
-              <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '18px 0', borderBottom: '1px solid rgba(1,3,65,0.07)' }}>
-                <div>
-                  <div style={{ fontSize: '14px', fontWeight: '500', color: 'var(--navy)' }}>{p.naam}</div>
-                  {p.omschrijving && <div style={{ fontSize: '12px', color: 'rgba(1,3,65,0.45)', marginTop: '2px' }}>{p.omschrijving}</div>}
-                  <div style={{ fontSize: '13px', color: 'var(--bordeaux)', fontWeight: '500', marginTop: '4px' }}>
-                    {p.prijs === 0 ? 'Prijs op aanvraag' : `€${p.prijs.toFixed(2)} per ${p.eenheid} excl. btw`}
+          <div style={{ borderTop: '1px solid rgba(1,3,65,0.1)', paddingTop: '24px', display: 'flex', flexDirection: 'column', gap: '1px' }}>
+            {producten.length === 0 && (
+              <p style={{ fontSize: '13px', color: 'rgba(1,3,65,0.45)' }}>Er staan nog geen extra producten klaar. Kom hier later terug.</p>
+            )}
+            {producten.map(p => {
+              const inLijst = mijnBestellingen.find(e => e.product === p.naam && (e.status || 'aangevraagd') === 'aangevraagd')
+              const aantal = extraAantal[p.id] ?? 1
+              return (
+                <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '14px', padding: '18px 0', borderBottom: '1px solid rgba(1,3,65,0.07)', flexWrap: 'wrap' }}>
+                  <div style={{ flex: 1, minWidth: '180px' }}>
+                    <div style={{ fontSize: '14px', fontWeight: '500', color: 'var(--navy)' }}>
+                      {p.naam}
+                      {inLijst && <span style={{ marginLeft: '8px', fontSize: '11px', fontWeight: 600, color: '#2e7d32' }}>✓ {inLijst.aantal}× aangevraagd</span>}
+                    </div>
+                    {p.omschrijving && <div style={{ fontSize: '12px', color: 'rgba(1,3,65,0.45)', marginTop: '2px' }}>{p.omschrijving}</div>}
+                    <div style={{ fontSize: '13px', color: 'var(--bordeaux)', fontWeight: '500', marginTop: '4px' }}>
+                      {p.prijs === 0 ? 'Prijs op aanvraag' : `€${p.prijs.toFixed(2)} per ${p.eenheid} excl. btw`}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <button style={S.btnMini} onClick={() => setExtraAantal({ ...extraAantal, [p.id]: Math.max(1, aantal - 1) })} disabled={aantal <= 1}>−</button>
+                      <span style={{ minWidth: '26px', textAlign: 'center', fontSize: '13px', fontWeight: 600 }}>{aantal}</span>
+                      <button style={S.btnMini} onClick={() => setExtraAantal({ ...extraAantal, [p.id]: aantal + 1 })}>+</button>
+                    </div>
+                    <button style={S.btnOutline} onClick={() => { bestelExtra(p, aantal); setExtraAantal({ ...extraAantal, [p.id]: 1 }) }}>
+                      {inLijst ? 'Meer erbij' : 'Zet in aanvraag'}
+                    </button>
                   </div>
                 </div>
-                <button style={S.btnOutline} onClick={() => bestelExtra(p)}>Aanvragen</button>
-              </div>
-            ))}
+              )
+            })}
           </div>
         </>}
 

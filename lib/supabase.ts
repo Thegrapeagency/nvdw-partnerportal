@@ -99,6 +99,8 @@ export type Partner = {
   contract_handtekening: string | null
   type: string
   standplaats_vergoeding: number | null
+  standplaats_inbegrepen: string | null
+  contract_snapshot: Record<string, unknown> | null
   stroom_kw: number | null
   stroom_aansluitingen: string | null
   gas_nodig: boolean | null

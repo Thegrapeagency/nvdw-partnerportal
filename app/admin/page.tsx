@@ -1273,12 +1273,21 @@ export default function AdminPage() {
                       <input style={S.input} type="number" defaultValue={sp.crew_tickets ?? 0} onBlur={e => Number(e.target.value) !== (sp.crew_tickets ?? 0) && updatePartner(sp.id, { crew_tickets: Number(e.target.value) })} />
                     </div>
                   </div>
-                  {sp.type === 'food' && (
-                    <>
-                      <label style={S.label}>Standplaatsvergoeding € (excl. btw)</label>
-                      <input style={S.input} type="number" step="0.01" defaultValue={sp.standplaats_vergoeding ?? ''} onBlur={e => updatePartner(sp.id, { standplaats_vergoeding: num(e.target.value) as any })} />
-                    </>
-                  )}
+                  {/* Stageld voor elk type partner, niet alleen foodtrucks: een
+                      wijnpartner met een eigen bar betaalt het ook. */}
+                  <label style={S.label}>Stageld € (excl. btw)</label>
+                  <input style={S.input} type="number" step="0.01" placeholder="leeg = geen stageld"
+                    defaultValue={sp.standplaats_vergoeding ?? ''}
+                    onBlur={e => updatePartner(sp.id, { standplaats_vergoeding: num(e.target.value) as any })} />
+                  <label style={S.label}>Wat zit er bij het stageld in</label>
+                  <textarea style={{ ...S.input, height: '96px', resize: 'vertical' as const }}
+                    key={sp.id + '-inbegrepen'}
+                    defaultValue={(sp as any).standplaats_inbegrepen ?? ''}
+                    placeholder={'Eén regel per punt, bijvoorbeeld:\n1 pinautomaat\n200 cm bar met koeling en ijs\n20 gratis kaarten'}
+                    onBlur={e => updatePartner(sp.id, { standplaats_inbegrepen: e.target.value || null } as any)} />
+                  <div style={{ fontSize: '11px', color: '#999', marginTop: '4px' }}>
+                    Dit ziet de partner bij het stageld staan, en het gaat mee in wat hij aftekent.
+                  </div>
                   <label style={S.label}>{sp.type === 'food' ? 'Standplaats' : 'Barlocatie'}</label>
                   <input style={S.input} defaultValue={sp.barlocatie ?? ''} onBlur={e => updatePartner(sp.id, { barlocatie: e.target.value || null })} />
                 </div>
@@ -1290,6 +1299,38 @@ export default function AdminPage() {
                     <span style={S.badge(!!sp.contract_ondertekend)}>{sp.contract_ondertekend ? 'Contract getekend' : 'Nog niet getekend'}</span>
                     {sp.contract_ondertekend && sp.contract_ondertekend_datum && <span style={{ fontSize: '11px', color: '#999', marginLeft: '8px' }}>door {sp.contract_ondertekenaar} op {new Date(sp.contract_ondertekend_datum).toLocaleDateString('nl-NL')}</span>}
                     {sp.contract_handtekening && <img src={sp.contract_handtekening} alt="handtekening" style={{ display: 'block', marginTop: '10px', maxWidth: '220px', height: 'auto', background: '#fff', border: '1px solid #eee' }} />}
+                    {/* Waar is precies voor getekend. Staat los van de huidige
+                        afspraken, want die kunnen daarna gewijzigd zijn. */}
+                    {(() => {
+                      const snap = (sp as any).contract_snapshot as Record<string, any> | null
+                      if (!snap) return null
+                      const regels: [string, string][] = [
+                        ['Afdracht', `${snap.afdracht_percentage}% van netto-omzet`],
+                        ...(Number(snap.stageld) > 0 ? [['Stageld', euroFmt(Number(snap.stageld))]] as [string, string][] : []),
+                        ...(Number(snap.extra_producten_totaal) > 0 ? [['Extra producten', euroFmt(Number(snap.extra_producten_totaal))]] as [string, string][] : []),
+                        ...(Number(snap.crewcatering_totaal) > 0 ? [['Crewcatering', `${snap.crewcatering_personen} personen, ${euroFmt(Number(snap.crewcatering_totaal))}`]] as [string, string][] : []),
+                        ['Totaal vast bedrag', euroFmt(Number(snap.totaal_vast || 0))],
+                      ]
+                      const afwijkend = Number(snap.afdracht_percentage) !== sp.afdracht_percentage
+                        || Number(snap.stageld || 0) !== Number(sp.standplaats_vergoeding || 0)
+                      return (
+                        <div style={{ marginTop: '12px', background: '#f7f4ec', borderRadius: '6px', padding: '10px 12px' }}>
+                          <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: '#999', marginBottom: '6px' }}>Getekend voor</div>
+                          {regels.map(([l, v]) => (
+                            <div key={l} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', padding: '2px 0' }}>
+                              <span style={{ color: '#666' }}>{l}</span><span style={{ fontWeight: 600 }}>{v}</span>
+                            </div>
+                          ))}
+                          {afwijkend && (
+                            <div style={{ fontSize: '11px', color: 'var(--bordeaux)', marginTop: '8px', lineHeight: 1.5 }}>
+                              Let op: de afspraken zijn ná het ondertekenen gewijzigd. Nu staat er {sp.afdracht_percentage}% afdracht
+                              {sp.standplaats_vergoeding ? ` en ${euroFmt(Number(sp.standplaats_vergoeding))} stageld` : ' en geen stageld'}.
+                              Laat opnieuw tekenen als dit klopt.
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })()}
                   </div>
                   <label style={S.label}>Ticketcodes automatisch genereren</label>
                   <div style={{ display: 'flex', gap: '8px', marginBottom: '4px' }}>
@@ -1310,10 +1351,16 @@ export default function AdminPage() {
               {/* Wat de partner betaalt aan NvdW */}
               <div style={S.card}>
                 <div style={S.cardTitle}>Wat {sp.bedrijfsnaam} betaalt aan NvdW</div>
-                {spCatering.length === 0 && spExtras.length === 0 ? (
-                  <p style={{ fontSize: '13px', color: '#999' }}>Nog niets besteld of ingevuld voor crewcatering.</p>
+                {spCatering.length === 0 && spExtras.length === 0 && !sp.standplaats_vergoeding ? (
+                  <p style={{ fontSize: '13px', color: '#999' }}>Nog geen stageld, bestellingen of crewcatering.</p>
                 ) : (
                   <>
+                    {!!sp.standplaats_vergoeding && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #f0f0f0', fontSize: '13px' }}>
+                        <span>Stageld</span>
+                        <strong>{euroFmt(Number(sp.standplaats_vergoeding))}</strong>
+                      </div>
+                    )}
                     {spCatering.length > 0 && (
                       <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #f0f0f0', fontSize: '13px' }}>
                         <span>Crewcatering ({spCatering.reduce((s, c) => s + c.aantal_personen, 0)} personen × {euroFmt(cateringPrijs)})</span>
@@ -1328,7 +1375,7 @@ export default function AdminPage() {
                     ))}
                     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0 0', fontSize: '14px', fontWeight: 700, color: 'var(--navy)' }}>
                       <span>Totaal vast bedrag</span>
-                      <span>{euroFmt(cateringTotaal + extrasTotaal)}</span>
+                      <span>{euroFmt(Number(sp.standplaats_vergoeding || 0) + cateringTotaal + extrasTotaal)}</span>
                     </div>
                   </>
                 )}
