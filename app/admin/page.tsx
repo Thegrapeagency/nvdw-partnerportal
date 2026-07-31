@@ -9,6 +9,7 @@ import Dashboard from './Dashboard'
 import Attributie from './Attributie'
 import CrewRooster from './CrewRooster'
 import Financieel from './Financieel'
+import Leveranciers from './Leveranciers'
 import Advertenties from './Advertenties'
 import Push from './Push'
 import Aankondigingen from './Aankondigingen'
@@ -751,6 +752,7 @@ export default function AdminPage() {
     {
       titel: 'Financieel', items: [
         { id: 'financieel', label: 'Begroting & kosten' },
+        { id: 'leveranciers', label: 'Leveranciers' },
         { id: 'kassa', label: 'Kassa & omzet' },
       ]
     },
@@ -1562,6 +1564,7 @@ export default function AdminPage() {
         {activeTab === 'crewrooster' && <CrewRooster flash={flash} />}
         {activeTab === 'push' && <Push flash={flash} />}
         {activeTab === 'financieel' && <Financieel flash={flash} />}
+        {activeTab === 'leveranciers' && <Leveranciers flash={flash} />}
         {activeTab === 'advertenties' && <Advertenties flash={flash} />}
 
         {/* FAQ */}
