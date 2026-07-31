@@ -27,22 +27,33 @@ export default function Carousel() {
     }
     // De tool meldt terug dat de sessie binnen is. Faalt dat, dan zie je dat
     // hier in plaats van pas als iemand op de AI-knop drukt.
-    const bevestiging = (e: MessageEvent) => {
+    // De tool meldt ook zodra hij zelf klaar is om te ontvangen. Dat is
+    // betrouwbaarder dan alleen op het load-event van het iframe wachten: klik
+    // je vlak na het openen van het tabblad meteen op de AI-knop, dan kan die
+    // sessie er op dat moment nog niet zijn. Zo vroeg ik dat zelf mee.
+    const berichten = (e: MessageEvent) => {
+      // De tool stuurt "gereed" met targetOrigin "*" (bevat geen gegevens),
+      // dus check hier zelf of het echt van de tool komt.
+      if (e.origin === TOOL_ORIGIN && e.data?.type === 'nvdw-generator-gereed') { stuurSessie(); return }
       if (e.origin === TOOL_ORIGIN && e.data?.type === 'nvdw-sessie-ontvangen') {
         console.log('[carousel] generator heeft je sessie ontvangen, AI-knop werkt zonder wachtwoord')
       }
     }
-    window.addEventListener('message', bevestiging)
+    window.addEventListener('message', berichten)
 
     const el = frame.current
     el?.addEventListener('load', stuurSessie)
+    // Nog een paar keer proberen kort na het openen, als extra vangnet naast
+    // het gereed-bericht en het load-event.
+    const vangnet = [300, 1000, 2500].map(ms => setTimeout(stuurSessie, ms))
     // Ook bij een verlengde sessie opnieuw doorgeven, anders werkt de knop na
     // een uur niet meer terwijl je gewoon ingelogd bent.
     const { data: sub } = supabase.auth.onAuthStateChange(() => { stuurSessie() })
     return () => {
       gestopt = true
       el?.removeEventListener('load', stuurSessie)
-      window.removeEventListener('message', bevestiging)
+      window.removeEventListener('message', berichten)
+      vangnet.forEach(clearTimeout)
       sub.subscription.unsubscribe()
     }
   }, [])
