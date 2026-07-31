@@ -117,6 +117,27 @@ export default function AdminPage() {
   const [internCrew, setInternCrew] = useState<{ naam: string; functie: string; email: string; dagen: string[]; catering_dagen: string[]; dieet: string }>({ naam: '', functie: '', email: '', dagen: [], catering_dagen: [], dieet: '' })
   const [mijnNaam, setMijnNaam] = useState('')
   const [activeTab, setActiveTab] = useState('start')
+  // Subweergaven binnen samengevoegde tabs: Partners (lijst/toevoegen/exports),
+  // Info & documenten (faq/teksten/documenten) en Vragen (partners/bezoekers).
+  const [partnersView, setPartnersView] = useState<'lijst' | 'toevoegen' | 'export'>('lijst')
+  const [infoTab, setInfoTab] = useState<'faq' | 'teksten' | 'documenten'>('faq')
+  const [vragenTab, setVragenTab] = useState<'partners' | 'bezoekers'>('partners')
+  const [studioTab, setStudioTab] = useState<'schrijfstijl' | 'carousel' | 'huisstijl'>('schrijfstijl')
+  const [appMarketingTab, setAppMarketingTab] = useState<'push' | 'advertenties'>('push')
+  const [statusTab, setStatusTab] = useState<'status' | 'activiteit'>('status')
+  // Welke themagroepen in de zijbalk openstaan. Standaard alles dicht behalve
+  // de groep van de actieve tab; keuze wordt onthouden.
+  const [openGroepen, setOpenGroepen] = useState<Record<string, boolean>>(() => {
+    if (typeof window === 'undefined') return {}
+    try { return JSON.parse(localStorage.getItem('nvdw_admin_nav_open') || '{}') } catch { return {} }
+  })
+  const toggleGroep = (titel: string) => {
+    setOpenGroepen(g => {
+      const next = { ...g, [titel]: !g[titel] }
+      try { localStorage.setItem('nvdw_admin_nav_open', JSON.stringify(next)) } catch {}
+      return next
+    })
+  }
   const [appMetrics, setAppMetrics] = useState<any>(null)
   const [appMetricsLoading, setAppMetricsLoading] = useState(false)
   // Kassa & omzet (festival_pos koppeling)
@@ -154,6 +175,11 @@ export default function AdminPage() {
   const [pwBezig, setPwBezig] = useState<string | null>(null)
   const [linkGestuurd, setLinkGestuurd] = useState<Record<string, number>>({})
   const magTab = (tab: string) => heeftTab(mijnRechten, tab)
+  // De samengevoegde Vragen-tab is zichtbaar als je bij partnervragen ÓF bij
+  // bezoekersvragen mag; binnenin filtert vragenTab op het juiste recht.
+  const magView = (tab: string) => tab === 'vragen'
+    ? heeftTab(mijnRechten, 'vragen') || heeftTab(mijnRechten, 'bezoekersvragen')
+    : heeftTab(mijnRechten, tab)
   const [docUpload, setDocUpload] = useState({ naam: '', categorie: 'draaiboek', file: null as File | null })
   const [uploading, setUploading] = useState(false)
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -211,8 +237,14 @@ export default function AdminPage() {
   // Val terug naar Start zodra de actieve tab niet (meer) mag. Vangt zowel een
   // gedeelde link als het moment waarop iemands rechten net zijn ingeperkt.
   useEffect(() => {
-    if (!loading && !heeftTab(mijnRechten, activeTab)) setActiveTab('start')
+    if (!loading && !magView(activeTab)) setActiveTab('start')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mijnRechten, activeTab, loading])
+
+  // Wie alleen bezoekersvragen mag zien, landt in de Vragen-tab direct daar.
+  useEffect(() => {
+    if (activeTab === 'vragen' && !heeftTab(mijnRechten, 'vragen')) setVragenTab('bezoekers')
+  }, [activeTab, mijnRechten])
 
   useEffect(() => {
     const init = async () => {
@@ -358,7 +390,7 @@ export default function AdminPage() {
       setPartners([data, ...partners])
       setNewPartner({ naam: '', bedrijfsnaam: '', email: '', type: 'wijn', pakket: 'own_bar', avond: 'alle', gratis_tickets: '20', crew_tickets: '0', afdracht_percentage: '25', standplaats_vergoeding: '', barlocatie: '', notities: '' })
       flash('Partner aangemaakt. Maak nu een login aan via de knop in het overzicht.', 6000)
-      setActiveTab('partners')
+      setActiveTab('partners'); setPartnersView('lijst')
     } else if (error) {
       flash('Fout: ' + error.message, 6000)
     }
@@ -711,10 +743,25 @@ export default function AdminPage() {
 
   const openVragen = vragen.filter(v => v.status === 'open')
 
-  // Nav gegroepeerd per thema. 'Start' staat los bovenaan; de rest volgt in
-  // vaste, logische clusters zodat je niet meer 25 losse namen af hoeft te zoeken.
+  // Subtab-balkje voor samengevoegde schermen (Partners, Info & documenten, Vragen).
+  const subTabs = <T extends string>(opties: { id: T; label: string }[], actief: T, kies: (t: T) => void) => (
+    <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', flexWrap: 'wrap' }}>
+      {opties.map(o => (
+        <button key={o.id} onClick={() => kies(o.id)} style={{
+          padding: '8px 16px', fontSize: '12px', fontWeight: 700, letterSpacing: '0.5px', cursor: 'pointer',
+          borderRadius: '20px', border: `1px solid ${actief === o.id ? 'var(--navy)' : '#ddd'}`,
+          background: actief === o.id ? 'var(--navy)' : 'transparent',
+          color: actief === o.id ? 'var(--cream)' : '#666', fontFamily: 'Inter, sans-serif',
+        }}>{o.label}</button>
+      ))}
+    </div>
+  )
+
+  // Nav gegroepeerd per thema, elk thema inklapbaar. Dubbelingen zijn
+  // samengevoegd: Partners bevat nu ook toevoegen en exports, Info & documenten
+  // bundelt faq/teksten/documenten, en Vragen bundelt partner- én bezoekersvragen.
   const NAV_GROUPS: { titel: string | null; items: { id: string; label: string }[] }[] = ([
-    { titel: null, items: [{ id: 'start', label: 'Start' }] },
+    { titel: null, items: [{ id: 'start', label: 'Start' }, { id: 'app', label: 'Bezoekers-app' }] },
     {
       titel: 'Productie', items: [
         { id: 'programma', label: 'Programma' },
@@ -724,29 +771,20 @@ export default function AdminPage() {
     },
     {
       titel: 'Partners', items: [
-        { id: 'overzicht', label: 'Overzicht' },
         { id: 'partners', label: 'Partners' },
-        { id: 'toevoegen', label: 'Partner toevoegen' },
-        { id: 'producten', label: 'Producten' },
-        { id: 'crew', label: 'Partnercrew & catering' },
-        { id: 'faq', label: 'FAQ & spelregels' },
-        { id: 'documenten', label: 'Documenten' },
-        { id: 'teksten', label: 'Teksten & deadlines' },
-        { id: 'export', label: 'Exports' },
-        { id: 'vragen', label: `Vragen ${openVragen.length > 0 ? `(${openVragen.length})` : ''}` },
-        { id: 'bezoekersvragen', label: 'Bezoekersvragen' },
+        { id: 'crew', label: 'Crew & catering' },
+        { id: 'producten', label: 'Producten (extra’s)' },
+        { id: 'partnerinfo', label: 'Info & documenten' },
+        { id: 'vragen', label: `Vragen${openVragen.length > 0 ? ` (${openVragen.length})` : ''}` },
       ]
     },
     {
       titel: 'Marketing', items: [
         { id: 'aankondigingen', label: 'Aankondigingen' },
-        { id: 'schrijfstijl', label: 'Schrijfstijl & teksten' },
-        { id: 'carousel', label: 'Carousel & stories' },
-        { id: 'huisstijl', label: 'Huisstijl' },
-        { id: 'attributie', label: 'Marketing & attributie' },
-        { id: 'push', label: 'Pushberichten' },
-        { id: 'advertenties', label: 'App-advertenties' },
+        { id: 'studio', label: 'Content-studio' },
         { id: 'nieuwsbrief', label: 'Nieuwsbrief' },
+        { id: 'attributie', label: 'Attributie & spend' },
+        { id: 'appmarketing', label: 'Push & advertenties' },
       ]
     },
     {
@@ -756,13 +794,11 @@ export default function AdminPage() {
         { id: 'kassa', label: 'Kassa & omzet' },
       ]
     },
-    { titel: 'Bezoekers-app', items: [{ id: 'app', label: 'Bezoekers-app' }] },
     {
       titel: 'Beheer', items: [
         { id: 'todo', label: 'To-do' },
         { id: 'overleg', label: 'Overleg' },
-        { id: 'status', label: 'Status' },
-        { id: 'activiteit', label: 'Activiteit' },
+        { id: 'status', label: 'Status & activiteit' },
         { id: 'team', label: 'Team' },
       ]
     },
@@ -770,7 +806,7 @@ export default function AdminPage() {
     // Alleen tabs tonen waar deze gebruiker recht op heeft. Dit is puur comfort:
     // de echte grens ligt in de database (RLS via mag()), zodat verbergen niet
     // te omzeilen is door de API rechtstreeks aan te roepen.
-    .map(g => ({ ...g, items: g.items.filter(i => magTab(i.id)) }))
+    .map(g => ({ ...g, items: g.items.filter(i => magView(i.id)) }))
     .filter(g => g.items.length > 0)
 
   const aantalFood = partners.filter(p => p.type === 'food').length
@@ -793,14 +829,29 @@ export default function AdminPage() {
           <div style={S.adminLabel}>Organisatie</div>
         </div>
         <nav style={{ padding: '8px 0 16px', flex: 1, overflowY: 'auto' }}>
-          {NAV_GROUPS.map(g => (
-            <div key={g.titel || 'top'}>
-              {g.titel && <div style={S.navGroupTitel}>{g.titel}</div>}
-              {g.items.map(item => (
-                <button key={item.id} style={S.navItem(activeTab === item.id)} onClick={() => setActiveTab(item.id)}>{item.label}</button>
-              ))}
-            </div>
-          ))}
+          {NAV_GROUPS.map(g => {
+            // Een groep staat open als de gebruiker 'm openklikte of als de
+            // actieve tab erin zit; zo raak je nooit kwijt waar je bent.
+            const bevatActief = g.items.some(i => i.id === activeTab)
+            const open = !g.titel || openGroepen[g.titel] || bevatActief
+            return (
+              <div key={g.titel || 'top'}>
+                {g.titel && (
+                  <button onClick={() => toggleGroep(g.titel!)} style={{
+                    ...S.navGroupTitel, display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    width: '100%', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'Inter, sans-serif',
+                    color: bevatActief ? 'rgba(254,183,42,0.7)' : 'rgba(255,255,255,0.35)',
+                  }}>
+                    <span>{g.titel}</span>
+                    <span style={{ fontSize: '9px', transform: open ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }}>▶</span>
+                  </button>
+                )}
+                {open && g.items.map(item => (
+                  <button key={item.id} style={S.navItem(activeTab === item.id)} onClick={() => setActiveTab(item.id)}>{item.label}</button>
+                ))}
+              </div>
+            )
+          })}
         </nav>
         <div style={{ padding: '16px 20px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
           <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.7)', fontWeight: '600', marginBottom: '8px' }}>{mijnNaam}</div>
@@ -885,44 +936,6 @@ export default function AdminPage() {
             </div>
           </>
         })()}
-
-        {/* OVERZICHT */}
-        {activeTab === 'overzicht' && (
-          <>
-            <div style={S.title}>Welkom, {mijnNaam.split(' ')[0]}</div>
-            <div style={S.sub}>Nacht van de Wijn 2026 · partnerbeheer</div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', marginBottom: '24px' }}>
-              {[
-                { label: 'Partners totaal', val: partners.length, sub: `${aantalWijn} wijn · ${aantalFood} food` },
-                { label: 'Logins actief', val: aantalLogins, sub: `van ${partners.length}` },
-                { label: 'Offerte akkoord', val: aantalAkkoord, sub: `van ${partners.length}` },
-                { label: 'Open vragen', val: openVragen.length, sub: openVragen.length === 0 ? 'alles beantwoord' : 'wacht op antwoord' },
-              ].map(s => (
-                <div key={s.label} style={{ ...S.card, marginBottom: 0, padding: '20px' }}>
-                  <div style={{ fontSize: '11px', fontWeight: '700', letterSpacing: '1px', textTransform: 'uppercase', color: '#999', marginBottom: '8px' }}>{s.label}</div>
-                  <div style={{ fontSize: '32px', fontWeight: '800', color: 'var(--navy)', lineHeight: 1 }}>{s.val}</div>
-                  <div style={{ fontSize: '12px', color: '#888', marginTop: '6px' }}>{s.sub}</div>
-                </div>
-              ))}
-            </div>
-            <div style={S.card}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div style={S.cardTitle}>Laatste activiteit</div>
-                <button style={S.btnSm} onClick={() => setActiveTab('activiteit')}>Alles bekijken</button>
-              </div>
-              {log.length === 0 && <p style={{ fontSize: '13px', color: '#999' }}>Nog geen activiteit.</p>}
-              {log.slice(0, 6).map(e => {
-                const { wie, zin } = logZin(e)
-                return (
-                  <div key={e.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid #f0f0f0', fontSize: '13px' }}>
-                    <span style={{ color: 'var(--navy)' }}><strong>{wie}</strong> {zin}</span>
-                    <span style={{ color: '#aaa', fontSize: '11px', whiteSpace: 'nowrap', marginLeft: '12px' }}>{new Date(e.created_at).toLocaleString('nl-NL', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
-                  </div>
-                )
-              })}
-            </div>
-          </>
-        )}
 
         {/* BEZOEKERS-APP */}
         {activeTab === 'app' && (
@@ -1060,8 +1073,12 @@ export default function AdminPage() {
           </>
         })()}
 
-        {/* STATUS / MISSION CONTROL */}
-        {activeTab === 'status' && (
+        {/* STATUS & ACTIVITEIT — mission control en het wijzigingenlog samen */}
+        {activeTab === 'status' && subTabs([
+          { id: 'status' as const, label: 'Systemen' },
+          { id: 'activiteit' as const, label: 'Activiteit' },
+        ], statusTab, setStatusTab)}
+        {activeTab === 'status' && statusTab === 'status' && (
           <>
             <div style={S.title}>Status van alle systemen</div>
             <div style={S.sub}>
@@ -1091,8 +1108,8 @@ export default function AdminPage() {
           </>
         )}
 
-        {/* ACTIVITEIT */}
-        {activeTab === 'activiteit' && (
+        {/* ACTIVITEIT (subtab van Status & activiteit) */}
+        {activeTab === 'status' && statusTab === 'activiteit' && (
           <>
             <div style={S.title}>Activiteit</div>
             <div style={S.sub}>Alles wat het team en partners in de portal wijzigen. Iedereen met een admin-login ziet dit volledige log.</div>
@@ -1190,11 +1207,33 @@ export default function AdminPage() {
           )
         })()}
 
-        {/* PARTNERS — overzicht */}
-        {activeTab === 'partners' && !selectedId && (
+        {/* PARTNERS — overzicht, toevoegen en exports in één scherm */}
+        {activeTab === 'partners' && !selectedId && partnersView === 'lijst' && (
           <>
-            <div style={S.title}>Partners overzicht</div>
-            <div style={S.sub}>{partners.length} partners. Klik op een bedrijfsnaam voor het detailscherm.</div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
+              <div>
+                <div style={S.title}>Partners</div>
+                <div style={S.sub}>{partners.length} partners. Klik op een bedrijfsnaam voor het detailscherm.</div>
+              </div>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button style={{ ...S.btn, marginTop: 0 }} onClick={() => setPartnersView('toevoegen')}>+ Partner toevoegen</button>
+                <button style={{ ...S.btnSm, padding: '10px 16px' }} onClick={() => setPartnersView('export')}>Exports</button>
+              </div>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', marginBottom: '24px' }}>
+              {[
+                { label: 'Partners totaal', val: partners.length, sub: `${aantalWijn} wijn · ${aantalFood} food` },
+                { label: 'Logins actief', val: aantalLogins, sub: `van ${partners.length}` },
+                { label: 'Offerte akkoord', val: aantalAkkoord, sub: `van ${partners.length}` },
+                { label: 'Open vragen', val: openVragen.length, sub: openVragen.length === 0 ? 'alles beantwoord' : 'wacht op antwoord' },
+              ].map(s => (
+                <div key={s.label} style={{ ...S.card, marginBottom: 0, padding: '20px' }}>
+                  <div style={{ fontSize: '11px', fontWeight: '700', letterSpacing: '1px', textTransform: 'uppercase', color: '#999', marginBottom: '8px' }}>{s.label}</div>
+                  <div style={{ fontSize: '32px', fontWeight: '800', color: 'var(--navy)', lineHeight: 1 }}>{s.val}</div>
+                  <div style={{ fontSize: '12px', color: '#888', marginTop: '6px' }}>{s.sub}</div>
+                </div>
+              ))}
+            </div>
             <div style={S.card}>
               <div style={{ overflowX: 'auto' }}>
                 <table style={S.table}>
@@ -1408,9 +1447,10 @@ export default function AdminPage() {
           )
         })()}
 
-        {/* TOEVOEGEN */}
-        {activeTab === 'toevoegen' && (
+        {/* PARTNERS — toevoegen (subweergave) */}
+        {activeTab === 'partners' && !selectedId && partnersView === 'toevoegen' && (
           <>
+            <button style={{ ...S.btnSm, marginBottom: '16px' }} onClick={() => setPartnersView('lijst')}>← Terug naar partners</button>
             <div style={S.title}>Partner toevoegen</div>
             <div style={S.sub}>Snel uitnodigen met alleen een e-mailadres, of hieronder alle gegevens zelf invullen.</div>
 
@@ -1554,24 +1594,44 @@ export default function AdminPage() {
 
         {activeTab === 'aankondigingen' && <Aankondigingen flash={flash} />}
         {activeTab === 'draaiboek' && <Draaiboek flash={flash} />}
-        {activeTab === 'schrijfstijl' && <Schrijfstijl flash={flash} />}
-        {activeTab === 'carousel' && <Carousel />}
-        {activeTab === 'huisstijl' && <Huisstijl />}
+        {/* Content-studio: schrijfstijl, carousel en huisstijl in één tab */}
+        {activeTab === 'studio' && subTabs([
+          { id: 'schrijfstijl' as const, label: 'Schrijfstijl & teksten' },
+          { id: 'carousel' as const, label: 'Carousel & stories' },
+          { id: 'huisstijl' as const, label: 'Huisstijl' },
+        ], studioTab, setStudioTab)}
+        {activeTab === 'studio' && studioTab === 'schrijfstijl' && <Schrijfstijl flash={flash} />}
+        {activeTab === 'studio' && studioTab === 'carousel' && <Carousel />}
+        {activeTab === 'studio' && studioTab === 'huisstijl' && <Huisstijl />}
         {activeTab === 'nieuwsbrief' && <Nieuwsbrief flash={flash} />}
         {activeTab === 'todo' && <Todo flash={flash} />}
         {activeTab === 'overleg' && <Overleg flash={flash} />}
         {activeTab === 'attributie' && <Attributie flash={flash} />}
         {activeTab === 'crewrooster' && <CrewRooster flash={flash} />}
-        {activeTab === 'push' && <Push flash={flash} />}
+        {/* Push & advertenties: alles waarmee je bezoekers in de app bereikt */}
+        {activeTab === 'appmarketing' && subTabs([
+          { id: 'push' as const, label: 'Pushberichten' },
+          { id: 'advertenties' as const, label: 'App-advertenties' },
+        ], appMarketingTab, setAppMarketingTab)}
+        {activeTab === 'appmarketing' && appMarketingTab === 'push' && <Push flash={flash} />}
+        {activeTab === 'appmarketing' && appMarketingTab === 'advertenties' && <Advertenties flash={flash} />}
         {activeTab === 'financieel' && <Financieel flash={flash} />}
         {activeTab === 'leveranciers' && <Leveranciers flash={flash} />}
-        {activeTab === 'advertenties' && <Advertenties flash={flash} />}
 
-        {/* FAQ */}
-        {activeTab === 'faq' && (
+        {/* INFO & DOCUMENTEN — faq/spelregels, teksten/deadlines en documenten in één tab */}
+        {activeTab === 'partnerinfo' && (
           <>
-            <div style={S.title}>FAQ &amp; spelregels</div>
-            <div style={S.sub}>De vragen en antwoorden die partners in hun portal zien.</div>
+            <div style={S.title}>Info &amp; documenten</div>
+            <div style={S.sub}>Alles wat partners in hun portal te zien krijgen: spelregels, vaste teksten, deadlines en downloads.</div>
+            {subTabs([
+              { id: 'faq' as const, label: 'FAQ & spelregels' },
+              { id: 'teksten' as const, label: 'Teksten & deadlines' },
+              { id: 'documenten' as const, label: 'Documenten' },
+            ], infoTab, setInfoTab)}
+          </>
+        )}
+        {activeTab === 'partnerinfo' && infoTab === 'faq' && (
+          <>
             {FAQ_CATEGORIEEN.map(cat => {
               const items = faqItems.filter(f => f.categorie === cat)
               if (!items.length) return null
@@ -1608,11 +1668,9 @@ export default function AdminPage() {
           </>
         )}
 
-        {/* DOCUMENTEN */}
-        {activeTab === 'documenten' && (
+        {/* DOCUMENTEN (subtab van Info & documenten) */}
+        {activeTab === 'partnerinfo' && infoTab === 'documenten' && (
           <>
-            <div style={S.title}>Documenten</div>
-            <div style={S.sub}>Uploads die partners onder &quot;Documenten&quot; kunnen downloaden.</div>
             <div style={S.card}>
               <div style={S.cardTitle}>Document uploaden</div>
               <div style={S.grid2}>
@@ -1647,11 +1705,9 @@ export default function AdminPage() {
           </>
         )}
 
-        {/* TEKSTEN */}
-        {activeTab === 'teksten' && (
+        {/* TEKSTEN (subtab van Info & documenten) */}
+        {activeTab === 'partnerinfo' && infoTab === 'teksten' && (
           <>
-            <div style={S.title}>Teksten &amp; deadlines</div>
-            <div style={S.sub}>Vaste teksten, deadlines en prijzen die partners in hun portal zien.</div>
             {Array.from(new Set(teksten.map(t => t.groep))).map(groep => (
               <div key={groep} style={S.card}>
                 <div style={S.cardTitle}>{groep}</div>
@@ -1792,10 +1848,12 @@ export default function AdminPage() {
           </>
         )}
 
-        {/* EXPORT */}
-        {activeTab === 'export' && (
+        {/* PARTNERS — exports (subweergave) */}
+        {activeTab === 'partners' && !selectedId && partnersView === 'export' && (
           <>
+            <button style={{ ...S.btnSm, marginBottom: '16px' }} onClick={() => setPartnersView('lijst')}>← Terug naar partners</button>
             <div style={S.title}>Exports</div>
+            <div style={S.sub}>Wijnlijsten en menukaarten van alle partners als CSV.</div>
             <div style={S.card}>
               <div style={S.cardTitle}>Wijnlijst export</div>
               <p style={{ fontSize: '13px', color: '#555', lineHeight: '1.7', marginBottom: '20px' }}>
@@ -1817,10 +1875,19 @@ export default function AdminPage() {
           </>
         )}
 
-        {/* VRAGEN */}
+        {/* VRAGEN — partnervragen en bezoekersvragen in één inbox */}
         {activeTab === 'vragen' && (
           <>
-            <div style={S.title}>Partner vragen</div>
+            <div style={S.title}>Vragen</div>
+            <div style={S.sub}>Alle binnengekomen vragen op één plek.</div>
+            {subTabs([
+              ...(magTab('vragen') ? [{ id: 'partners' as const, label: `Van partners${openVragen.length > 0 ? ` (${openVragen.length})` : ''}` }] : []),
+              ...(magTab('bezoekersvragen') ? [{ id: 'bezoekers' as const, label: 'Van bezoekers' }] : []),
+            ], vragenTab, setVragenTab)}
+          </>
+        )}
+        {activeTab === 'vragen' && vragenTab === 'partners' && magTab('vragen') && (
+          <>
             {vragen.map(v => (
               <div key={v.id} style={{ ...S.card, borderLeft: v.status === 'open' ? '3px solid var(--bordeaux)' : '3px solid #ccc' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
@@ -1841,7 +1908,7 @@ export default function AdminPage() {
           </>
         )}
 
-        {activeTab === 'bezoekersvragen' && <BezoekerVragen flash={flash} />}
+        {activeTab === 'vragen' && vragenTab === 'bezoekers' && magTab('bezoekersvragen') && <BezoekerVragen flash={flash} zonderKop />}
       </main>
     </div>
   )

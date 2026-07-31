@@ -23,24 +23,19 @@ export const GEBIEDEN: { id: Gebied; naam: string; uitleg: string }[] = [
 export const TAB_GEBIED: Record<string, Gebied> = {
   programma: 'programma',
 
-  overzicht: 'partners',
+  // Partners is één scherm (lijst, toevoegen en exports zitten erin);
+  // partnerinfo bundelt faq/spelregels, teksten/deadlines en documenten.
   partners: 'partners',
-  toevoegen: 'partners',
   producten: 'partners',
   crew: 'partners',
-  faq: 'partners',
-  documenten: 'partners',
-  teksten: 'partners',
-  export: 'partners',
+  partnerinfo: 'partners',
   vragen: 'partners',
 
   aankondigingen: 'marketing',
-  schrijfstijl: 'marketing',
-  carousel: 'marketing',
-  huisstijl: 'marketing',
+  // studio = schrijfstijl + carousel + huisstijl; appmarketing = push + advertenties.
+  studio: 'marketing',
   attributie: 'marketing',
-  push: 'marketing',
-  advertenties: 'marketing',
+  appmarketing: 'marketing',
   // Bewust een eigen gebied: aan de nieuwsbrief hangt het volledige
   // abonneebestand, dus die geef je los van de rest van marketing.
   nieuwsbrief: 'nieuwsbrief',
@@ -59,8 +54,7 @@ export const TAB_GEBIED: Record<string, Gebied> = {
 
   todo: 'beheer',
   overleg: 'beheer',
-  status: 'beheer',
-  activiteit: 'beheer',
+  status: 'beheer', // bevat ook het activiteitenlog als subtab
   team: 'beheer',
 }
 

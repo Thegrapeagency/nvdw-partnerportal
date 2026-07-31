@@ -233,6 +233,27 @@ export default function Financieel({ flash }: { flash: (m: string, ms?: number) 
   const [uploadBezig, setUploadBezig] = useState<string | null>(null)
   const [nieuweCat, setNieuweCat] = useState({ categorie: '', naam: '', begroot: '' })
   const [nieuwOmzet, setNieuwOmzet] = useState({ categorie: '', naam: '', begroot: '' })
+  // Categoriebeheer in het kostengrid. Een categorie bestaat pas echt in de
+  // database zodra er een post in staat; nieuwe lege categorieën staan tot die
+  // tijd lokaal klaar (per browser onthouden).
+  const [extraCats, setExtraCats] = useState<string[]>(() => {
+    if (typeof window === 'undefined') return []
+    try { return JSON.parse(localStorage.getItem('nvdw_fin_extra_cats') || '[]') } catch { return [] }
+  })
+  const bewaarExtraCats = (cats: string[]) => {
+    setExtraCats(cats)
+    try { localStorage.setItem('nvdw_fin_extra_cats', JSON.stringify(cats)) } catch { /* niks */ }
+  }
+  const [catToevoegen, setCatToevoegen] = useState(false)
+  const [catNaam, setCatNaam] = useState('')
+  const [catHernoem, setCatHernoem] = useState<{ oud: string; naam: string } | null>(null)
+  // Zodra een lokale categorie z'n eerste post heeft, staat hij in de database
+  // en hoeft de lokale kopie niet meer bewaard te blijven.
+  useEffect(() => {
+    const bestaand = new Set(posten.filter(p => p.type === 'kosten').map(p => p.categorie))
+    if (extraCats.some(c => bestaand.has(c))) bewaarExtraCats(extraCats.filter(c => !bestaand.has(c)))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [posten])
   const [baselineBezig, setBaselineBezig] = useState(false)
   // Snelboek + zoeken
   const [snel, setSnel] = useState('')
@@ -926,6 +947,47 @@ export default function Financieel({ flash }: { flash: (m: string, ms?: number) 
     </div>
   )
 
+  // Een categorie hernoemen betekent: alle kostenposten in die categorie
+  // omhangen. De boekingen hangen aan de posten en verhuizen dus vanzelf mee.
+  const hernoemCategorie = async (oud: string) => {
+    const nieuw = (catHernoem?.naam || '').trim().toLowerCase()
+    setCatHernoem(null)
+    if (!nieuw || nieuw === oud) return
+    if (oud === MARKETING_CATEGORIE && !confirm(`De KPI "Marketing per bezoeker" kijkt naar de categorie "${MARKETING_CATEGORIE}". Als je die hernoemt, telt die KPI niet meer mee. Toch hernoemen?`)) return
+    const heeftPosten = posten.some(p => p.type === 'kosten' && p.categorie === oud)
+    if (heeftPosten) {
+      const { error } = await supabase.from('budget_posten').update({ categorie: nieuw }).eq('type', 'kosten').eq('categorie', oud)
+      if (error) { flash('Hernoemen mislukte: ' + error.message, 7000); return }
+      setPosten(x => x.map(p => p.type === 'kosten' && p.categorie === oud ? { ...p, categorie: nieuw } : p))
+    }
+    if (extraCats.includes(oud)) bewaarExtraCats(extraCats.map(c => c === oud ? nieuw : c))
+    flash(`Categorie "${oud}" heet nu "${nieuw}".`)
+  }
+
+  // Verwijderen gooit nooit posten weg: alles verhuist naar "overig".
+  const verwijderCategorie = async (cat: string, rijen: BudgetPost[]) => {
+    if (cat === 'overig' && rijen.length > 0) { flash('"overig" is de vangnetcategorie en kan niet weg zolang er posten in staan.', 7000); return }
+    if (rijen.length > 0) {
+      if (cat === MARKETING_CATEGORIE && !confirm(`De KPI "Marketing per bezoeker" kijkt naar "${MARKETING_CATEGORIE}". Toch verwijderen?`)) return
+      if (!confirm(`"${cat}" bevat ${rijen.length} ${rijen.length === 1 ? 'post' : 'posten'}. Die verhuizen naar "overig" (boekingen en bijlagen blijven eraan hangen). Categorie verwijderen?`)) return
+      const { error } = await supabase.from('budget_posten').update({ categorie: 'overig' }).eq('type', 'kosten').eq('categorie', cat)
+      if (error) { flash('Verwijderen mislukte: ' + error.message, 7000); return }
+      setPosten(x => x.map(p => p.type === 'kosten' && p.categorie === cat ? { ...p, categorie: 'overig' } : p))
+    }
+    bewaarExtraCats(extraCats.filter(c => c !== cat))
+    flash(`Categorie "${cat}" is weg${rijen.length > 0 ? '; de posten staan onder "overig"' : ''}.`)
+  }
+
+  const voegCategorieToe = () => {
+    const naam = catNaam.trim().toLowerCase()
+    if (!naam) return
+    setCatToevoegen(false); setCatNaam('')
+    if (posten.some(p => p.type === 'kosten' && p.categorie === naam) || extraCats.includes(naam)) { flash(`"${naam}" bestaat al.`); return }
+    bewaarExtraCats([...extraCats, naam])
+    setNieuweCat(x => ({ ...x, categorie: naam }))
+    flash(`Categorie "${naam}" staat klaar. Hij wordt definitief zodra je er de eerste post in zet.`, 7000)
+  }
+
   // Categorierij in het grid: subtotalen op dezelfde kolommen.
   const categorieRij = (cat: string, rijen: BudgetPost[], bez: number) => {
     const begroot = somBegroot(rijen)
@@ -936,9 +998,20 @@ export default function Financieel({ flash }: { flash: (m: string, ms?: number) 
       <div key={'kop-' + cat} style={{ position: 'sticky', top: 0, background: 'var(--card)', zIndex: 2, paddingTop: '14px' }}>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'baseline' }}>
           <span style={{ width: '16px' }}></span>
-          <span style={{ flex: 1, fontSize: '11px', fontWeight: 700, letterSpacing: '2px', textTransform: 'uppercase', color: 'var(--bordeaux)' }}>
-            {cat} <span style={{ color: '#bbb', fontWeight: 400, letterSpacing: 0, textTransform: 'none' }}>({rijen.length} · {euroPB(prog, bez)} p.b.)</span>
-          </span>
+          {catHernoem?.oud === cat ? (
+            <input autoFocus style={{ ...smalInput, flex: 1, fontWeight: 700, textTransform: 'uppercase' }} value={catHernoem.naam}
+              onChange={e => setCatHernoem({ oud: cat, naam: e.target.value })}
+              onBlur={() => hernoemCategorie(cat)}
+              onKeyDown={e => { if (e.key === 'Enter') hernoemCategorie(cat); if (e.key === 'Escape') setCatHernoem(null) }} />
+          ) : (
+            <span style={{ flex: 1, fontSize: '11px', fontWeight: 700, letterSpacing: '2px', textTransform: 'uppercase', color: 'var(--bordeaux)' }}>
+              {cat} <span style={{ color: '#bbb', fontWeight: 400, letterSpacing: 0, textTransform: 'none' }}>({rijen.length} · {euroPB(prog, bez)} p.b.)</span>
+              <button title="Categorie hernoemen" onClick={() => setCatHernoem({ oud: cat, naam: cat })}
+                style={{ border: 'none', background: 'none', color: '#bbb', cursor: 'pointer', fontSize: '11px', padding: '0 3px' }}>✎</button>
+              <button title="Categorie verwijderen (posten verhuizen naar overig)" onClick={() => verwijderCategorie(cat, rijen)}
+                style={{ border: 'none', background: 'none', color: '#bbb', cursor: 'pointer', fontSize: '12px', padding: 0 }}>×</button>
+            </span>
+          )}
           <span style={{ width: KOL.vorig + 'px', textAlign: 'right', fontSize: '11px', color: '#aaa', fontWeight: 600 }}>{euroRond(somVorig(rijen))}</span>
           <span style={{ width: KOL.begroot + 'px', textAlign: 'right', fontSize: '11px', fontWeight: 700, color: 'var(--navy)' }}>{euroRond(begroot)}</span>
           <span style={{ width: KOL.werkelijk + 'px', textAlign: 'right', fontSize: '11px', fontWeight: 700, color: 'var(--navy)' }}>
@@ -1125,12 +1198,22 @@ export default function Financieel({ flash }: { flash: (m: string, ms?: number) 
         )}
 
         {zichtbareKosten.length > 0 && gridKop('Werkelijk')}
-        {[...kostenGroepen.entries()].map(([cat, rijen]) => (
-          <Fragment key={cat}>
-            {categorieRij(cat, rijen, bez)}
-            {rijen.map(postRij)}
-          </Fragment>
-        ))}
+        {(() => {
+          // Lege, net aangemaakte categorieën meenemen (niet tijdens zoeken).
+          const groepen = [...kostenGroepen.entries()]
+          if (!zoekTerm) for (const c of extraCats) if (!kostenGroepen.has(c)) groepen.push([c, []])
+          return groepen.map(([cat, rijen]) => (
+            <Fragment key={cat}>
+              {categorieRij(cat, rijen, bez)}
+              {rijen.map(postRij)}
+              {rijen.length === 0 && (
+                <div style={{ fontSize: '12px', color: '#999', padding: '6px 0 6px 24px' }}>
+                  Nog leeg — zet er hieronder bij &quot;Nieuwe post&quot; de eerste kostenpost in (categorie staat al ingevuld).
+                </div>
+              )}
+            </Fragment>
+          ))
+        })()}
 
         {/* Totaalregel */}
         {zichtbareKosten.length > 0 && !zoekTerm && (
@@ -1159,6 +1242,16 @@ export default function Financieel({ flash }: { flash: (m: string, ms?: number) 
           <button style={AS.btnSm} onClick={() => voegPostToe('kosten', nieuweCat.categorie, nieuweCat.naam, nieuweCat.begroot).then(ok => { if (ok) setNieuweCat({ categorie: '', naam: '', begroot: '' }) })}>
             + Kostenpost
           </button>
+          {catToevoegen ? (
+            <span style={{ display: 'inline-flex', gap: '6px', alignItems: 'center' }}>
+              <input autoFocus style={{ ...smalInput, width: '150px' }} placeholder="naam nieuwe categorie" value={catNaam}
+                onChange={e => setCatNaam(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') voegCategorieToe(); if (e.key === 'Escape') setCatToevoegen(false) }} />
+              <button style={AS.btnSm} onClick={voegCategorieToe}>OK</button>
+            </span>
+          ) : (
+            <button style={{ ...AS.btnSm, borderColor: '#ccc', color: '#888' }} onClick={() => { setCatToevoegen(true); setCatNaam('') }}>+ Categorie</button>
+          )}
         </div>
         <div style={{ fontSize: '11px', color: '#999', marginTop: '10px' }}>
           Klik ▸ voor de boekingen onder een post. Prognose = werkelijk + toegezegd, minimaal begroot zolang de post niet is afgerond.

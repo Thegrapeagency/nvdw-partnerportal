@@ -13,7 +13,7 @@ type Vraag = {
 
 const CATEGORIE_LABEL: Record<string, string> = { tickets: 'Tickets', programma: 'Programma', praktisch: 'Praktisch', overig: 'Overig' }
 
-export default function BezoekerVragen({ flash }: { flash: (m: string, ms?: number) => void }) {
+export default function BezoekerVragen({ flash, zonderKop }: { flash: (m: string, ms?: number) => void; zonderKop?: boolean }) {
   const [vragen, setVragen] = useState<Vraag[]>([])
   const [geladen, setGeladen] = useState(false)
   const [antwoordMap, setAntwoordMap] = useState<Record<string, string>>({})
@@ -44,8 +44,10 @@ export default function BezoekerVragen({ flash }: { flash: (m: string, ms?: numb
 
   return (
     <>
-      <div style={AS.title}>Bezoekersvragen</div>
-      <div style={AS.sub}>Vragen die bezoekers via de FAQ-pagina hebben ingestuurd.</div>
+      {!zonderKop && <>
+        <div style={AS.title}>Bezoekersvragen</div>
+        <div style={AS.sub}>Vragen die bezoekers via de FAQ-pagina hebben ingestuurd.</div>
+      </>}
 
       <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', flexWrap: 'wrap' }}>
         {categorieen.map(c => (
