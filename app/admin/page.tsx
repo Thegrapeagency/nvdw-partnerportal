@@ -122,6 +122,9 @@ export default function AdminPage() {
   const [partnersView, setPartnersView] = useState<'lijst' | 'toevoegen' | 'export'>('lijst')
   const [infoTab, setInfoTab] = useState<'faq' | 'teksten' | 'documenten'>('faq')
   const [vragenTab, setVragenTab] = useState<'partners' | 'bezoekers'>('partners')
+  const [studioTab, setStudioTab] = useState<'schrijfstijl' | 'carousel' | 'huisstijl'>('schrijfstijl')
+  const [appMarketingTab, setAppMarketingTab] = useState<'push' | 'advertenties'>('push')
+  const [statusTab, setStatusTab] = useState<'status' | 'activiteit'>('status')
   // Welke themagroepen in de zijbalk openstaan. Standaard alles dicht behalve
   // de groep van de actieve tab; keuze wordt onthouden.
   const [openGroepen, setOpenGroepen] = useState<Record<string, boolean>>(() => {
@@ -758,7 +761,7 @@ export default function AdminPage() {
   // samengevoegd: Partners bevat nu ook toevoegen en exports, Info & documenten
   // bundelt faq/teksten/documenten, en Vragen bundelt partner- én bezoekersvragen.
   const NAV_GROUPS: { titel: string | null; items: { id: string; label: string }[] }[] = ([
-    { titel: null, items: [{ id: 'start', label: 'Start' }] },
+    { titel: null, items: [{ id: 'start', label: 'Start' }, { id: 'app', label: 'Bezoekers-app' }] },
     {
       titel: 'Productie', items: [
         { id: 'programma', label: 'Programma' },
@@ -778,13 +781,10 @@ export default function AdminPage() {
     {
       titel: 'Marketing', items: [
         { id: 'aankondigingen', label: 'Aankondigingen' },
-        { id: 'schrijfstijl', label: 'Schrijfstijl & teksten' },
-        { id: 'carousel', label: 'Carousel & stories' },
-        { id: 'huisstijl', label: 'Huisstijl' },
-        { id: 'attributie', label: 'Marketing & attributie' },
-        { id: 'push', label: 'Pushberichten' },
-        { id: 'advertenties', label: 'App-advertenties' },
+        { id: 'studio', label: 'Content-studio' },
         { id: 'nieuwsbrief', label: 'Nieuwsbrief' },
+        { id: 'attributie', label: 'Attributie & spend' },
+        { id: 'appmarketing', label: 'Push & advertenties' },
       ]
     },
     {
@@ -794,13 +794,11 @@ export default function AdminPage() {
         { id: 'kassa', label: 'Kassa & omzet' },
       ]
     },
-    { titel: 'Bezoekers-app', items: [{ id: 'app', label: 'Bezoekers-app' }] },
     {
       titel: 'Beheer', items: [
         { id: 'todo', label: 'To-do' },
         { id: 'overleg', label: 'Overleg' },
-        { id: 'status', label: 'Status' },
-        { id: 'activiteit', label: 'Activiteit' },
+        { id: 'status', label: 'Status & activiteit' },
         { id: 'team', label: 'Team' },
       ]
     },
@@ -1075,8 +1073,12 @@ export default function AdminPage() {
           </>
         })()}
 
-        {/* STATUS / MISSION CONTROL */}
-        {activeTab === 'status' && (
+        {/* STATUS & ACTIVITEIT — mission control en het wijzigingenlog samen */}
+        {activeTab === 'status' && subTabs([
+          { id: 'status' as const, label: 'Systemen' },
+          { id: 'activiteit' as const, label: 'Activiteit' },
+        ], statusTab, setStatusTab)}
+        {activeTab === 'status' && statusTab === 'status' && (
           <>
             <div style={S.title}>Status van alle systemen</div>
             <div style={S.sub}>
@@ -1106,8 +1108,8 @@ export default function AdminPage() {
           </>
         )}
 
-        {/* ACTIVITEIT */}
-        {activeTab === 'activiteit' && (
+        {/* ACTIVITEIT (subtab van Status & activiteit) */}
+        {activeTab === 'status' && statusTab === 'activiteit' && (
           <>
             <div style={S.title}>Activiteit</div>
             <div style={S.sub}>Alles wat het team en partners in de portal wijzigen. Iedereen met een admin-login ziet dit volledige log.</div>
@@ -1592,18 +1594,29 @@ export default function AdminPage() {
 
         {activeTab === 'aankondigingen' && <Aankondigingen flash={flash} />}
         {activeTab === 'draaiboek' && <Draaiboek flash={flash} />}
-        {activeTab === 'schrijfstijl' && <Schrijfstijl flash={flash} />}
-        {activeTab === 'carousel' && <Carousel />}
-        {activeTab === 'huisstijl' && <Huisstijl />}
+        {/* Content-studio: schrijfstijl, carousel en huisstijl in één tab */}
+        {activeTab === 'studio' && subTabs([
+          { id: 'schrijfstijl' as const, label: 'Schrijfstijl & teksten' },
+          { id: 'carousel' as const, label: 'Carousel & stories' },
+          { id: 'huisstijl' as const, label: 'Huisstijl' },
+        ], studioTab, setStudioTab)}
+        {activeTab === 'studio' && studioTab === 'schrijfstijl' && <Schrijfstijl flash={flash} />}
+        {activeTab === 'studio' && studioTab === 'carousel' && <Carousel />}
+        {activeTab === 'studio' && studioTab === 'huisstijl' && <Huisstijl />}
         {activeTab === 'nieuwsbrief' && <Nieuwsbrief flash={flash} />}
         {activeTab === 'todo' && <Todo flash={flash} />}
         {activeTab === 'overleg' && <Overleg flash={flash} />}
         {activeTab === 'attributie' && <Attributie flash={flash} />}
         {activeTab === 'crewrooster' && <CrewRooster flash={flash} />}
-        {activeTab === 'push' && <Push flash={flash} />}
+        {/* Push & advertenties: alles waarmee je bezoekers in de app bereikt */}
+        {activeTab === 'appmarketing' && subTabs([
+          { id: 'push' as const, label: 'Pushberichten' },
+          { id: 'advertenties' as const, label: 'App-advertenties' },
+        ], appMarketingTab, setAppMarketingTab)}
+        {activeTab === 'appmarketing' && appMarketingTab === 'push' && <Push flash={flash} />}
+        {activeTab === 'appmarketing' && appMarketingTab === 'advertenties' && <Advertenties flash={flash} />}
         {activeTab === 'financieel' && <Financieel flash={flash} />}
         {activeTab === 'leveranciers' && <Leveranciers flash={flash} />}
-        {activeTab === 'advertenties' && <Advertenties flash={flash} />}
 
         {/* INFO & DOCUMENTEN — faq/spelregels, teksten/deadlines en documenten in één tab */}
         {activeTab === 'partnerinfo' && (
