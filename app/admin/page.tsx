@@ -125,19 +125,9 @@ export default function AdminPage() {
   const [studioTab, setStudioTab] = useState<'schrijfstijl' | 'carousel' | 'huisstijl'>('schrijfstijl')
   const [appMarketingTab, setAppMarketingTab] = useState<'push' | 'advertenties'>('push')
   const [statusTab, setStatusTab] = useState<'status' | 'activiteit'>('status')
-  // Welke themagroepen in de zijbalk openstaan. Standaard alles dicht behalve
-  // de groep van de actieve tab; keuze wordt onthouden.
-  const [openGroepen, setOpenGroepen] = useState<Record<string, boolean>>(() => {
-    if (typeof window === 'undefined') return {}
-    try { return JSON.parse(localStorage.getItem('nvdw_admin_nav_open') || '{}') } catch { return {} }
-  })
-  const toggleGroep = (titel: string) => {
-    setOpenGroepen(g => {
-      const next = { ...g, [titel]: !g[titel] }
-      try { localStorage.setItem('nvdw_admin_nav_open', JSON.stringify(next)) } catch {}
-      return next
-    })
-  }
+  // Per thema onthouden op welk onderdeel je zat, zodat je bij terugkeren
+  // verder gaat waar je was in plaats van steeds op het eerste tabblad.
+  const [laatsteBlad, setLaatsteBlad] = useState<Record<string, string>>({})
   const [appMetrics, setAppMetrics] = useState<any>(null)
   const [appMetricsLoading, setAppMetricsLoading] = useState(false)
   // Kassa & omzet (festival_pos koppeling)
@@ -166,6 +156,8 @@ export default function AdminPage() {
   const [newFaq, setNewFaq] = useState({ vraag: '', antwoord: '', categorie: 'logistiek' })
   const [tekstDraft, setTekstDraft] = useState<Record<string, string>>({})
   const [newTeamlid, setNewTeamlid] = useState({ email: '', naam: '' })
+  // Rechten voor een nieuw teamlid, al bij het uitnodigen. null = alles.
+  const [newTeamlidRechten, setNewTeamlidRechten] = useState<Gebied[] | null>(null)
   // null = volledige toegang (alle huidige admins). Een array betekent beperkt.
   const [mijnRechten, setMijnRechten] = useState<Gebied[] | null>(null)
   const [mijnEmail, setMijnEmail] = useState('')
@@ -529,14 +521,22 @@ export default function AdminPage() {
   // ---- Team ----
   const addTeamlid = async () => {
     if (!newTeamlid.email || !newTeamlid.naam) return
+    if (newTeamlidRechten !== null && newTeamlidRechten.length === 0) { flash('Vink minstens één gebied aan, of kies volledige toegang.', 6000); return }
     const pw = genPassword()
     const { error } = await supabase.rpc('admin_create_teamlid', { p_email: newTeamlid.email, p_naam: newTeamlid.naam, p_temp_password: pw })
     if (error) { flash('Fout: ' + error.message, 6000); return }
+    // Rechten direct inperken, vóór de welkomstmail de deur uit is: zo heeft
+    // een beperkte login nooit — ook niet heel even — volledige toegang.
+    if (newTeamlidRechten !== null) {
+      const { error: rErr } = await supabase.from('admins').update({ rechten: newTeamlidRechten } as never).eq('email', newTeamlid.email.trim().toLowerCase())
+      if (rErr) { flash('Login is aangemaakt, maar rechten inperken mislukte: ' + rErr.message + '. Pas ze direct aan via de Toegang-knop.', 12000) }
+    }
     const mail = await stuurWelkomstmail(newTeamlid.email, newTeamlid.naam, false)
     await loadAll()
     if (mail.ok) flash(`${newTeamlid.naam} toegevoegd — welkomstmail verstuurd naar ${newTeamlid.email}.`, 8000)
     else flash(`${newTeamlid.naam} toegevoegd. Mail nog niet actief — login: ${newTeamlid.email} / wachtwoord: ${pw} (deel handmatig).`, 15000)
     setNewTeamlid({ email: '', naam: '' })
+    setNewTeamlidRechten(null)
   }
   const toggleAdmin = async (a: Admin) => {
     await supabase.from('admins').update({ actief: !a.actief }).eq('id', a.id)
@@ -757,20 +757,22 @@ export default function AdminPage() {
     </div>
   )
 
-  // Nav gegroepeerd per thema, elk thema inklapbaar. Dubbelingen zijn
-  // samengevoegd: Partners bevat nu ook toevoegen en exports, Info & documenten
-  // bundelt faq/teksten/documenten, en Vragen bundelt partner- én bezoekersvragen.
-  const NAV_GROUPS: { titel: string | null; items: { id: string; label: string }[] }[] = ([
-    { titel: null, items: [{ id: 'start', label: 'Start' }, { id: 'app', label: 'Bezoekers-app' }] },
+  // Zeven knoppen in de zijbalk, meer niet: Start, Bezoekers-app en vijf
+  // thema's. De onderdelen van een thema staan als tabs bovenaan het scherm.
+  // Alleen tonen waar deze gebruiker recht op heeft — puur comfort, de echte
+  // grens ligt in de database (RLS via mag()).
+  const THEMAS: { id: string; label: string; leaves: { id: string; label: string }[] }[] = ([
+    { id: 'thema-start', label: 'Start', leaves: [{ id: 'start', label: 'Start' }] },
+    { id: 'thema-app', label: 'Bezoekers-app', leaves: [{ id: 'app', label: 'Bezoekers-app' }] },
     {
-      titel: 'Productie', items: [
+      id: 'thema-productie', label: 'Productie', leaves: [
         { id: 'programma', label: 'Programma' },
         { id: 'crewrooster', label: 'Crew-rooster' },
         { id: 'draaiboek', label: 'Draaiboek' },
       ]
     },
     {
-      titel: 'Partners', items: [
+      id: 'thema-partners', label: 'Partners', leaves: [
         { id: 'partners', label: 'Partners' },
         { id: 'crew', label: 'Crew & catering' },
         { id: 'producten', label: 'Producten (extra’s)' },
@@ -779,7 +781,7 @@ export default function AdminPage() {
       ]
     },
     {
-      titel: 'Marketing', items: [
+      id: 'thema-marketing', label: 'Marketing', leaves: [
         { id: 'aankondigingen', label: 'Aankondigingen' },
         { id: 'studio', label: 'Content-studio' },
         { id: 'nieuwsbrief', label: 'Nieuwsbrief' },
@@ -788,26 +790,33 @@ export default function AdminPage() {
       ]
     },
     {
-      titel: 'Financieel', items: [
+      id: 'thema-financieel', label: 'Financieel', leaves: [
         { id: 'financieel', label: 'Begroting & kosten' },
         { id: 'leveranciers', label: 'Leveranciers' },
         { id: 'kassa', label: 'Kassa & omzet' },
       ]
     },
     {
-      titel: 'Beheer', items: [
+      id: 'thema-beheer', label: 'Beheer', leaves: [
         { id: 'todo', label: 'To-do' },
         { id: 'overleg', label: 'Overleg' },
         { id: 'status', label: 'Status & activiteit' },
         { id: 'team', label: 'Team' },
       ]
     },
-  ] as { titel: string | null; items: { id: string; label: string }[] }[])
-    // Alleen tabs tonen waar deze gebruiker recht op heeft. Dit is puur comfort:
-    // de echte grens ligt in de database (RLS via mag()), zodat verbergen niet
-    // te omzeilen is door de API rechtstreeks aan te roepen.
-    .map(g => ({ ...g, items: g.items.filter(i => magView(i.id)) }))
-    .filter(g => g.items.length > 0)
+  ])
+    .map(t => ({ ...t, leaves: t.leaves.filter(l => magView(l.id)) }))
+    .filter(t => t.leaves.length > 0)
+  const actiefThema = THEMAS.find(t => t.leaves.some(l => l.id === activeTab))
+  const kiesThema = (t: (typeof THEMAS)[number]) => {
+    const onthouden = laatsteBlad[t.id]
+    const doel = onthouden && t.leaves.some(l => l.id === onthouden) ? onthouden : t.leaves[0].id
+    setActiveTab(doel)
+  }
+  const kiesBlad = (themaId: string, blad: string) => {
+    setActiveTab(blad)
+    setLaatsteBlad(x => ({ ...x, [themaId]: blad }))
+  }
 
   const aantalFood = partners.filter(p => p.type === 'food').length
   const aantalWijn = partners.length - aantalFood
@@ -828,30 +837,10 @@ export default function AdminPage() {
           <div style={S.logo}>NvdW 2026</div>
           <div style={S.adminLabel}>Organisatie</div>
         </div>
-        <nav style={{ padding: '8px 0 16px', flex: 1, overflowY: 'auto' }}>
-          {NAV_GROUPS.map(g => {
-            // Een groep staat open als de gebruiker 'm openklikte of als de
-            // actieve tab erin zit; zo raak je nooit kwijt waar je bent.
-            const bevatActief = g.items.some(i => i.id === activeTab)
-            const open = !g.titel || openGroepen[g.titel] || bevatActief
-            return (
-              <div key={g.titel || 'top'}>
-                {g.titel && (
-                  <button onClick={() => toggleGroep(g.titel!)} style={{
-                    ...S.navGroupTitel, display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                    width: '100%', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'Inter, sans-serif',
-                    color: bevatActief ? 'rgba(254,183,42,0.7)' : 'rgba(255,255,255,0.35)',
-                  }}>
-                    <span>{g.titel}</span>
-                    <span style={{ fontSize: '9px', transform: open ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }}>▶</span>
-                  </button>
-                )}
-                {open && g.items.map(item => (
-                  <button key={item.id} style={S.navItem(activeTab === item.id)} onClick={() => setActiveTab(item.id)}>{item.label}</button>
-                ))}
-              </div>
-            )
-          })}
+        <nav style={{ padding: '12px 0 16px', flex: 1, overflowY: 'auto' }}>
+          {THEMAS.map(t => (
+            <button key={t.id} style={S.navItem(actiefThema?.id === t.id)} onClick={() => kiesThema(t)}>{t.label}</button>
+          ))}
         </nav>
         <div style={{ padding: '16px 20px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
           <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.7)', fontWeight: '600', marginBottom: '8px' }}>{mijnNaam}</div>
@@ -863,6 +852,20 @@ export default function AdminPage() {
       </div>
 
       <main style={S.main}>
+        {/* Onderdelen van het actieve thema als tabs bovenaan; alleen als er
+            iets te kiezen valt. */}
+        {actiefThema && actiefThema.leaves.length > 1 && (
+          <div style={{ display: 'flex', gap: '2px', marginBottom: '26px', borderBottom: '2px solid rgba(1,3,65,0.08)' }}>
+            {actiefThema.leaves.map(l => (
+              <button key={l.id} onClick={() => kiesBlad(actiefThema.id, l.id)} style={{
+                padding: '9px 16px', fontSize: '12px', fontWeight: 700, letterSpacing: '0.5px',
+                background: 'none', cursor: 'pointer', fontFamily: 'Inter, sans-serif',
+                border: 'none', borderBottom: `2px solid ${activeTab === l.id ? 'var(--bordeaux)' : 'transparent'}`,
+                marginBottom: '-2px', color: activeTab === l.id ? 'var(--bordeaux)' : '#888',
+              }}>{l.label}</button>
+            ))}
+          </div>
+        )}
         {saveMsg && <div style={S.successMsg}>{saveMsg}</div>}
 
         {/* START (launcher: 4 grote tegels naar de systemen, met live status) */}
@@ -1842,6 +1845,28 @@ export default function AdminPage() {
                 <div><label style={S.label}>Naam</label><input style={S.input} value={newTeamlid.naam} onChange={e => setNewTeamlid({ ...newTeamlid, naam: e.target.value })} /></div>
                 <div><label style={S.label}>E-mailadres</label><input style={S.input} value={newTeamlid.email} onChange={e => setNewTeamlid({ ...newTeamlid, email: e.target.value })} placeholder="naam@nachtvandewijn.nl" /></div>
               </div>
+              <label style={S.label}>Toegang</label>
+              <label style={{ display: 'flex', gap: '10px', alignItems: 'center', cursor: 'pointer', marginBottom: '8px' }}>
+                <input type="checkbox" checked={newTeamlidRechten === null} onChange={e => setNewTeamlidRechten(e.target.checked ? null : [])} />
+                <span style={{ fontSize: '13px', fontWeight: 600 }}>Volledige toegang (alles, ook toekomstige onderdelen)</span>
+              </label>
+              {newTeamlidRechten !== null && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', background: '#f7f4ec', borderRadius: '6px', padding: '12px 14px' }}>
+                  {GEBIEDEN.map(g => (
+                    <label key={g.id} style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', cursor: 'pointer' }}>
+                      <input type="checkbox" style={{ marginTop: '3px' }} checked={newTeamlidRechten.includes(g.id)}
+                        onChange={e => setNewTeamlidRechten(e.target.checked ? [...newTeamlidRechten, g.id] : newTeamlidRechten.filter(x => x !== g.id))} />
+                      <span>
+                        <span style={{ fontSize: '13px', fontWeight: 600 }}>{g.naam}</span>
+                        <span style={{ fontSize: '12px', color: '#888', display: 'block' }}>{g.uitleg}</span>
+                      </span>
+                    </label>
+                  ))}
+                  <div style={{ fontSize: '12px', color: '#888', lineHeight: 1.5 }}>
+                    De login ziet vanaf de allereerste keer inloggen alleen deze gebieden. Later aan te passen via de Toegang-knop hierboven.
+                  </div>
+                </div>
+              )}
               <button style={S.btn} onClick={addTeamlid}>Login aanmaken</button>
               <p style={{ fontSize: '12px', color: '#999', marginTop: '12px' }}>Er wordt automatisch een tijdelijk wachtwoord gegenereerd. Geef dit door aan het teamlid; ze kunnen het later wijzigen.</p>
             </div>
