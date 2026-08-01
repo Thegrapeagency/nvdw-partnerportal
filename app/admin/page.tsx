@@ -123,7 +123,7 @@ export default function AdminPage() {
   const [infoTab, setInfoTab] = useState<'faq' | 'teksten' | 'documenten'>('faq')
   const [vragenTab, setVragenTab] = useState<'partners' | 'bezoekers'>('partners')
   const [studioTab, setStudioTab] = useState<'schrijfstijl' | 'carousel' | 'huisstijl'>('schrijfstijl')
-  const [appMarketingTab, setAppMarketingTab] = useState<'push' | 'advertenties'>('push')
+  const [appTab, setAppTab] = useState<'cijfers' | 'push' | 'advertenties'>('cijfers')
   const [statusTab, setStatusTab] = useState<'status' | 'activiteit'>('status')
   // Per thema onthouden op welk onderdeel je zat, zodat je bij terugkeren
   // verder gaat waar je was in plaats van steeds op het eerste tabblad.
@@ -169,9 +169,13 @@ export default function AdminPage() {
   const magTab = (tab: string) => heeftTab(mijnRechten, tab)
   // De samengevoegde Vragen-tab is zichtbaar als je bij partnervragen ÓF bij
   // bezoekersvragen mag; binnenin filtert vragenTab op het juiste recht.
-  const magView = (tab: string) => tab === 'vragen'
-    ? heeftTab(mijnRechten, 'vragen') || heeftTab(mijnRechten, 'bezoekersvragen')
-    : heeftTab(mijnRechten, tab)
+  const magView = (tab: string) => {
+    if (tab === 'vragen') return heeftTab(mijnRechten, 'vragen') || heeftTab(mijnRechten, 'bezoekersvragen')
+    // Bezoekers-app bundelt cijfers (gebied bezoekers) met push/advertenties
+    // (gebied marketing); zichtbaar zodra je één van beide mag.
+    if (tab === 'app') return heeftTab(mijnRechten, 'app') || heeftTab(mijnRechten, 'appmarketing')
+    return heeftTab(mijnRechten, tab)
+  }
   const [docUpload, setDocUpload] = useState({ naam: '', categorie: 'draaiboek', file: null as File | null })
   const [uploading, setUploading] = useState(false)
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -236,6 +240,11 @@ export default function AdminPage() {
   // Wie alleen bezoekersvragen mag zien, landt in de Vragen-tab direct daar.
   useEffect(() => {
     if (activeTab === 'vragen' && !heeftTab(mijnRechten, 'vragen')) setVragenTab('bezoekers')
+  }, [activeTab, mijnRechten])
+
+  // Zelfde voor de Bezoekers-app: zonder bezoekers-recht direct naar Push.
+  useEffect(() => {
+    if (activeTab === 'app' && !heeftTab(mijnRechten, 'app')) setAppTab('push')
   }, [activeTab, mijnRechten])
 
   useEffect(() => {
@@ -764,21 +773,22 @@ export default function AdminPage() {
   // grens ligt in de database (RLS via mag()).
   const THEMAS: { id: string; label: string; leaves: { id: string; label: string }[] }[] = ([
     { id: 'thema-start', label: 'Start', leaves: [{ id: 'start', label: 'Start' }] },
-    { id: 'thema-app', label: 'Bezoekers-app', leaves: [{ id: 'app', label: 'Bezoekers-app' }] },
     {
       id: 'thema-productie', label: 'Productie', leaves: [
         { id: 'programma', label: 'Programma' },
         { id: 'crewrooster', label: 'Crew-rooster' },
         { id: 'draaiboek', label: 'Draaiboek' },
+        { id: 'crew', label: 'Crew & catering' },
+        { id: 'leveranciers', label: 'Leveranciers' },
       ]
     },
     {
       id: 'thema-partners', label: 'Partners', leaves: [
         { id: 'partners', label: 'Partners' },
-        { id: 'crew', label: 'Crew & catering' },
         { id: 'producten', label: 'Producten (extra’s)' },
         { id: 'partnerinfo', label: 'Info & documenten' },
         { id: 'vragen', label: `Vragen${openVragen.length > 0 ? ` (${openVragen.length})` : ''}` },
+        { id: 'kassa', label: 'Kassa & omzet' },
       ]
     },
     {
@@ -787,14 +797,12 @@ export default function AdminPage() {
         { id: 'studio', label: 'Content-studio' },
         { id: 'nieuwsbrief', label: 'Nieuwsbrief' },
         { id: 'attributie', label: 'Attributie & spend' },
-        { id: 'appmarketing', label: 'Push & advertenties' },
+        { id: 'app', label: 'Bezoekers-app' },
       ]
     },
     {
       id: 'thema-financieel', label: 'Financieel', leaves: [
         { id: 'financieel', label: 'Begroting & kosten' },
-        { id: 'leveranciers', label: 'Leveranciers' },
-        { id: 'kassa', label: 'Kassa & omzet' },
       ]
     },
     {
@@ -941,8 +949,17 @@ export default function AdminPage() {
           </>
         })()}
 
-        {/* BEZOEKERS-APP */}
-        {activeTab === 'app' && (
+        {/* BEZOEKERS-APP — cijfers, push en advertenties op één plek */}
+        {activeTab === 'app' && subTabs([
+          ...(magTab('app') ? [{ id: 'cijfers' as const, label: 'Cijfers' }] : []),
+          ...(magTab('appmarketing') ? [
+            { id: 'push' as const, label: 'Pushberichten' },
+            { id: 'advertenties' as const, label: 'App-advertenties' },
+          ] : []),
+        ], appTab, setAppTab)}
+        {activeTab === 'app' && appTab === 'push' && magTab('appmarketing') && <Push flash={flash} />}
+        {activeTab === 'app' && appTab === 'advertenties' && magTab('appmarketing') && <Advertenties flash={flash} />}
+        {activeTab === 'app' && appTab === 'cijfers' && magTab('app') && (
           <>
             <div style={S.title}>Bezoekers-app</div>
             <div style={S.sub}>Nocturne, de app voor festivalbezoekers. Alleen anonieme cijfers, geen persoonsgegevens.</div>
@@ -1612,13 +1629,6 @@ export default function AdminPage() {
         {activeTab === 'overleg' && <Overleg flash={flash} />}
         {activeTab === 'attributie' && <Attributie flash={flash} />}
         {activeTab === 'crewrooster' && <CrewRooster flash={flash} />}
-        {/* Push & advertenties: alles waarmee je bezoekers in de app bereikt */}
-        {activeTab === 'appmarketing' && subTabs([
-          { id: 'push' as const, label: 'Pushberichten' },
-          { id: 'advertenties' as const, label: 'App-advertenties' },
-        ], appMarketingTab, setAppMarketingTab)}
-        {activeTab === 'appmarketing' && appMarketingTab === 'push' && <Push flash={flash} />}
-        {activeTab === 'appmarketing' && appMarketingTab === 'advertenties' && <Advertenties flash={flash} />}
         {activeTab === 'financieel' && <Financieel flash={flash} />}
         {activeTab === 'leveranciers' && <Leveranciers flash={flash} />}
 
