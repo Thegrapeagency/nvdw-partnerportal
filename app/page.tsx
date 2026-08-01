@@ -46,7 +46,7 @@ export default function LoginPage() {
             </label>
             <input
               type="email" value={email} onChange={e => setEmail(e.target.value)} required
-              style={{ width: '100%', padding: '11px 14px', background: 'var(--cream)', border: '1px solid rgba(1,3,65,0.15)', color: 'var(--navy)', fontSize: '14px', outline: 'none' }}
+              style={{ width: '100%', padding: '11px 14px', background: '#fff', border: '1px solid rgba(1,3,65,0.15)', borderRadius: '10px', color: 'var(--navy)', fontSize: '14px', outline: 'none' }}
             />
           </div>
           <div>
@@ -55,11 +55,11 @@ export default function LoginPage() {
             </label>
             <input
               type="password" value={password} onChange={e => setPassword(e.target.value)} required
-              style={{ width: '100%', padding: '11px 14px', background: 'var(--cream)', border: '1px solid rgba(1,3,65,0.15)', color: 'var(--navy)', fontSize: '14px', outline: 'none' }}
+              style={{ width: '100%', padding: '11px 14px', background: '#fff', border: '1px solid rgba(1,3,65,0.15)', borderRadius: '10px', color: 'var(--navy)', fontSize: '14px', outline: 'none' }}
             />
           </div>
           {error && <div style={{ fontSize: '13px', color: 'var(--bordeaux)', padding: '10px 0' }}>{error}</div>}
-          <button type="submit" disabled={loading} style={{ padding: '12px', background: 'var(--navy)', color: 'var(--cream)', border: 'none', fontSize: '11px', fontWeight: '600', letterSpacing: '2px', textTransform: 'uppercase', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.6 : 1, marginTop: '4px' }}>
+          <button type="submit" disabled={loading} style={{ padding: '12px', background: 'var(--navy)', color: 'var(--cream)', border: 'none', borderRadius: '10px', fontSize: '13px', fontWeight: '600', letterSpacing: '0.2px', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.6 : 1, marginTop: '4px' }}>
             {loading ? 'Laden...' : 'Inloggen'}
           </button>
         </form>

@@ -705,38 +705,39 @@ export default function AdminPage() {
     flash(`Export klaar — ${crew.length} crewleden.`, 4000)
   }
 
+  // Rustige SaaS-look in de NvdW-kleuren: kleur als accent, zachte kaarten,
+  // ronde hoeken, geen schreeuwende uppercase meer.
   const S = {
     page: { display: 'flex', minHeight: '100vh', background: 'var(--sand)' } as React.CSSProperties,
-    sidebar: { width: '210px', background: 'var(--navy)', flexShrink: 0 } as React.CSSProperties,
-    sidebarTop: { padding: '24px 20px', borderBottom: '1px solid rgba(255,255,255,0.08)' } as React.CSSProperties,
+    sidebar: { width: '224px', background: 'var(--navy)', flexShrink: 0 } as React.CSSProperties,
+    sidebarTop: { padding: '22px 22px 18px', borderBottom: '1px solid rgba(255,255,255,0.07)' } as React.CSSProperties,
     logo: { fontSize: '10px', fontWeight: '700', letterSpacing: '2px', textTransform: 'uppercase' as const, color: 'var(--gold)' },
-    adminLabel: { fontSize: '13px', fontWeight: '700', color: 'var(--cream)', marginTop: '4px' },
+    adminLabel: { fontSize: '15px', fontWeight: '700', color: 'var(--cream)', marginTop: '3px', fontFamily: 'Fraunces, Georgia, serif' },
     navGroupTitel: { padding: '18px 20px 6px', fontSize: '10px', fontWeight: '700', letterSpacing: '1.5px', textTransform: 'uppercase' as const, color: 'rgba(255,255,255,0.3)' } as React.CSSProperties,
     navItem: (active: boolean) => ({
-      display: 'block', width: '100%', padding: '10px 20px', textAlign: 'left' as const,
-      background: active ? 'rgba(254,183,42,0.12)' : 'transparent',
-      borderTop: 'none', borderRight: 'none', borderBottom: 'none',
-      borderLeft: active ? '3px solid var(--gold)' : '3px solid transparent',
-      color: active ? 'var(--gold)' : 'rgba(255,255,255,0.55)',
-      fontSize: '12px', fontWeight: '600', letterSpacing: '1px', textTransform: 'uppercase' as const,
+      display: 'block', width: 'calc(100% - 20px)', margin: '2px 10px', padding: '10px 13px', textAlign: 'left' as const,
+      background: active ? 'rgba(254,183,42,0.13)' : 'transparent',
+      border: 'none', borderRadius: '9px',
+      color: active ? 'var(--gold)' : 'rgba(255,255,255,0.62)',
+      fontSize: '13.5px', fontWeight: active ? 650 : 500, letterSpacing: '0.1px',
       cursor: 'pointer', fontFamily: 'Inter, sans-serif',
     }),
-    main: { flex: 1, padding: '32px 40px', maxWidth: '1100px' } as React.CSSProperties,
-    title: { fontFamily: 'Fraunces, Georgia, serif', fontSize: '24px', fontWeight: '700', letterSpacing: '0', color: 'var(--navy)', marginBottom: '6px' },
-    sub: { fontSize: '13px', color: '#888', marginBottom: '24px' },
-    card: { background: 'var(--card)', padding: '24px', marginBottom: '16px', borderRadius: '14px', border: '1px solid rgba(1,3,65,0.08)', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' } as React.CSSProperties,
-    cardTitle: { fontSize: '11px', fontWeight: '700', letterSpacing: '2px', textTransform: 'uppercase' as const, color: 'var(--bordeaux)', marginBottom: '16px' },
-    label: { display: 'block', fontSize: '11px', fontWeight: '700', letterSpacing: '1px', textTransform: 'uppercase' as const, color: '#666', marginBottom: '6px', marginTop: '12px' },
-    input: { width: '100%', padding: '9px 12px', border: '1px solid #ddd', fontSize: '13px', fontFamily: 'Inter, sans-serif', outline: 'none', borderRadius: '2px', color: 'var(--navy)', background: '#fff' } as React.CSSProperties,
-    btn: { padding: '10px 20px', background: 'var(--navy)', color: 'var(--cream)', border: 'none', fontSize: '11px', fontWeight: '700', letterSpacing: '2px', textTransform: 'uppercase' as const, cursor: 'pointer', fontFamily: 'Inter, sans-serif', borderRadius: '2px', marginTop: '16px' },
-    btnSm: { padding: '6px 12px', background: 'transparent', color: 'var(--bordeaux)', border: '1px solid var(--bordeaux)', fontSize: '10px', fontWeight: '700', letterSpacing: '1px', textTransform: 'uppercase' as const, cursor: 'pointer', borderRadius: '2px' },
+    main: { flex: 1, padding: '30px 40px 60px', maxWidth: '1120px' } as React.CSSProperties,
+    title: { fontFamily: 'Fraunces, Georgia, serif', fontSize: '25px', fontWeight: '700', letterSpacing: '-0.3px', color: 'var(--navy)', marginBottom: '5px' },
+    sub: { fontSize: '13px', color: '#8b8574', marginBottom: '22px' },
+    card: { background: 'var(--card)', padding: '22px 24px', marginBottom: '14px', borderRadius: '16px', border: '1px solid rgba(1,3,65,0.06)', boxShadow: '0 1px 2px rgba(1,3,65,0.04), 0 6px 20px rgba(1,3,65,0.03)' } as React.CSSProperties,
+    cardTitle: { fontSize: '13.5px', fontWeight: '700', letterSpacing: '-0.1px', color: 'var(--navy)', marginBottom: '14px' },
+    label: { display: 'block', fontSize: '12px', fontWeight: '600', letterSpacing: '0', color: '#777162', marginBottom: '5px', marginTop: '12px' },
+    input: { width: '100%', padding: '8px 12px', border: '1px solid #e3dcc9', fontSize: '13px', fontFamily: 'Inter, sans-serif', outline: 'none', borderRadius: '9px', color: 'var(--navy)', background: '#fff' } as React.CSSProperties,
+    btn: { padding: '9px 18px', background: 'var(--navy)', color: 'var(--cream)', border: 'none', fontSize: '13px', fontWeight: '600', letterSpacing: '0.1px', cursor: 'pointer', fontFamily: 'Inter, sans-serif', borderRadius: '9px', marginTop: '16px' },
+    btnSm: { padding: '5px 12px', background: 'transparent', color: 'var(--bordeaux)', border: '1px solid rgba(155,55,55,0.35)', fontSize: '12px', fontWeight: '600', letterSpacing: '0.1px', cursor: 'pointer', borderRadius: '8px' },
     grid2: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' },
     grid3: { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' },
     table: { width: '100%', borderCollapse: 'collapse' as const, fontSize: '13px' },
-    th: { textAlign: 'left' as const, fontSize: '10px', fontWeight: '700', letterSpacing: '2px', textTransform: 'uppercase' as const, color: '#999', padding: '8px 12px', borderBottom: '2px solid #eee' },
-    td: { padding: '10px 12px', borderBottom: '1px solid #f0f0f0', color: 'var(--navy)', verticalAlign: 'top' as const },
-    badge: (ok: boolean) => ({ display: 'inline-block', padding: '2px 8px', fontSize: '10px', fontWeight: '700', borderRadius: '2px', background: ok ? '#e8f5e9' : '#fff3e0', color: ok ? '#2e7d32' : '#e65100' }),
-    successMsg: { background: '#e8f5e9', border: '1px solid #4caf50', color: '#2e7d32', padding: '12px 16px', borderRadius: '2px', fontSize: '13px', marginBottom: '20px', fontWeight: '600' } as React.CSSProperties,
+    th: { textAlign: 'left' as const, fontSize: '11px', fontWeight: '600', letterSpacing: '0.3px', color: '#9a9484', padding: '8px 12px', borderBottom: '1px solid rgba(1,3,65,0.1)' },
+    td: { padding: '11px 12px', borderBottom: '1px solid rgba(1,3,65,0.05)', color: 'var(--navy)', verticalAlign: 'top' as const },
+    badge: (ok: boolean) => ({ display: 'inline-block', padding: '2px 10px', fontSize: '11px', fontWeight: '600', borderRadius: '999px', background: ok ? '#e6f2e7' : '#fdf1df', color: ok ? '#2e7d32' : '#b26a00' }),
+    successMsg: { background: '#e9f4ea', border: '1px solid #bcd9bf', color: '#2e7d32', padding: '11px 16px', borderRadius: '10px', fontSize: '13px', marginBottom: '20px', fontWeight: '600' } as React.CSSProperties,
   }
 
   if (loading) return <div style={{ padding: '40px' }}>Laden...</div>
@@ -748,10 +749,10 @@ export default function AdminPage() {
     <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', flexWrap: 'wrap' }}>
       {opties.map(o => (
         <button key={o.id} onClick={() => kies(o.id)} style={{
-          padding: '8px 16px', fontSize: '12px', fontWeight: 700, letterSpacing: '0.5px', cursor: 'pointer',
-          borderRadius: '20px', border: `1px solid ${actief === o.id ? 'var(--navy)' : '#ddd'}`,
-          background: actief === o.id ? 'var(--navy)' : 'transparent',
-          color: actief === o.id ? 'var(--cream)' : '#666', fontFamily: 'Inter, sans-serif',
+          padding: '7px 15px', fontSize: '12.5px', fontWeight: 600, letterSpacing: '0.1px', cursor: 'pointer',
+          borderRadius: '999px', border: `1px solid ${actief === o.id ? 'var(--navy)' : 'rgba(1,3,65,0.15)'}`,
+          background: actief === o.id ? 'var(--navy)' : '#fff',
+          color: actief === o.id ? 'var(--cream)' : '#66604f', fontFamily: 'Inter, sans-serif',
         }}>{o.label}</button>
       ))}
     </div>
@@ -855,13 +856,13 @@ export default function AdminPage() {
         {/* Onderdelen van het actieve thema als tabs bovenaan; alleen als er
             iets te kiezen valt. */}
         {actiefThema && actiefThema.leaves.length > 1 && (
-          <div style={{ display: 'flex', gap: '2px', marginBottom: '26px', borderBottom: '2px solid rgba(1,3,65,0.08)' }}>
+          <div style={{ display: 'flex', gap: '4px', marginBottom: '26px', borderBottom: '1px solid rgba(1,3,65,0.09)' }}>
             {actiefThema.leaves.map(l => (
               <button key={l.id} onClick={() => kiesBlad(actiefThema.id, l.id)} style={{
-                padding: '9px 16px', fontSize: '12px', fontWeight: 700, letterSpacing: '0.5px',
+                padding: '9px 15px', fontSize: '13px', fontWeight: activeTab === l.id ? 650 : 500, letterSpacing: '0.1px',
                 background: 'none', cursor: 'pointer', fontFamily: 'Inter, sans-serif',
                 border: 'none', borderBottom: `2px solid ${activeTab === l.id ? 'var(--bordeaux)' : 'transparent'}`,
-                marginBottom: '-2px', color: activeTab === l.id ? 'var(--bordeaux)' : '#888',
+                marginBottom: '-1px', color: activeTab === l.id ? 'var(--bordeaux)' : '#8b8574',
               }}>{l.label}</button>
             ))}
           </div>
