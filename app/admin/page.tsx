@@ -22,6 +22,7 @@ import Nieuwsbrief from './Nieuwsbrief'
 import Todo from './Todo'
 import Overleg from './Overleg'
 import BezoekerVragen from './BezoekerVragen'
+import AppBeheer from './AppBeheer'
 
 const PAKKET_LABELS: Record<string, string> = {
   branded_bar: 'Branded Bar',
@@ -123,7 +124,7 @@ export default function AdminPage() {
   const [infoTab, setInfoTab] = useState<'faq' | 'teksten' | 'documenten'>('faq')
   const [vragenTab, setVragenTab] = useState<'partners' | 'bezoekers'>('partners')
   const [studioTab, setStudioTab] = useState<'schrijfstijl' | 'carousel' | 'huisstijl'>('schrijfstijl')
-  const [appTab, setAppTab] = useState<'cijfers' | 'push' | 'advertenties'>('cijfers')
+  const [appTab, setAppTab] = useState<'instellingen' | 'cijfers' | 'push' | 'advertenties'>('instellingen')
   const [statusTab, setStatusTab] = useState<'status' | 'activiteit'>('status')
   // Per thema onthouden op welk onderdeel je zat, zodat je bij terugkeren
   // verder gaat waar je was in plaats van steeds op het eerste tabblad.
@@ -951,12 +952,16 @@ export default function AdminPage() {
 
         {/* BEZOEKERS-APP — cijfers, push en advertenties op één plek */}
         {activeTab === 'app' && subTabs([
-          ...(magTab('app') ? [{ id: 'cijfers' as const, label: 'Cijfers' }] : []),
+          ...(magTab('app') ? [
+            { id: 'instellingen' as const, label: 'Instellingen' },
+            { id: 'cijfers' as const, label: 'Cijfers' },
+          ] : []),
           ...(magTab('appmarketing') ? [
             { id: 'push' as const, label: 'Pushberichten' },
             { id: 'advertenties' as const, label: 'App-advertenties' },
           ] : []),
         ], appTab, setAppTab)}
+        {activeTab === 'app' && appTab === 'instellingen' && magTab('app') && <AppBeheer flash={flash} />}
         {activeTab === 'app' && appTab === 'push' && magTab('appmarketing') && <Push flash={flash} />}
         {activeTab === 'app' && appTab === 'advertenties' && magTab('appmarketing') && <Advertenties flash={flash} />}
         {activeTab === 'app' && appTab === 'cijfers' && magTab('app') && (
