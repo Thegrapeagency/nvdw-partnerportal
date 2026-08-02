@@ -865,13 +865,14 @@ export default function AdminPage() {
         {/* Onderdelen van het actieve thema als tabs bovenaan; alleen als er
             iets te kiezen valt. */}
         {actiefThema && actiefThema.leaves.length > 1 && (
-          <div style={{ display: 'flex', gap: '4px', marginBottom: '26px', borderBottom: '1px solid rgba(1,3,65,0.09)' }}>
+          <div style={{ display: 'flex', gap: '6px', marginBottom: '26px', paddingBottom: '14px', borderBottom: '1px solid rgba(1,3,65,0.12)' }}>
             {actiefThema.leaves.map(l => (
               <button key={l.id} onClick={() => kiesBlad(actiefThema.id, l.id)} style={{
-                padding: '9px 15px', fontSize: '13px', fontWeight: activeTab === l.id ? 650 : 500, letterSpacing: '0.1px',
-                background: 'none', cursor: 'pointer', fontFamily: 'Inter, sans-serif',
-                border: 'none', borderBottom: `2px solid ${activeTab === l.id ? 'var(--bordeaux)' : 'transparent'}`,
-                marginBottom: '-1px', color: activeTab === l.id ? 'var(--bordeaux)' : '#8b8574',
+                padding: '8px 16px', fontSize: '13px', fontWeight: activeTab === l.id ? 700 : 500, letterSpacing: '0.1px',
+                background: activeTab === l.id ? 'rgba(155,55,55,0.08)' : 'transparent', cursor: 'pointer', fontFamily: 'Inter, sans-serif',
+                border: `1px solid ${activeTab === l.id ? 'rgba(155,55,55,0.25)' : 'rgba(1,3,65,0.08)'}`,
+                borderRadius: '9px', color: activeTab === l.id ? 'var(--bordeaux)' : '#8b8574',
+                transition: 'all 0.15s ease',
               }}>{l.label}</button>
             ))}
           </div>
