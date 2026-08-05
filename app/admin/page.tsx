@@ -51,7 +51,8 @@ function TicketCodesCell({ partner, onSave }: { partner: any; onSave: (codes: st
   const [val, setVal] = useState((partner as any).ticket_codes || '')
 
   const save = async () => {
-    await supabase.from('partners').update({ ticket_codes: val } as any).eq('id', partner.id)
+    const { error } = await supabase.from('partners').update({ ticket_codes: val } as any).eq('id', partner.id)
+    if (error) { alert('Opslaan mislukt: ' + error.message); return }
     onSave(val)
     setEditing(false)
   }
@@ -82,7 +83,8 @@ function KortingscodeCell({ partner, onSave }: { partner: Partner; onSave: (code
   const [editing, setEditing] = useState(false)
   const [val, setVal] = useState(partner.kortingscode || '')
   const save = async () => {
-    await supabase.from('partners').update({ kortingscode: val || null }).eq('id', partner.id)
+    const { error } = await supabase.from('partners').update({ kortingscode: val || null }).eq('id', partner.id)
+    if (error) { alert('Opslaan mislukt: ' + error.message); return }
     onSave(val)
     setEditing(false)
   }
@@ -105,6 +107,11 @@ function KortingscodeCell({ partner, onSave }: { partner: Partner; onSave: (code
 export default function AdminPage() {
   const router = useRouter()
   const [partners, setPartners] = useState<Partner[]>([])
+  // Niet-opgeslagen wijzigingen per partner-id, zodat het detailscherm een
+  // expliciete Opslaan-knop kan tonen in plaats van losse velden die stil
+  // wegschrijven bij onBlur (daardoor was nooit duidelijk of iets echt lukte).
+  const [partnerDraft, setPartnerDraft] = useState<Record<string, Partial<Partner>>>({})
+  const [partnerSaving, setPartnerSaving] = useState(false)
   const [vragen, setVragen] = useState<PartnerVraag[]>([])
   const [producten, setProducten] = useState<Product[]>([])
   const [faqItems, setFaqItems] = useState<FAQ[]>([])
@@ -433,8 +440,10 @@ export default function AdminPage() {
     const codes: string[] = []
     while (codes.length < aantal) { const c = genTicketCode(); if (!codes.includes(c)) codes.push(c) }
     const val = codes.join(',')
-    await supabase.from('partners').update({ ticket_codes: val } as any).eq('id', p.id)
+    const { error } = await supabase.from('partners').update({ ticket_codes: val } as any).eq('id', p.id)
+    if (error) { flash('Genereren mislukt: ' + error.message, 8000); return }
     setPartners(partners.map(x => x.id === p.id ? ({ ...x, ticket_codes: val } as any) : x))
+    setPartnerDraft(d => { if (!d[p.id]?.hasOwnProperty('ticket_codes')) return d; const nd = { ...d, [p.id]: { ...d[p.id] } }; delete (nd[p.id] as any).ticket_codes; return nd })
     flash(`${aantal} ticketcodes gegenereerd`)
   }
 
@@ -444,9 +453,32 @@ export default function AdminPage() {
     setPartnerDocs(data || [])
   }
 
-  const updatePartner = async (id: string, patch: Partial<Partner>) => {
-    await supabase.from('partners').update(patch).eq('id', id)
-    setPartners(partners.map(p => p.id === id ? { ...p, ...patch } : p))
+  // Waarde die het detailscherm laat zien: opgeslagen data + eventuele
+  // niet-opgeslagen wijzigingen uit het draft.
+  const partnerDraftValue = (p: Partner) => ({ ...p, ...(partnerDraft[p.id] || {}) })
+  const setPartnerDraftField = (id: string, patch: Partial<Partner>) => {
+    setPartnerDraft(d => ({ ...d, [id]: { ...(d[id] || {}), ...patch } }))
+  }
+  const isPartnerDirty = (id: string) => !!partnerDraft[id] && Object.keys(partnerDraft[id]).length > 0
+  const savePartnerDraft = async (p: Partner) => {
+    const patch = partnerDraft[p.id]
+    if (!patch || Object.keys(patch).length === 0) return
+    setPartnerSaving(true)
+    const { error } = await supabase.from('partners').update(patch).eq('id', p.id)
+    setPartnerSaving(false)
+    if (error) { flash('Opslaan mislukt: ' + error.message, 8000); return }
+    setPartners(partners.map(x => x.id === p.id ? { ...x, ...patch } : x))
+    setPartnerDraft(d => { const nd = { ...d }; delete nd[p.id]; return nd })
+    flash('Wijzigingen opgeslagen')
+  }
+  const deletePartner = async (p: Partner) => {
+    if (!confirm(`Weet je zeker dat je "${p.bedrijfsnaam}" wilt verwijderen? Dit kan niet ongedaan gemaakt worden.`)) return
+    const { error } = await supabase.from('partners').delete().eq('id', p.id)
+    if (error) { flash('Verwijderen mislukt: ' + error.message, 10000); return }
+    setPartners(partners.filter(x => x.id !== p.id))
+    setPartnerDraft(d => { const nd = { ...d }; delete nd[p.id]; return nd })
+    setSelectedId(null)
+    flash(`"${p.bedrijfsnaam}" is verwijderd`)
   }
 
   const uploadPartnerDoc = async (partnerId: string) => {
@@ -494,8 +526,10 @@ export default function AdminPage() {
     if (!error && data) { setProducten([...producten, data]); setNewProduct({ naam: '', omschrijving: '', prijs: '', eenheid: 'stuk' }); flash('Product toegevoegd') }
   }
   const updateProduct = async (id: string, patch: Partial<Product>) => {
-    await supabase.from('producten_catalogus').update(patch).eq('id', id)
+    const { error } = await supabase.from('producten_catalogus').update(patch).eq('id', id)
+    if (error) { flash('Opslaan mislukt: ' + error.message, 8000); return }
     setProducten(producten.map(p => p.id === id ? { ...p, ...patch } : p))
+    flash('Opgeslagen')
   }
   const deleteProduct = async (id: string) => {
     if (!confirm('Product verwijderen?')) return
@@ -511,8 +545,10 @@ export default function AdminPage() {
     if (!error && data) { setFaqItems([...faqItems, data]); setNewFaq({ vraag: '', antwoord: '', categorie: 'logistiek' }); flash('FAQ toegevoegd') }
   }
   const updateFaq = async (id: string, patch: Partial<FAQ>) => {
-    await supabase.from('faq').update(patch).eq('id', id)
+    const { error } = await supabase.from('faq').update(patch).eq('id', id)
+    if (error) { flash('Opslaan mislukt: ' + error.message, 8000); return }
     setFaqItems(faqItems.map(f => f.id === id ? { ...f, ...patch } : f))
+    flash('Opgeslagen')
   }
   const deleteFaq = async (id: string) => {
     if (!confirm('Vraag verwijderen?')) return
@@ -1306,6 +1342,9 @@ export default function AdminPage() {
         {activeTab === 'partners' && selectedId && (() => {
           const sp = partners.find(p => p.id === selectedId)
           if (!sp) return <button style={S.btnSm} onClick={() => setSelectedId(null)}>← Terug</button>
+          const draft = partnerDraftValue(sp)
+          const dirty = isPartnerDirty(sp.id)
+          const setField = (patch: Partial<Partner>) => setPartnerDraftField(sp.id, patch)
           const num = (v: string) => v === '' ? null : Number(v)
           const euroFmt = (n: number) => '€' + n.toFixed(2).replace('.', ',')
           const cateringPrijs = parseFloat(tekstDraft['prijs_catering_pp'] || '19.50') || 19.5
@@ -1315,7 +1354,14 @@ export default function AdminPage() {
           const extrasTotaal = spExtras.reduce((s, e) => s + e.aantal * e.prijs_per_stuk, 0)
           return (
             <>
-              <button style={{ ...S.btnSm, marginBottom: '16px' }} onClick={() => { setSelectedId(null); setPartnerDocs([]) }}>← Terug naar overzicht</button>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px', marginBottom: '16px' }}>
+                <button style={S.btnSm} onClick={() => { if (dirty && !confirm('Niet-opgeslagen wijzigingen weggooien?')) return; setSelectedId(null); setPartnerDocs([]); setPartnerDraft(d => { const nd = { ...d }; delete nd[sp.id]; return nd }) }}>← Terug naar overzicht</button>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  {dirty && <span style={{ fontSize: '12px', color: 'var(--bordeaux)', fontWeight: 600 }}>Niet-opgeslagen wijzigingen</span>}
+                  <button style={{ ...S.btn, marginTop: 0, opacity: dirty && !partnerSaving ? 1 : 0.5 }} disabled={!dirty || partnerSaving} onClick={() => savePartnerDraft(sp)}>{partnerSaving ? 'Opslaan...' : 'Opslaan'}</button>
+                  <button style={{ ...S.btnSm, color: 'var(--bordeaux)' }} onClick={() => deletePartner(sp)}>Partner verwijderen</button>
+                </div>
+              </div>
               <div style={S.title}>{sp.bedrijfsnaam}</div>
               <div style={S.sub}>{sp.naam} · {sp.email} · {sp.type === 'food' ? 'Foodtruck' : 'Wijnpartner'}</div>
 
@@ -1324,40 +1370,39 @@ export default function AdminPage() {
                 <div style={S.card}>
                   <div style={S.cardTitle}>Afspraken</div>
                   <label style={S.label}>Pakket</label>
-                  <select style={S.input} value={sp.pakket} onChange={e => updatePartner(sp.id, { pakket: e.target.value })}>
+                  <select style={S.input} value={draft.pakket} onChange={e => setField({ pakket: e.target.value })}>
                     {(sp.type === 'food' ? ['foodtruck'] : ['branded_bar', 'own_bar', 'restaurant_host', 'entrance_host', 'silent_disco']).map(v => <option key={v} value={v}>{PAKKET_LABELS[v]}</option>)}
                   </select>
                   <div style={S.grid2}>
                     <div>
                       <label style={S.label}>Afdracht %</label>
-                      <input style={S.input} type="number" defaultValue={sp.afdracht_percentage} onBlur={e => Number(e.target.value) !== sp.afdracht_percentage && updatePartner(sp.id, { afdracht_percentage: Number(e.target.value) })} />
+                      <input style={S.input} type="number" value={draft.afdracht_percentage} onChange={e => setField({ afdracht_percentage: Number(e.target.value) })} />
                     </div>
                     <div>
                       <label style={S.label}>Gratis tickets</label>
-                      <input style={S.input} type="number" defaultValue={sp.gratis_tickets} onBlur={e => Number(e.target.value) !== sp.gratis_tickets && updatePartner(sp.id, { gratis_tickets: Number(e.target.value) })} />
+                      <input style={S.input} type="number" value={draft.gratis_tickets} onChange={e => setField({ gratis_tickets: Number(e.target.value) })} />
                     </div>
                     <div>
                       <label style={S.label}>Crewtickets</label>
-                      <input style={S.input} type="number" defaultValue={sp.crew_tickets ?? 0} onBlur={e => Number(e.target.value) !== (sp.crew_tickets ?? 0) && updatePartner(sp.id, { crew_tickets: Number(e.target.value) })} />
+                      <input style={S.input} type="number" value={draft.crew_tickets ?? 0} onChange={e => setField({ crew_tickets: Number(e.target.value) })} />
                     </div>
                   </div>
                   {/* Stageld voor elk type partner, niet alleen foodtrucks: een
                       wijnpartner met een eigen bar betaalt het ook. */}
                   <label style={S.label}>Stageld € (excl. btw)</label>
                   <input style={S.input} type="number" step="0.01" placeholder="leeg = geen stageld"
-                    defaultValue={sp.standplaats_vergoeding ?? ''}
-                    onBlur={e => updatePartner(sp.id, { standplaats_vergoeding: num(e.target.value) as any })} />
+                    value={draft.standplaats_vergoeding ?? ''}
+                    onChange={e => setField({ standplaats_vergoeding: num(e.target.value) as any })} />
                   <label style={S.label}>Wat zit er bij het stageld in</label>
                   <textarea style={{ ...S.input, height: '96px', resize: 'vertical' as const }}
-                    key={sp.id + '-inbegrepen'}
-                    defaultValue={(sp as any).standplaats_inbegrepen ?? ''}
+                    value={(draft as any).standplaats_inbegrepen ?? ''}
                     placeholder={'Eén regel per punt, bijvoorbeeld:\n1 pinautomaat\n200 cm bar met koeling en ijs\n20 gratis kaarten'}
-                    onBlur={e => updatePartner(sp.id, { standplaats_inbegrepen: e.target.value || null } as any)} />
+                    onChange={e => setField({ standplaats_inbegrepen: e.target.value || null } as any)} />
                   <div style={{ fontSize: '11px', color: '#999', marginTop: '4px' }}>
                     Dit ziet de partner bij het stageld staan, en het gaat mee in wat hij aftekent.
                   </div>
                   <label style={S.label}>{sp.type === 'food' ? 'Standplaats' : 'Barlocatie'}</label>
-                  <input style={S.input} defaultValue={sp.barlocatie ?? ''} onBlur={e => updatePartner(sp.id, { barlocatie: e.target.value || null })} />
+                  <input style={S.input} value={draft.barlocatie ?? ''} onChange={e => setField({ barlocatie: e.target.value || null })} />
                 </div>
 
                 {/* Offerte + tickets */}
@@ -1406,9 +1451,9 @@ export default function AdminPage() {
                     <button style={S.btnSm} onClick={() => genereerTicketcodes(sp, parseInt(genAantal))}>Genereer ticketcodes</button>
                   </div>
                   <label style={S.label}>Ticketcodes (komma-gescheiden)</label>
-                  <textarea key={(sp as any).ticket_codes || 'leeg'} style={{ ...S.input, height: '64px', fontFamily: 'monospace', fontSize: '12px' }} defaultValue={(sp as any).ticket_codes || ''} onBlur={e => updatePartner(sp.id, { ticket_codes: e.target.value } as any)} placeholder="CODE1,CODE2,CODE3" />
+                  <textarea style={{ ...S.input, height: '64px', fontFamily: 'monospace', fontSize: '12px' }} value={(draft as any).ticket_codes || ''} onChange={e => setField({ ticket_codes: e.target.value } as any)} placeholder="CODE1,CODE2,CODE3" />
                   <label style={S.label}>Eigen kortingscode</label>
-                  <input style={S.input} defaultValue={sp.kortingscode ?? ''} onBlur={e => updatePartner(sp.id, { kortingscode: e.target.value.toUpperCase() || null })} placeholder="standaard" />
+                  <input style={S.input} value={draft.kortingscode ?? ''} onChange={e => setField({ kortingscode: e.target.value.toUpperCase() || null })} placeholder="standaard" />
                   <div style={{ marginTop: '14px' }}>
                     {sp.user_id && <span style={{ ...S.badge(true), marginRight: '8px' }}>login actief</span>}
                     <button style={S.btnSm} onClick={() => stuurInlog(sp)}>{sp.user_id ? 'Inlogmail opnieuw sturen' : 'Stuur inlogmail'}</button>
