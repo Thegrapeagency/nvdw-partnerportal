@@ -215,7 +215,11 @@ const legeBoekingDraft = (): BoekingDraft => ({ omschrijving: '', leverancier: '
 export default function Financieel({ flash }: { flash: (m: string, ms?: number) => void }) {
   const [geladen, setGeladen] = useState(false)
   // Live omzetbronnen
+  // Alle ticketbedragen hieronder zijn EX btw, net als de calculatiesheet.
   const [ticketTotaal, setTicketTotaal] = useState(0)
+  const [ticketKorting, setTicketKorting] = useState(0)
+  const [ticketServiceFee, setTicketServiceFee] = useState(0)
+  const [ticketTransactie, setTicketTransactie] = useState(0)
   const [ticketAantal, setTicketAantal] = useState(0)
   const [ticketRegels, setTicketRegels] = useState<TicketRegel[]>([])
   const [ticketFout, setTicketFout] = useState<string | null>(null)
@@ -332,26 +336,50 @@ export default function Financieel({ flash }: { flash: (m: string, ms?: number) 
   const laadTicketing = async () => {
     try {
       const [orders, items, types] = await Promise.all([
-        alleRijen<{ id: string; total_cents: number; paid_at: string | null }>((v, t) =>
-          supabase.from('orders').select('id, total_cents, paid_at').eq('status', 'paid').range(v, t)),
+        alleRijen<{
+          id: string; total_cents: number; discount_cents: number | null
+          service_fee_cents: number | null; service_fee_vat_rate: number | null
+          transaction_fee_cents: number | null; paid_at: string | null
+        }>((v, t) =>
+          supabase.from('orders').select('id, total_cents, discount_cents, service_fee_cents, service_fee_vat_rate, transaction_fee_cents, paid_at').eq('status', 'paid').range(v, t)),
         alleRijen<{ order_id: string; ticket_type_id: string; quantity: number; unit_price_cents: number }>((v, t) =>
           supabase.from('order_items').select('order_id, ticket_type_id, quantity, unit_price_cents').range(v, t)),
-        alleRijen<{ id: string; name_nl: string; category: string }>((v, t) =>
-          supabase.from('ticket_types').select('id, name_nl, category').range(v, t)),
+        alleRijen<{ id: string; name_nl: string; category: string; vat_rate: number }>((v, t) =>
+          supabase.from('ticket_types').select('id, name_nl, category, vat_rate').range(v, t)),
       ])
       const betaald = new Set(orders.map(o => o.id))
-      const naam = new Map(types.map(t => [t.id, t.name_nl]))
+      const typeVan = new Map(types.map(t => [t.id, t]))
       const perType = new Map<string, TicketRegel>()
       let aantal = 0
       for (const it of items) {
         if (!betaald.has(it.order_id)) continue
-        const r = perType.get(it.ticket_type_id) || { naam: naam.get(it.ticket_type_id) || it.ticket_type_id, aantal: 0, omzet_cents: 0 }
+        const tt = typeVan.get(it.ticket_type_id)
+        // Crewtickets kosten niets en zijn geen bezoekers; die horen niet in de
+        // omzet en niet in het gemiddelde van de ticketprijs.
+        if (tt?.category === 'crew') continue
+        const bruto = it.quantity * it.unit_price_cents
+        const r = perType.get(it.ticket_type_id) || { naam: tt?.name_nl || it.ticket_type_id, aantal: 0, omzet_cents: 0 }
         r.aantal += it.quantity
-        r.omzet_cents += it.quantity * it.unit_price_cents
+        // De calculatiesheet rekent ex btw, dus hier de btw eruit halen met het
+        // tarief dat bij het tickettype staat (nu overal 9%).
+        r.omzet_cents += Math.round(bruto / (1 + Number(tt?.vat_rate ?? 9) / 100))
         perType.set(it.ticket_type_id, r)
         aantal += it.quantity
       }
-      setTicketTotaal(orders.reduce((s, o) => s + o.total_cents, 0))
+      // Kortingen drukken de ticketomzet; die volgen het ticket-btw-tarief.
+      const kortingBruto = orders.reduce((s, o) => s + (o.discount_cents || 0), 0)
+      const kortingEx = Math.round(kortingBruto / 1.09)
+      const regelsEx = [...perType.values()].reduce((s, r) => s + r.omzet_cents, 0)
+      // Servicekosten zijn eigen omzet, geen ticketomzet: apart houden zodat de
+      // ticketregel te vergelijken blijft met de begroting.
+      const serviceEx = orders.reduce((s, o) =>
+        s + Math.round((o.service_fee_cents || 0) / (1 + Number(o.service_fee_vat_rate ?? 9) / 100)), 0)
+      setTicketTotaal(regelsEx - kortingEx)
+      setTicketKorting(kortingEx)
+      setTicketServiceFee(serviceEx)
+      // Transactiekosten belasten we door aan de koper en betalen we door aan
+      // Mollie: geen omzet, alleen ter info.
+      setTicketTransactie(orders.reduce((s, o) => s + (o.transaction_fee_cents || 0), 0))
       setTicketAantal(aantal)
       setTicketRegels([...perType.values()].sort((a, b) => b.omzet_cents - a.omzet_cents))
       setTicketFout(null)
@@ -436,7 +464,8 @@ export default function Financieel({ flash }: { flash: (m: string, ms?: number) 
     // de boekingen onder de handmatige posten.
     const handmatigeOmzet = omzetPosten.filter(p => !p.live_bron)
     const omzetBegroot = somBegroot(omzetPosten)
-    const omzetGerealiseerd = ticketTotaal + posDeel + standgelden + somWerkelijk(handmatigeOmzet)
+    // Servicekosten zijn geen ticketomzet maar wel omzet, dus wel in het totaal.
+    const omzetGerealiseerd = ticketTotaal + ticketServiceFee + posDeel + standgelden + somWerkelijk(handmatigeOmzet)
     const marketing = kostenPosten.filter(p => p.categorie === MARKETING_CATEGORIE)
     return {
       kostenBegroot, kostenWerkelijk, kostenVerwacht, kostenVorig, kostenPrognose,
@@ -448,7 +477,7 @@ export default function Financieel({ flash }: { flash: (m: string, ms?: number) 
       resultaatBegroot: omzetBegroot - kostenBegroot,
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ticketTotaal, posNvdw, posStatus, standgelden, kostenPosten, omzetPosten, perPost])
+  }, [ticketTotaal, ticketServiceFee, posNvdw, posStatus, standgelden, kostenPosten, omzetPosten, perPost])
 
   // ---------- scenario ----------
   // Vorige editie: 4750 bezoekers (bron: kostenspreadsheet 2025).
@@ -1164,7 +1193,7 @@ export default function Financieel({ flash }: { flash: (m: string, ms?: number) 
       {/* Grote cijfers */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
         {kpi && tegel('Prognose eindresultaat', kpi.eindresultaat, `Scenario-omzet ${euroRond(u?.omzet || 0)} min kostenprognose ${euroRond(totalen.kostenPrognose)}`, kpi.eindresultaat >= 0 ? GROEN : 'var(--bordeaux)')}
-        {tegel('Omzet gerealiseerd', totalen.omzetGerealiseerd, `Live uit ticketing, kassa en standgelden`, undefined, posNoot)}
+        {tegel('Omzet gerealiseerd', totalen.omzetGerealiseerd, `Live uit ticketing, kassa en standgelden. Tickets ex btw, kassa nog bruto`, undefined, posNoot)}
         {tegel('Kosten', totalen.kostenWerkelijk + totalen.kostenVerwacht, `Betaald + facturen ${euroRond(totalen.kostenWerkelijk)} · toegezegd ${euroRond(totalen.kostenVerwacht)} · begroot ${euroRond(totalen.kostenBegroot)}`)}
         {tegel('Resultaat nu', totalen.resultaatNu, 'Gerealiseerde omzet min betaald en gefactureerd', totalen.resultaatNu > 0 ? GROEN : totalen.resultaatNu < 0 ? 'var(--bordeaux)' : undefined)}
       </div>
@@ -1416,7 +1445,7 @@ export default function Financieel({ flash }: { flash: (m: string, ms?: number) 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '28px' }}>
           <div>
             {slider('Bezoekers (betaalde tickets)', s.bezoekers, `${s.bezoekers.toLocaleString('nl-NL')} van ${s.capaciteit.toLocaleString('nl-NL')}`, 0, s.capaciteit, 25, v => zetScenario({ bezoekers: v }))}
-            {slider('Gemiddelde ticketprijs', s.ticketprijs, '€' + s.ticketprijs.toFixed(2).replace('.', ','), 10, 60, 0.5, v => zetScenario({ ticketprijs: v }))}
+            {slider('Gemiddelde ticketprijs (ex btw)', s.ticketprijs, '€' + s.ticketprijs.toFixed(2).replace('.', ','), 10, 60, 0.5, v => zetScenario({ ticketprijs: v }))}
             {slider('Baromzet per bezoeker', s.barPerBezoeker, '€' + s.barPerBezoeker.toFixed(0), 0, 60, 1, v => zetScenario({ barPerBezoeker: v }))}
             {slider('Gemiddelde afdracht bars', s.afdrachtPct, s.afdrachtPct + '%', 0, 40, 1, v => zetScenario({ afdrachtPct: v }))}
             {slider('Kostenuitloop', s.kostenUitloopPct, (s.kostenUitloopPct > 0 ? '+' : '') + s.kostenUitloopPct + '%', -15, 25, 1, v => zetScenario({ kostenUitloopPct: v }))}
@@ -1465,10 +1494,10 @@ export default function Financieel({ flash }: { flash: (m: string, ms?: number) 
           <tbody>
             <tr>
               <td style={{ ...AS.td, fontWeight: 600 }}>
-                Ticketomzet{ticketAantal > 0 ? ` (${ticketAantal.toLocaleString('nl-NL')} tickets)` : ''}{bronLabel('live uit ticketing')}
+                Ticketomzet ex btw{ticketAantal > 0 ? ` (${ticketAantal.toLocaleString('nl-NL')} tickets)` : ''}{bronLabel('live uit ticketing')}
                 {ticketRegels.length > 0 && (
                   <button style={{ ...AS.btnSm, marginLeft: '10px', padding: '3px 8px' }} onClick={() => setTicketOpen(o => !o)}>
-                    {ticketOpen ? 'Verberg tickettypes' : 'Per tickettype'}
+                    {ticketOpen ? 'Verberg opbouw' : 'Opbouw'}
                   </button>
                 )}
               </td>
@@ -1485,12 +1514,33 @@ export default function Financieel({ flash }: { flash: (m: string, ms?: number) 
                 <td style={{ ...AS.td, textAlign: 'right', fontSize: '12px', color: '#666', whiteSpace: 'nowrap' }}>{euro(r.omzet_cents)}</td>
               </tr>
             ))}
+            {ticketOpen && ticketKorting > 0 && (
+              <tr>
+                <td style={{ ...AS.td, paddingLeft: '32px', fontSize: '12px', color: '#666' }}>Kortingscodes (ex btw)</td>
+                <td style={{ ...AS.td, textAlign: 'right', fontSize: '12px', color: '#666', whiteSpace: 'nowrap' }}>-{euro(ticketKorting).slice(1)}</td>
+              </tr>
+            )}
             {ticketOpen && (
               <tr>
                 <td style={{ ...AS.td, paddingLeft: '32px', fontSize: '11px', color: '#999' }}>
-                  Het totaal hierboven is inclusief servicekosten en na kortingen, de regels per type niet. Klein verschil is dus normaal.
+                  De btw is per tickettype uit het bedrag gehaald (nu overal 9%), zodat dit te vergelijken is met de begroting.
+                  Servicekosten staan als eigen regel; de doorbelaste transactiekosten zijn geen omzet.
                 </td>
                 <td style={AS.td}></td>
+              </tr>
+            )}
+            <tr>
+              <td style={{ ...AS.td, fontWeight: 600 }}>Servicekosten ex btw{bronLabel('live uit ticketing')}</td>
+              <td style={{ ...AS.td, textAlign: 'right', fontWeight: 700, whiteSpace: 'nowrap' }}>
+                {ticketFout ? '-' : euro(ticketServiceFee)}
+              </td>
+            </tr>
+            {ticketTransactie > 0 && (
+              <tr>
+                <td style={{ ...AS.td, fontSize: '12px', color: '#999' }}>
+                  Transactiekosten doorbelast aan de koper (geen omzet, gaat naar Mollie)
+                </td>
+                <td style={{ ...AS.td, textAlign: 'right', fontSize: '12px', color: '#999', whiteSpace: 'nowrap' }}>{euro(ticketTransactie)}</td>
               </tr>
             )}
             <tr>
