@@ -60,6 +60,10 @@ export default function CrewRooster({ flash }: { flash: (m: string, ms?: number)
 
   const [shiftFormOpen, setShiftFormOpen] = useState(false)
   const [shiftDraft, setShiftDraft] = useState<ShiftDraft>(leegShift)
+  // Welke shift op dit moment open staat om te wijzigen. De velden staan dan
+  // in `bewerkDraft`, los van het formulier voor een nieuwe shift.
+  const [bewerkId, setBewerkId] = useState<string | null>(null)
+  const [bewerkDraft, setBewerkDraft] = useState<ShiftDraft>(leegShift)
 
   const [lidFormOpen, setLidFormOpen] = useState<string | 'nieuw' | null>(null)
   const [lidDraft, setLidDraft] = useState<LidDraft>(leegLid)
@@ -135,6 +139,59 @@ export default function CrewRooster({ flash }: { flash: (m: string, ms?: number)
     flash(shiftDraft.alleDagen ? 'Shift aangemaakt voor vrijdag, zaterdag en zondag.' : `Shift aangemaakt voor ${DAG_NAAM[shiftDraft.dag]}.`)
     setShiftDraft(leegShift)
     setShiftFormOpen(false)
+    await laad()
+  }
+
+  // Een bestaande shift openen om te wijzigen. alleDagen hoort alleen bij
+  // aanmaken, dus die staat hier altijd uit.
+  const openBewerk = (s: Shift) => {
+    setBewerkId(s.id)
+    setBewerkDraft({
+      dag: s.dag, rol_id: String(s.rol_id),
+      start: tijdUit(s.start_tijd), eind: tijdUit(s.eind_tijd),
+      aantal: String(s.aantal_nodig),
+      locatie: s.locatie || '', contactpersoon: s.contactpersoon || '',
+      opmerking: s.opmerking || '', alleDagen: false,
+    })
+  }
+  const sluitBewerk = () => { setBewerkId(null); setBewerkDraft(leegShift) }
+
+  const bewaarShift = async (s: Shift) => {
+    const d = bewerkDraft
+    if (!d.rol_id) { flash('Kies eerst een rol.', 5000); return }
+    if (!d.start || !d.eind) { flash('Vul een start- en eindtijd in.', 5000); return }
+    const aantal = parseInt(d.aantal)
+    if (isNaN(aantal) || aantal < 1) { flash('Aantal nodig moet minstens 1 zijn.', 5000); return }
+    // Minder plekken dan er mensen op staan zou het rooster stil laten kloppen
+    // terwijl er iemand te veel ingedeeld is.
+    const bezet = bezetting(s.id).length
+    if (aantal < bezet && !confirm(`Er staan ${bezet} crewleden op deze shift en je zet het aantal op ${aantal}. De namen blijven staan, de shift is dan overbezet. Doorgaan?`)) return
+    const naMiddernacht = d.eind <= d.start
+    setBusy(true)
+    const { error } = await supabase.from('crew_shifts').update({
+      dag: d.dag,
+      rol_id: parseInt(d.rol_id),
+      start_tijd: `${DATUM[d.dag]}T${d.start}:00+01:00`,
+      eind_tijd: `${naMiddernacht ? DATUM_NA[d.dag] : DATUM[d.dag]}T${d.eind}:00+01:00`,
+      aantal_nodig: aantal,
+      locatie: d.locatie.trim() || null,
+      contactpersoon: d.contactpersoon.trim() || null,
+      opmerking: d.opmerking.trim() || null,
+    }).eq('id', s.id)
+    setBusy(false)
+    if (error) {
+      // De overlap-trigger slaat toe als iemand na de wijziging dubbel staat.
+      flash(error.message.includes('DUBBEL_INGEROOSTERD')
+        ? 'Dat kan niet: met deze tijden staat er iemand dubbel ingeroosterd. Haal die persoon eerst van een van de twee shifts.'
+        : 'Opslaan mislukte: ' + error.message, 9000)
+      return
+    }
+    // Bij een andere dag verdwijnt de shift uit dit dagoverzicht, dus zeg waar
+    // hij nu staat in plaats van hem stil te laten verdwijnen.
+    flash(d.dag !== s.dag
+      ? `Shift ${rolVan(parseInt(d.rol_id))?.naam || ''} staat nu op ${DAG_NAAM[d.dag]}.`
+      : `Shift ${rolVan(parseInt(d.rol_id))?.naam || ''} bijgewerkt.`)
+    sluitBewerk()
     await laad()
   }
 
@@ -300,6 +357,61 @@ export default function CrewRooster({ flash }: { flash: (m: string, ms?: number)
     </span>
   )
 
+  // Velden van een shift, gedeeld door het aanmaakformulier en het wijzigen op
+  // de kaart zelf. Zo kan een veld nooit in het ene scherm zitten en in het
+  // andere ontbreken.
+  const shiftVelden = (d: ShiftDraft, zet: (x: ShiftDraft) => void, nieuw: boolean) => (
+    <>
+      <div style={AS.grid3}>
+        <div>
+          <label style={AS.label}>Dag</label>
+          <select style={{ ...AS.input, opacity: d.alleDagen ? 0.5 : 1 }} value={d.dag} disabled={d.alleDagen}
+            onChange={e => zet({ ...d, dag: e.target.value as Dag })}>
+            {PROGRAMMA_DAGEN.map(x => <option key={x.value} value={x.value}>{x.label}</option>)}
+          </select>
+        </div>
+        <div>
+          <label style={AS.label}>Rol</label>
+          <select style={AS.input} value={d.rol_id} onChange={e => zet({ ...d, rol_id: e.target.value })}>
+            <option value="">Kies een rol</option>
+            {rollen.map(r => <option key={r.id} value={r.id}>{r.naam}</option>)}
+          </select>
+        </div>
+        <div>
+          <label style={AS.label}>Aantal nodig</label>
+          <input style={AS.input} type="number" min={1} value={d.aantal} onChange={e => zet({ ...d, aantal: e.target.value })} />
+        </div>
+        <div>
+          <label style={AS.label}>Starttijd</label>
+          <input style={AS.input} type="time" value={d.start} onChange={e => zet({ ...d, start: e.target.value })} />
+        </div>
+        <div>
+          <label style={AS.label}>Eindtijd</label>
+          <input style={AS.input} type="time" value={d.eind} onChange={e => zet({ ...d, eind: e.target.value })} />
+        </div>
+        <div>
+          <label style={AS.label}>Locatie</label>
+          <input style={AS.input} value={d.locatie} onChange={e => zet({ ...d, locatie: e.target.value })} placeholder="bijv. Hoofdentree" />
+        </div>
+        <div>
+          <label style={AS.label}>Contactpersoon</label>
+          <input style={AS.input} value={d.contactpersoon} onChange={e => zet({ ...d, contactpersoon: e.target.value })} placeholder="bijv. Milan" />
+        </div>
+        <div style={{ gridColumn: 'span 2' }}>
+          <label style={AS.label}>Opmerking (optioneel)</label>
+          <input style={AS.input} value={d.opmerking} onChange={e => zet({ ...d, opmerking: e.target.value })} placeholder="bijv. Portofoon ophalen bij de productie" />
+        </div>
+      </div>
+      {nieuw && (
+        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '14px', fontSize: '13px', color: 'var(--navy)', cursor: 'pointer' }}>
+          <input type="checkbox" checked={d.alleDagen} onChange={e => zet({ ...d, alleDagen: e.target.checked })} />
+          Op alle drie de dagen (vr, za en zo)
+        </label>
+      )}
+      <div style={{ fontSize: '12px', color: '#888', marginTop: '6px' }}>Eindtijd voor de starttijd? Dan loopt de shift door tot na middernacht.</div>
+    </>
+  )
+
   const shiftKaart = (s: Shift) => {
     const rol = rolVan(s.rol_id)
     const opShift = bezetting(s.id)
@@ -308,25 +420,46 @@ export default function CrewRooster({ flash }: { flash: (m: string, ms?: number)
     const kandidaten = leden.filter(l => l.actief && !opShiftIds.has(l.id))
     const metRol = kandidaten.filter(l => l.rol_ids.includes(s.rol_id))
     const overige = kandidaten.filter(l => !l.rol_ids.includes(s.rol_id))
+    const bewerken = bewerkId === s.id
     return (
       <div key={s.id} style={{ ...AS.card, borderLeft: `4px solid ${rol?.kleur || 'var(--bordeaux)'}`, padding: '16px 20px', marginBottom: '10px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', flexWrap: 'wrap' }}>
-          <div>
-            <div style={{ fontWeight: 700, fontSize: '14px', color: 'var(--navy)' }}>{rol?.naam || 'Onbekende rol'}</div>
-            <div style={{ fontSize: '12px', color: '#666', marginTop: '2px' }}>
-              {tijdUit(s.start_tijd)} tot {tijdUit(s.eind_tijd)}
-              {s.locatie && <> · {s.locatie}</>}
-              {s.contactpersoon && <> · contact: {s.contactpersoon}</>}
+        {bewerken ? (
+          <>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', marginBottom: '4px' }}>
+              <div style={AS.cardTitle}>Shift wijzigen</div>
+              <button style={{ ...AS.btnSm, borderColor: '#ccc', color: '#666' }} onClick={sluitBewerk}>Annuleer</button>
             </div>
-            {s.opmerking && <div style={{ fontSize: '12px', color: '#888', fontStyle: 'italic', marginTop: '2px' }}>{s.opmerking}</div>}
+            {shiftVelden(bewerkDraft, setBewerkDraft, false)}
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+              <button style={AS.btn} onClick={() => bewaarShift(s)} disabled={busy}>{busy ? 'Opslaan...' : 'Wijzigingen opslaan'}</button>
+              <button style={{ ...AS.btnSm, borderColor: '#ccc', color: '#888', marginTop: '14px' }} onClick={() => verwijderShift(s)}>Shift verwijderen</button>
+            </div>
+          </>
+        ) : (
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', flexWrap: 'wrap' }}>
+            {/* De hele kop is aanklikbaar om te wijzigen; de namen eronder niet,
+                anders klap je hem open terwijl je iemand wilt inroosteren. */}
+            <div onClick={() => openBewerk(s)} title="Klik om deze shift te wijzigen" style={{ cursor: 'pointer', flex: 1, minWidth: '200px' }}>
+              <div style={{ fontWeight: 700, fontSize: '14px', color: 'var(--navy)' }}>
+                {rol?.naam || 'Onbekende rol'}
+                <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--bordeaux)', marginLeft: '8px' }}>wijzig</span>
+              </div>
+              <div style={{ fontSize: '12px', color: '#666', marginTop: '2px' }}>
+                {tijdUit(s.start_tijd)} tot {tijdUit(s.eind_tijd)}
+                {s.locatie && <> · {s.locatie}</>}
+                {s.contactpersoon && <> · contact: {s.contactpersoon}</>}
+              </div>
+              {s.opmerking && <div style={{ fontSize: '12px', color: '#888', fontStyle: 'italic', marginTop: '2px' }}>{s.opmerking}</div>}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <span style={{ padding: '3px 10px', fontSize: '11px', fontWeight: 700, borderRadius: '10px', background: compleet ? '#e8f5e9' : '#fdecea', color: compleet ? '#2e7d32' : '#b71c1c' }}>
+                {opShift.length}/{s.aantal_nodig}{!compleet && ` · nog ${s.aantal_nodig - opShift.length} nodig`}
+              </span>
+              <button style={AS.btnSm} onClick={() => openBewerk(s)}>Wijzig</button>
+              <button style={{ ...AS.btnSm, borderColor: '#ccc', color: '#888' }} onClick={() => verwijderShift(s)}>Verwijder</button>
+            </div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <span style={{ padding: '3px 10px', fontSize: '11px', fontWeight: 700, borderRadius: '10px', background: compleet ? '#e8f5e9' : '#fdecea', color: compleet ? '#2e7d32' : '#b71c1c' }}>
-              {opShift.length}/{s.aantal_nodig}{!compleet && ` · nog ${s.aantal_nodig - opShift.length} nodig`}
-            </span>
-            <button style={{ ...AS.btnSm, borderColor: '#ccc', color: '#888' }} onClick={() => verwijderShift(s)}>Verwijder</button>
-          </div>
-        </div>
+        )}
         <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px', marginTop: '12px' }}>
           {opShift.map(t => {
             const lid = lidVan(t.lid_id)
@@ -428,50 +561,7 @@ export default function CrewRooster({ flash }: { flash: (m: string, ms?: number)
       {shiftFormOpen && (
         <div style={AS.card}>
           <div style={AS.cardTitle}>Nieuwe shift</div>
-          <div style={AS.grid3}>
-            <div>
-              <label style={AS.label}>Dag</label>
-              <select style={{ ...AS.input, opacity: shiftDraft.alleDagen ? 0.5 : 1 }} value={shiftDraft.dag} disabled={shiftDraft.alleDagen} onChange={e => setShiftDraft({ ...shiftDraft, dag: e.target.value as Dag })}>
-                {PROGRAMMA_DAGEN.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
-              </select>
-            </div>
-            <div>
-              <label style={AS.label}>Rol</label>
-              <select style={AS.input} value={shiftDraft.rol_id} onChange={e => setShiftDraft({ ...shiftDraft, rol_id: e.target.value })}>
-                <option value="">Kies een rol</option>
-                {rollen.map(r => <option key={r.id} value={r.id}>{r.naam}</option>)}
-              </select>
-            </div>
-            <div>
-              <label style={AS.label}>Aantal nodig</label>
-              <input style={AS.input} type="number" min={1} value={shiftDraft.aantal} onChange={e => setShiftDraft({ ...shiftDraft, aantal: e.target.value })} />
-            </div>
-            <div>
-              <label style={AS.label}>Starttijd</label>
-              <input style={AS.input} type="time" value={shiftDraft.start} onChange={e => setShiftDraft({ ...shiftDraft, start: e.target.value })} />
-            </div>
-            <div>
-              <label style={AS.label}>Eindtijd</label>
-              <input style={AS.input} type="time" value={shiftDraft.eind} onChange={e => setShiftDraft({ ...shiftDraft, eind: e.target.value })} />
-            </div>
-            <div>
-              <label style={AS.label}>Locatie</label>
-              <input style={AS.input} value={shiftDraft.locatie} onChange={e => setShiftDraft({ ...shiftDraft, locatie: e.target.value })} placeholder="bijv. Hoofdentree" />
-            </div>
-            <div>
-              <label style={AS.label}>Contactpersoon</label>
-              <input style={AS.input} value={shiftDraft.contactpersoon} onChange={e => setShiftDraft({ ...shiftDraft, contactpersoon: e.target.value })} placeholder="bijv. Milan" />
-            </div>
-            <div style={{ gridColumn: 'span 2' }}>
-              <label style={AS.label}>Opmerking (optioneel)</label>
-              <input style={AS.input} value={shiftDraft.opmerking} onChange={e => setShiftDraft({ ...shiftDraft, opmerking: e.target.value })} placeholder="bijv. Portofoon ophalen bij de productie" />
-            </div>
-          </div>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '14px', fontSize: '13px', color: 'var(--navy)', cursor: 'pointer' }}>
-            <input type="checkbox" checked={shiftDraft.alleDagen} onChange={e => setShiftDraft({ ...shiftDraft, alleDagen: e.target.checked })} />
-            Op alle drie de dagen (vr, za en zo)
-          </label>
-          <div style={{ fontSize: '12px', color: '#888', marginTop: '6px' }}>Eindtijd voor de starttijd? Dan loopt de shift door tot na middernacht.</div>
+          {shiftVelden(shiftDraft, setShiftDraft, true)}
           <button style={AS.btn} onClick={maakShift} disabled={busy}>Shift aanmaken</button>
         </div>
       )}
@@ -540,14 +630,18 @@ export default function CrewRooster({ flash }: { flash: (m: string, ms?: number)
                       const links = x(new Date(s.start_tijd).getTime())
                       const wijd = Math.max(x(new Date(s.eind_tijd).getTime()) - links, 40)
                       const namen = opShift.map(t => lidVan(t.lid_id)?.naam || '?').join(', ')
-                      const titel = `${r.naam}: ${tijdUit(s.start_tijd)} tot ${tijdUit(s.eind_tijd)}${s.locatie ? ` · ${s.locatie}` : ''} · ${opShift.length}/${s.aantal_nodig}${namen ? ` · ${namen}` : ''}`
+                      const titel = `${r.naam}: ${tijdUit(s.start_tijd)} tot ${tijdUit(s.eind_tijd)}${s.locatie ? ` · ${s.locatie}` : ''} · ${opShift.length}/${s.aantal_nodig}${namen ? ` · ${namen}` : ''}\n\nKlik om te wijzigen.`
                       return (
-                        <div key={s.id} title={titel} style={{
-                          position: 'absolute', left: `${links}px`, width: `${wijd}px`, top: '5px', bottom: '5px',
-                          background: r.kleur, borderRadius: '4px', padding: '4px 8px', overflow: 'hidden',
-                          border: compleet ? 'none' : '2px dashed #b71c1c',
-                          color: '#fff', fontSize: '11px', lineHeight: 1.3, cursor: 'default',
-                        }}>
+                        // Klikken op een blok gaat naar de lijst, want daar staat
+                        // het wijzigformulier; in een blok van 40px past dat niet.
+                        <div key={s.id} title={titel}
+                          onClick={() => { setWeergave('lijst'); openBewerk(s) }}
+                          style={{
+                            position: 'absolute', left: `${links}px`, width: `${wijd}px`, top: '5px', bottom: '5px',
+                            background: r.kleur, borderRadius: '4px', padding: '4px 8px', overflow: 'hidden',
+                            border: compleet ? 'none' : '2px dashed #b71c1c',
+                            color: '#fff', fontSize: '11px', lineHeight: 1.3, cursor: 'pointer',
+                          }}>
                           <div style={{ fontWeight: 700, whiteSpace: 'nowrap' }}>{tijdUit(s.start_tijd)}–{tijdUit(s.eind_tijd)}</div>
                           <div style={{ whiteSpace: 'nowrap', opacity: 0.9 }}>{opShift.length}/{s.aantal_nodig}{s.locatie ? ` · ${s.locatie}` : ''}</div>
                         </div>
