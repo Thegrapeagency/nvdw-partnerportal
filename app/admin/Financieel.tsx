@@ -15,6 +15,9 @@ import type { SettlementRow } from '@/lib/supabase'
 import { AS, euro } from './ui'
 
 type BudgetType = 'kosten' | 'omzet'
+// Omzet die live binnenkomt. Het begrote bedrag staat in de begroting, maar de
+// realisatie komt uit de bron zelf; boekingen zouden dan dubbel tellen.
+type LiveBron = 'ticketing' | 'kassa' | 'standgelden'
 type BudgetPost = {
   id: string
   type: BudgetType
@@ -26,6 +29,7 @@ type BudgetPost = {
   afgerond: boolean
   notitie: string | null
   volgorde: number
+  live_bron: LiveBron | null
 }
 type BoekingStatus = 'verwacht' | 'factuur' | 'betaald'
 type Boeking = {
@@ -79,6 +83,7 @@ const MARKETING_CATEGORIE = 'promotie'
 // Referentie vorige editie (bron: Calculatie NVDW Utrecht 2026 - 3 daags.xlsx, totaaloverzicht)
 const VORIGE_EDITIE = { bezoekers: 4750, omzet_cents: 13061375 }
 const STATUS_LABEL: Record<BoekingStatus, string> = { verwacht: 'Verwacht', factuur: 'Factuur', betaald: 'Betaald' }
+const LIVE_LABEL: Record<LiveBron, string> = { ticketing: 'ticketverkoop', kassa: 'kassa', standgelden: 'stagelden' }
 const SOORT_LABEL: Record<BijlageSoort, string> = { offerte: 'Offerte', factuur: 'Factuur', bon: 'Bon', contract: 'Contract', overig: 'Overig' }
 // Wat de bucket accepteert. Ruim genoeg voor een offerte uit de mail of een
 // foto van een bon, zonder uitvoerbare bestanden.
@@ -86,7 +91,7 @@ const BIJLAGE_TYPES = '.pdf,.jpg,.jpeg,.png,.heic,.webp,.doc,.docx,.xls,.xlsx,.t
 const MAX_BIJLAGE = 25 * 1024 * 1024
 const STATUS_KLEUR: Record<BoekingStatus, string> = { verwacht: '#9c7a1e', factuur: '#546e7a', betaald: GROEN }
 // Kolombreedtes van het kostengrid, gedeeld door koppen, categorierijen en postrijen.
-const KOL = { vorig: 86, begroot: 92, werkelijk: 96, prognose: 96, delta: 84 }
+const KOL = { cat: 120, vorig: 86, begroot: 92, werkelijk: 96, prognose: 96, delta: 84 }
 
 // Afgeronde euro's voor grote cijfers en het scenario.
 const euroRond = (cents: number) => (cents < 0 ? '-€' : '€') + Math.round(Math.abs(cents) / 100).toLocaleString('nl-NL')
@@ -247,6 +252,25 @@ export default function Financieel({ flash }: { flash: (m: string, ms?: number) 
   const [catToevoegen, setCatToevoegen] = useState(false)
   const [catNaam, setCatNaam] = useState('')
   const [catHernoem, setCatHernoem] = useState<{ oud: string; naam: string } | null>(null)
+  // Ingeklapte categorieën (per browser onthouden) en de losse "+ post"-regel
+  // die per categorie open kan staan.
+  const [dicht, setDicht] = useState<Set<string>>(() => {
+    if (typeof window === 'undefined') return new Set()
+    try { return new Set(JSON.parse(localStorage.getItem('nvdw_fin_dicht') || '[]')) } catch { return new Set() }
+  })
+  const zetDicht = (next: Set<string>) => {
+    setDicht(next)
+    try { localStorage.setItem('nvdw_fin_dicht', JSON.stringify([...next])) } catch { /* niks */ }
+  }
+  const klapCategorie = (cat: string) => {
+    const next = new Set(dicht)
+    if (next.has(cat)) next.delete(cat); else next.add(cat)
+    zetDicht(next)
+  }
+  const [snelPost, setSnelPost] = useState<Record<string, { naam: string; begroot: string }>>({})
+  // Posten zonder bedrag verbergen. Er staan er een stuk in de calculatie als
+  // herinnering ("nog prijzen"), die hoeven niet altijd in beeld.
+  const [verbergNul, setVerbergNul] = useState(false)
   // Zodra een lokale categorie z'n eerste post heeft, staat hij in de database
   // en hoeft de lokale kopie niet meer bewaard te blijven.
   useEffect(() => {
@@ -278,9 +302,11 @@ export default function Financieel({ flash }: { flash: (m: string, ms?: number) 
   }
 
   const laadPosten = async () => {
+    // Op volgorde, niet op categorienaam: zo staan de categorieën in dezelfde
+    // volgorde als in de calculatiesheet in plaats van alfabetisch.
     const { data, error } = await supabase.from('budget_posten')
-      .select('id, type, categorie, naam, begroot_cents, vorig_cents, baseline_cents, afgerond, notitie, volgorde')
-      .order('type').order('categorie').order('volgorde')
+      .select('id, type, categorie, naam, begroot_cents, vorig_cents, baseline_cents, afgerond, notitie, volgorde, live_bron')
+      .order('type').order('volgorde')
     if (error) { flash('Begroting laden mislukt: ' + error.message, 7000); return }
     zetPosten((data || []) as BudgetPost[])
   }
@@ -393,6 +419,12 @@ export default function Financieel({ flash }: { flash: (m: string, ms?: number) 
   const somVorig = (l: BudgetPost[]) => l.reduce((s, p) => s + Number(p.vorig_cents), 0)
   const somPrognose = (l: BudgetPost[]) => l.reduce((s, p) => s + prognose(p), 0)
 
+  // Realisatie van een live omzetpost komt uit de bron, niet uit boekingen.
+  const liveWerkelijk = (bron: LiveBron) =>
+    bron === 'ticketing' ? ticketTotaal
+      : bron === 'kassa' ? (posStatus === 'ok' ? posNvdw : 0)
+        : standgelden
+
   const totalen = useMemo(() => {
     const posDeel = posStatus === 'ok' ? posNvdw : 0
     const kostenBegroot = somBegroot(kostenPosten)
@@ -400,13 +432,18 @@ export default function Financieel({ flash }: { flash: (m: string, ms?: number) 
     const kostenVerwacht = somVerwacht(kostenPosten)
     const kostenVorig = somVorig(kostenPosten)
     const kostenPrognose = somPrognose(kostenPosten)
+    // Begroot: alle omzetposten. Gerealiseerd: de live bronnen één keer, plus
+    // de boekingen onder de handmatige posten.
+    const handmatigeOmzet = omzetPosten.filter(p => !p.live_bron)
     const omzetBegroot = somBegroot(omzetPosten)
-    const omzetGerealiseerd = ticketTotaal + posDeel + standgelden + somWerkelijk(omzetPosten)
+    const omzetGerealiseerd = ticketTotaal + posDeel + standgelden + somWerkelijk(handmatigeOmzet)
     const marketing = kostenPosten.filter(p => p.categorie === MARKETING_CATEGORIE)
     return {
       kostenBegroot, kostenWerkelijk, kostenVerwacht, kostenVorig, kostenPrognose,
       marketingPrognose: somPrognose(marketing), marketingVorig: somVorig(marketing),
       omzetBegroot, omzetGerealiseerd,
+      omzetBegrootHandmatig: somBegroot(handmatigeOmzet),
+      omzetVorig: somVorig(omzetPosten),
       resultaatNu: omzetGerealiseerd - kostenWerkelijk,
       resultaatBegroot: omzetBegroot - kostenBegroot,
     }
@@ -447,13 +484,15 @@ export default function Financieel({ flash }: { flash: (m: string, ms?: number) 
     if (!scenario) return null
     const tickets = Math.round(scenario.bezoekers * scenario.ticketprijs * 100)
     const bar = Math.round(scenario.bezoekers * scenario.barPerBezoeker * scenario.afdrachtPct / 100 * 100)
-    const vast = standgelden + totalen.omzetBegroot
+    // Alleen de handmatige omzetposten erbij: tickets en bar rekent het scenario
+    // zelf uit, dus de begrote live-posten zouden hier dubbel tellen.
+    const vast = standgelden + totalen.omzetBegrootHandmatig
     const omzet = tickets + bar + vast
     const kosten = Math.round(totalen.kostenBegroot * (1 + scenario.kostenUitloopPct / 100))
     const perBezoeker = scenario.ticketprijs + scenario.barPerBezoeker * scenario.afdrachtPct / 100
     const breakEven = perBezoeker > 0 ? Math.max(0, Math.ceil((kosten - vast) / 100 / perBezoeker)) : null
     return { tickets, bar, vast, omzet, kosten, resultaat: omzet - kosten, breakEven }
-  }, [scenario, standgelden, totalen.omzetBegroot, totalen.kostenBegroot])
+  }, [scenario, standgelden, totalen.omzetBegrootHandmatig, totalen.kostenBegroot])
 
   // KPI's per bezoeker en de prognose van het eindresultaat.
   const kpi = useMemo(() => {
@@ -484,6 +523,19 @@ export default function Financieel({ flash }: { flash: (m: string, ms?: number) 
     return [...set]
   }, [posten])
 
+  // Categorieën per soort: een kostenpost hoort niet in een omzetcategorie
+  // terecht te kunnen komen en omgekeerd.
+  const catsVanType = useMemo(() => {
+    const m: Record<BudgetType, string[]> = { kosten: [], omzet: [] }
+    for (const t of ['kosten', 'omzet'] as BudgetType[]) {
+      const set = new Set(posten.filter(p => p.type === t).map(p => p.categorie).filter(Boolean))
+      if (t === 'kosten') for (const c of CATEGORIE_SUGGESTIES) set.add(c)
+      for (const c of extraCats) if (t === 'kosten') set.add(c)
+      m[t] = [...set]
+    }
+    return m
+  }, [posten, extraCats])
+
   const snelParse = useMemo(() => snel.trim() ? parseSnel(snel, kostenPosten) : null, [snel, kostenPosten])
   const importPreview = useMemo(() => importOpen && importTekst.trim() ? parseCsv(importTekst) : [], [importOpen, importTekst])
 
@@ -512,6 +564,22 @@ export default function Financieel({ flash }: { flash: (m: string, ms?: number) 
     if (error) { flash('Opslaan mislukt: ' + error.message, 6000); return }
     setPosten(ps => ps.map(x => x.id === p.id ? { ...x, ...upd } : x))
     setDrafts(x => ({ ...x, [p.id]: { categorie: upd.categorie, naam: upd.naam, begroot: naarInvoer(begroot), vorig: naarInvoer(vorig) } }))
+    // Kort terugkoppelen, anders weet je niet of dat bedrag echt is opgeslagen.
+    flash(begroot !== p.begroot_cents ? `${upd.naam} staat nu op ${euro(begroot)}` : `${upd.naam} opgeslagen`, 2500)
+  }
+
+  // Post naar een andere categorie verplaatsen. Achteraan in de nieuwe categorie
+  // zetten, zodat hij niet ergens midden in de lijst opduikt.
+  const verplaatsPost = async (p: BudgetPost, nieuweCategorie: string) => {
+    const cat = nieuweCategorie.trim().toLowerCase()
+    if (!cat || cat === p.categorie) return
+    const inCat = posten.filter(x => x.type === p.type && x.categorie === cat)
+    const volgorde = inCat.length > 0 ? Math.max(...inCat.map(x => x.volgorde)) + 5 : p.volgorde
+    const { error } = await supabase.from('budget_posten').update({ categorie: cat, volgorde }).eq('id', p.id)
+    if (error) { flash('Verplaatsen mislukt: ' + error.message, 6000); return }
+    setPosten(ps => ps.map(x => x.id === p.id ? { ...x, categorie: cat, volgorde } : x))
+    setDrafts(x => ({ ...x, [p.id]: { ...x[p.id], categorie: cat } }))
+    flash(`"${p.naam}" staat nu onder ${cat}`)
   }
 
   const zetAfgerond = async (p: BudgetPost, afgerond: boolean) => {
@@ -524,13 +592,18 @@ export default function Financieel({ flash }: { flash: (m: string, ms?: number) 
     if (!naam.trim()) { flash('Geef de post een naam.', 5000); return false }
     const begroot = parseEuro(begrootTekst)
     if (begroot === null) { flash('Dat bedrag kan ik niet lezen. Gebruik bijvoorbeeld 1250 of 1250,50.', 6000); return false }
+    const cat = categorie.trim().toLowerCase() || 'overig'
+    // Achteraan in de eigen categorie, niet achteraan de hele begroting.
+    const inCat = posten.filter(p => p.type === type && p.categorie === cat)
+    const volgorde = inCat.length > 0
+      ? Math.max(...inCat.map(p => p.volgorde)) + 5
+      : Math.max(0, ...posten.map(p => p.volgorde)) + 10
     const { error } = await supabase.from('budget_posten').insert({
-      type, categorie: categorie.trim().toLowerCase() || 'overig', naam: naam.trim(),
-      begroot_cents: begroot, gerealiseerd_cents: 0,
-      volgorde: Math.max(0, ...posten.map(p => p.volgorde)) + 1,
+      type, categorie: cat, naam: naam.trim(),
+      begroot_cents: begroot, gerealiseerd_cents: 0, volgorde,
     })
     if (error) { flash('Toevoegen mislukt: ' + error.message, 6000); return false }
-    flash('Post toegevoegd')
+    flash(`"${naam.trim()}" toegevoegd onder ${cat} voor ${euro(begroot)}`)
     await laadPosten()
     return true
   }
@@ -886,28 +959,44 @@ export default function Financieel({ flash }: { flash: (m: string, ms?: number) 
   const postRij = (p: BudgetPost) => {
     const d = drafts[p.id] || { categorie: p.categorie, naam: p.naam, begroot: naarInvoer(p.begroot_cents), vorig: naarInvoer(p.vorig_cents) }
     const info = perPost.get(p.id)
-    const werkelijk = info?.werkelijk || 0
-    const verwacht = info?.verwacht || 0
-    const prog = prognose(p)
     const isOmzet = p.type === 'omzet'
+    // Live omzetposten halen hun realisatie uit de bron; boekingen zouden er
+    // dubbel op tellen, dus die klap je hier ook niet uit.
+    const live = isOmzet ? p.live_bron : null
+    const werkelijk = live ? liveWerkelijk(live) : (info?.werkelijk || 0)
+    const verwacht = live ? 0 : (info?.verwacht || 0)
+    const prog = live ? Math.max(Number(p.begroot_cents), werkelijk) : prognose(p)
     const delta = isOmzet ? prog - Number(p.begroot_cents) : Number(p.begroot_cents) - prog
     const open = openPosten.has(p.id)
     const baselineAfwijkend = p.baseline_cents !== null && Number(p.baseline_cents) !== Number(p.begroot_cents)
     return (
       <Fragment key={p.id}>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center', padding: '4px 0', borderBottom: '1px solid #f3f0e8', opacity: p.afgerond ? 0.72 : 1 }}>
-          <button onClick={() => togglePost(p.id)} title={open ? 'Boekingen verbergen' : 'Boekingen tonen'}
-            style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--bordeaux)', fontSize: '11px', width: '16px', flexShrink: 0, padding: 0 }}>
-            {open ? '▾' : '▸'}
-          </button>
+          {live ? (
+            <span title={'Realisatie komt live uit ' + LIVE_LABEL[live]} style={{ width: '16px', flexShrink: 0, textAlign: 'center', color: GROEN, fontSize: '10px' }}>◉</span>
+          ) : (
+            <button onClick={() => togglePost(p.id)} title={open ? 'Boekingen verbergen' : 'Boekingen tonen'}
+              style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--bordeaux)', fontSize: '11px', width: '16px', flexShrink: 0, padding: 0 }}>
+              {open ? '▾' : '▸'}
+            </button>
+          )}
           <div style={{ flex: 1, minWidth: '140px' }}>
             <input style={{ ...smalInput, width: '100%', border: '1px solid transparent', background: 'transparent', padding: '4px 6px' }}
-              value={d.naam} title={p.categorie}
+              value={d.naam}
+              title={p.notitie || undefined}
               onFocus={e => { e.target.style.border = '1px solid #ddd'; e.target.style.background = '#fff' }}
               onBlurCapture={e => { (e.target as HTMLInputElement).style.border = '1px solid transparent'; (e.target as HTMLInputElement).style.background = 'transparent' }}
               onChange={e => wijzigDraft(p.id, 'naam', e.target.value)} onBlur={() => bewaarPost(p)} />
             {p.afgerond && <span style={{ fontSize: '9px', color: GROEN, fontWeight: 700, marginLeft: '6px' }}>✓ AFGEROND</span>}
+            {live && <span style={{ fontSize: '9px', color: GROEN, fontWeight: 700, marginLeft: '6px' }}>LIVE UIT {LIVE_LABEL[live].toUpperCase()}</span>}
+            {p.notitie && <span title={p.notitie} style={{ fontSize: '10px', color: '#bbb', marginLeft: '6px', cursor: 'help' }}>ⓘ</span>}
           </div>
+          {/* Categorie als keuzelijst: zo verhuist een post in één klik. */}
+          <select style={{ ...smalInput, width: KOL.cat + 'px', flexShrink: 0, fontSize: '11px', color: '#777', padding: '4px 4px' }}
+            value={d.categorie} title="Post naar een andere categorie verplaatsen"
+            onChange={e => { wijzigDraft(p.id, 'categorie', e.target.value); verplaatsPost(p, e.target.value) }}>
+            {[...new Set([d.categorie, ...catsVanType[p.type]])].map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
           <span style={{ width: KOL.vorig + 'px', flexShrink: 0, textAlign: 'right', fontSize: '12px', color: '#aaa', whiteSpace: 'nowrap' }}>
             {Number(p.vorig_cents) !== 0 ? euro(Number(p.vorig_cents)) : '·'}
           </span>
@@ -917,10 +1006,17 @@ export default function Financieel({ flash }: { flash: (m: string, ms?: number) 
               <div style={{ fontSize: '9px', color: '#9c7a1e', marginTop: '1px' }}>vast: {euro(Number(p.baseline_cents))}</div>
             )}
           </div>
-          <button onClick={() => togglePost(p.id)}
-            style={{ border: 'none', background: 'transparent', cursor: 'pointer', width: KOL.werkelijk + 'px', flexShrink: 0, textAlign: 'right', fontSize: '12px', fontWeight: 700, color: werkelijk > 0 ? 'var(--navy)' : '#ccc', whiteSpace: 'nowrap', padding: 0 }}>
-            {euro(werkelijk)}{verwacht > 0 && <span style={{ display: 'block', fontSize: '9px', fontWeight: 600, color: STATUS_KLEUR.verwacht }}>+{euro(verwacht)} toegezegd</span>}
-          </button>
+          {live ? (
+            <span title={'Live uit ' + LIVE_LABEL[live]}
+              style={{ width: KOL.werkelijk + 'px', flexShrink: 0, textAlign: 'right', fontSize: '12px', fontWeight: 700, color: werkelijk > 0 ? GROEN : '#ccc', whiteSpace: 'nowrap' }}>
+              {euro(werkelijk)}
+            </span>
+          ) : (
+            <button onClick={() => togglePost(p.id)}
+              style={{ border: 'none', background: 'transparent', cursor: 'pointer', width: KOL.werkelijk + 'px', flexShrink: 0, textAlign: 'right', fontSize: '12px', fontWeight: 700, color: werkelijk > 0 ? 'var(--navy)' : '#ccc', whiteSpace: 'nowrap', padding: 0 }}>
+              {euro(werkelijk)}{verwacht > 0 && <span style={{ display: 'block', fontSize: '9px', fontWeight: 600, color: STATUS_KLEUR.verwacht }}>+{euro(verwacht)} toegezegd</span>}
+            </button>
+          )}
           <span style={{ width: KOL.prognose + 'px', flexShrink: 0, textAlign: 'right', fontSize: '12px', fontWeight: 700, color: 'var(--navy)', whiteSpace: 'nowrap' }}>
             {euro(prog)}
           </span>
@@ -929,7 +1025,7 @@ export default function Financieel({ flash }: { flash: (m: string, ms?: number) 
           </span>
           <button style={{ ...AS.btnSm, padding: '2px 7px', fontSize: '9px', flexShrink: 0, border: 'none' }} title="Verwijder post" onClick={() => verwijderPost(p)}>x</button>
         </div>
-        {open && boekingenBlok(p)}
+        {open && !live && boekingenBlok(p)}
       </Fragment>
     )
   }
@@ -938,6 +1034,7 @@ export default function Financieel({ flash }: { flash: (m: string, ms?: number) 
     <div style={{ display: 'flex', gap: '8px', fontSize: '9px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', color: '#999', padding: '4px 0', borderBottom: '2px solid #eee' }}>
       <span style={{ width: '16px' }}></span>
       <span style={{ flex: 1 }}>Post</span>
+      <span style={{ width: KOL.cat + 'px' }}>Categorie</span>
       <span style={{ width: KOL.vorig + 'px', textAlign: 'right' }}>Vorige editie</span>
       <span style={{ width: KOL.begroot + 'px', textAlign: 'right' }}>Begroot</span>
       <span style={{ width: KOL.werkelijk + 'px', textAlign: 'right' }}>{laatsteKolom}</span>
@@ -994,10 +1091,14 @@ export default function Financieel({ flash }: { flash: (m: string, ms?: number) 
     const werkelijk = somWerkelijk(rijen)
     const verwacht = somVerwacht(rijen)
     const prog = somPrognose(rijen)
+    const isDicht = dicht.has(cat)
     return (
       <div key={'kop-' + cat} style={{ position: 'sticky', top: 0, background: 'var(--card)', zIndex: 2, paddingTop: '14px' }}>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'baseline' }}>
-          <span style={{ width: '16px' }}></span>
+          <button onClick={() => klapCategorie(cat)} title={isDicht ? 'Categorie uitklappen' : 'Categorie inklappen'}
+            style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--bordeaux)', fontSize: '11px', width: '16px', flexShrink: 0, padding: 0 }}>
+            {isDicht ? '▸' : '▾'}
+          </button>
           {catHernoem?.oud === cat ? (
             <input autoFocus style={{ ...smalInput, flex: 1, fontWeight: 700, textTransform: 'uppercase' }} value={catHernoem.naam}
               onChange={e => setCatHernoem({ oud: cat, naam: e.target.value })}
@@ -1005,13 +1106,17 @@ export default function Financieel({ flash }: { flash: (m: string, ms?: number) 
               onKeyDown={e => { if (e.key === 'Enter') hernoemCategorie(cat); if (e.key === 'Escape') setCatHernoem(null) }} />
           ) : (
             <span style={{ flex: 1, fontSize: '11px', fontWeight: 700, letterSpacing: '2px', textTransform: 'uppercase', color: 'var(--bordeaux)' }}>
-              {cat} <span style={{ color: '#bbb', fontWeight: 400, letterSpacing: 0, textTransform: 'none' }}>({rijen.length} · {euroPB(prog, bez)} p.b.)</span>
+              <span onClick={() => klapCategorie(cat)} style={{ cursor: 'pointer' }}>{cat}</span>
+              {' '}<span style={{ color: '#bbb', fontWeight: 400, letterSpacing: 0, textTransform: 'none' }}>({rijen.length} · {euroPB(prog, bez)} p.b.)</span>
+              <button title="Post toevoegen in deze categorie" onClick={() => { setSnelPost(x => ({ ...x, [cat]: x[cat] || { naam: '', begroot: '' } })); if (isDicht) klapCategorie(cat) }}
+                style={{ border: 'none', background: 'none', color: 'var(--bordeaux)', cursor: 'pointer', fontSize: '13px', fontWeight: 700, padding: '0 4px' }}>+</button>
               <button title="Categorie hernoemen" onClick={() => setCatHernoem({ oud: cat, naam: cat })}
                 style={{ border: 'none', background: 'none', color: '#bbb', cursor: 'pointer', fontSize: '11px', padding: '0 3px' }}>✎</button>
               <button title="Categorie verwijderen (posten verhuizen naar overig)" onClick={() => verwijderCategorie(cat, rijen)}
                 style={{ border: 'none', background: 'none', color: '#bbb', cursor: 'pointer', fontSize: '12px', padding: 0 }}>×</button>
             </span>
           )}
+          <span style={{ width: KOL.cat + 'px' }}></span>
           <span style={{ width: KOL.vorig + 'px', textAlign: 'right', fontSize: '11px', color: '#aaa', fontWeight: 600 }}>{euroRond(somVorig(rijen))}</span>
           <span style={{ width: KOL.begroot + 'px', textAlign: 'right', fontSize: '11px', fontWeight: 700, color: 'var(--navy)' }}>{euroRond(begroot)}</span>
           <span style={{ width: KOL.werkelijk + 'px', textAlign: 'right', fontSize: '11px', fontWeight: 700, color: 'var(--navy)' }}>
@@ -1082,6 +1187,14 @@ export default function Financieel({ flash }: { flash: (m: string, ms?: number) 
           <div style={AS.cardTitle}>Kosten</div>
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
             <input style={{ ...smalInput, width: '180px' }} placeholder="Zoek post of categorie..." value={zoek} onChange={e => setZoek(e.target.value)} />
+            <button style={AS.btnSm} title="Alle categorieën in of uitklappen"
+              onClick={() => zetDicht(dicht.size > 0 ? new Set() : new Set(kostenGroepen.keys()))}>
+              {dicht.size > 0 ? 'Alles uitklappen' : 'Alles inklappen'}
+            </button>
+            <button style={{ ...AS.btnSm, borderColor: verbergNul ? 'var(--bordeaux)' : undefined, color: verbergNul ? 'var(--bordeaux)' : undefined }}
+              title="Posten zonder bedrag en zonder boekingen verbergen" onClick={() => setVerbergNul(v => !v)}>
+              {verbergNul ? 'Toon nulposten' : 'Verberg nulposten'}
+            </button>
             <button style={{ ...AS.btnSm, opacity: baselineBezig ? 0.6 : 1 }} disabled={baselineBezig} onClick={klikBaseline}>
               {posten.some(p => p.baseline_cents !== null) ? 'Baseline opnieuw vastklikken' : 'Begroting vastklikken'}
             </button>
@@ -1202,17 +1315,43 @@ export default function Financieel({ flash }: { flash: (m: string, ms?: number) 
           // Lege, net aangemaakte categorieën meenemen (niet tijdens zoeken).
           const groepen = [...kostenGroepen.entries()]
           if (!zoekTerm) for (const c of extraCats) if (!kostenGroepen.has(c)) groepen.push([c, []])
-          return groepen.map(([cat, rijen]) => (
-            <Fragment key={cat}>
-              {categorieRij(cat, rijen, bez)}
-              {rijen.map(postRij)}
-              {rijen.length === 0 && (
-                <div style={{ fontSize: '12px', color: '#999', padding: '6px 0 6px 24px' }}>
-                  Nog leeg — zet er hieronder bij &quot;Nieuwe post&quot; de eerste kostenpost in (categorie staat al ingevuld).
-                </div>
-              )}
-            </Fragment>
-          ))
+          return groepen.map(([cat, rijen]) => {
+            const isDicht = dicht.has(cat)
+            // Nulposten alleen verbergen als je daar zelf om vraagt.
+            const zichtbaar = verbergNul ? rijen.filter(p => Number(p.begroot_cents) !== 0 || (perPost.get(p.id)?.rijen.length || 0) > 0) : rijen
+            const nieuw = snelPost[cat]
+            return (
+              <Fragment key={cat}>
+                {categorieRij(cat, rijen, bez)}
+                {!isDicht && zichtbaar.map(postRij)}
+                {!isDicht && verbergNul && zichtbaar.length < rijen.length && (
+                  <div style={{ fontSize: '11px', color: '#bbb', padding: '4px 0 4px 24px' }}>
+                    {rijen.length - zichtbaar.length} {rijen.length - zichtbaar.length === 1 ? 'post' : 'posten'} zonder bedrag verborgen
+                  </div>
+                )}
+                {!isDicht && rijen.length === 0 && !nieuw && (
+                  <div style={{ fontSize: '12px', color: '#999', padding: '6px 0 6px 24px' }}>
+                    Nog leeg. Klik op de + achter de categorienaam om de eerste post toe te voegen.
+                  </div>
+                )}
+                {!isDicht && nieuw && (
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center', padding: '6px 0 6px 24px' }}>
+                    <input autoFocus style={{ ...smalInput, flex: 1, minWidth: '140px' }} placeholder={`nieuwe post in ${cat}`} value={nieuw.naam}
+                      onChange={e => setSnelPost(x => ({ ...x, [cat]: { ...x[cat], naam: e.target.value } }))}
+                      onKeyDown={e => {
+                        if (e.key === 'Escape') setSnelPost(x => { const n = { ...x }; delete n[cat]; return n })
+                        if (e.key === 'Enter') voegPostToe('kosten', cat, nieuw.naam, nieuw.begroot).then(ok => { if (ok) setSnelPost(x => ({ ...x, [cat]: { naam: '', begroot: '' } })) })
+                      }} />
+                    {geldInput(nieuw.begroot, KOL.begroot, v => setSnelPost(x => ({ ...x, [cat]: { ...x[cat], begroot: v } })), undefined, 'begroot')}
+                    <button style={AS.btnSm} onClick={() => voegPostToe('kosten', cat, nieuw.naam, nieuw.begroot).then(ok => { if (ok) setSnelPost(x => ({ ...x, [cat]: { naam: '', begroot: '' } })) })}>
+                      + Toevoegen
+                    </button>
+                    <button style={{ ...AS.btnSm, borderColor: '#ddd', color: '#999' }} onClick={() => setSnelPost(x => { const n = { ...x }; delete n[cat]; return n })}>Klaar</button>
+                  </div>
+                )}
+              </Fragment>
+            )
+          })
         })()}
 
         {/* Totaalregel */}
@@ -1220,6 +1359,7 @@ export default function Financieel({ flash }: { flash: (m: string, ms?: number) 
           <div style={{ display: 'flex', gap: '8px', alignItems: 'baseline', padding: '10px 0 2px', borderTop: '2px solid var(--navy)', marginTop: '10px' }}>
             <span style={{ width: '16px' }}></span>
             <span style={{ flex: 1, fontSize: '12px', fontWeight: 700, color: 'var(--navy)', textTransform: 'uppercase', letterSpacing: '1px' }}>Totaal kosten</span>
+            <span style={{ width: KOL.cat + 'px' }}></span>
             <span style={{ width: KOL.vorig + 'px', textAlign: 'right', fontSize: '12px', color: '#aaa', fontWeight: 700 }}>{euroRond(totalen.kostenVorig)}</span>
             <span style={{ width: KOL.begroot + 'px', textAlign: 'right', fontSize: '12px', fontWeight: 700, color: 'var(--navy)' }}>{euroRond(totalen.kostenBegroot)}</span>
             <span style={{ width: KOL.werkelijk + 'px', textAlign: 'right', fontSize: '12px', fontWeight: 700, color: 'var(--navy)' }}>{euroRond(totalen.kostenWerkelijk + totalen.kostenVerwacht)}</span>
@@ -1253,9 +1393,12 @@ export default function Financieel({ flash }: { flash: (m: string, ms?: number) 
             <button style={{ ...AS.btnSm, borderColor: '#ccc', color: '#888' }} onClick={() => { setCatToevoegen(true); setCatNaam('') }}>+ Categorie</button>
           )}
         </div>
-        <div style={{ fontSize: '11px', color: '#999', marginTop: '10px' }}>
+        <div style={{ fontSize: '11px', color: '#999', marginTop: '10px', lineHeight: 1.7 }}>
           Klik ▸ voor de boekingen onder een post. Prognose = werkelijk + toegezegd, minimaal begroot zolang de post niet is afgerond.
-          Bedragen slaan op zodra je uit het veld klikt.
+          <br />
+          <b>Bedrag wijzigen:</b> typ het nieuwe bedrag en klik uit het veld, dan verschijnt onderin de bevestiging.
+          <b> Post verplaatsen:</b> kies een andere categorie in de keuzelijst achter de postnaam.
+          <b> Post toevoegen:</b> klik op de + achter een categorienaam, of gebruik de regel hieronder voor een nieuwe categorie.
         </div>
       </div>
 
@@ -1385,17 +1528,50 @@ export default function Financieel({ flash }: { flash: (m: string, ms?: number) 
         </div>
       </div>
 
-      {/* Handmatige omzetposten */}
+      {/* Omzetposten: begroot handmatig, realisatie deels live */}
       <div style={AS.card}>
-        <div style={AS.cardTitle}>Overige omzet (subsidies, sponsoring, garderobe)</div>
+        <div style={AS.cardTitle}>Inkomsten</div>
         <div style={{ fontSize: '12px', color: '#888', marginBottom: '10px' }}>
-          Voor omzet die niet live binnenkomt. Boek ontvangen bedragen onder de post (▸), dan tellen ze mee in de gerealiseerde omzet.
+          De begrote bedragen komen uit de calculatiesheet. Posten met ◉ halen hun realisatie live uit de
+          ticketverkoop, de kassa of de stagelden; daar hoef je niets te boeken. Bij de andere posten boek je
+          ontvangsten zelf onder de post (▸), dan tellen ze mee in de gerealiseerde omzet.
         </div>
         {omzetPosten.length === 0 && (
           <div style={{ color: '#888', fontSize: '13px', marginBottom: '8px' }}>Nog geen omzetposten.</div>
         )}
         {omzetPosten.length > 0 && gridKop('Ontvangen')}
         {omzetPosten.map(postRij)}
+        {omzetPosten.length > 0 && (
+          <>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'baseline', padding: '10px 0 2px', borderTop: '2px solid var(--navy)', marginTop: '10px' }}>
+              <span style={{ width: '16px' }}></span>
+              <span style={{ flex: 1, fontSize: '12px', fontWeight: 700, color: 'var(--navy)', textTransform: 'uppercase', letterSpacing: '1px' }}>Totaal inkomsten</span>
+              <span style={{ width: KOL.cat + 'px' }}></span>
+              <span style={{ width: KOL.vorig + 'px', textAlign: 'right', fontSize: '12px', color: '#aaa', fontWeight: 700 }}>{euroRond(totalen.omzetVorig)}</span>
+              <span style={{ width: KOL.begroot + 'px', textAlign: 'right', fontSize: '12px', fontWeight: 700, color: 'var(--navy)' }}>{euroRond(totalen.omzetBegroot)}</span>
+              <span style={{ width: KOL.werkelijk + 'px', textAlign: 'right', fontSize: '12px', fontWeight: 700, color: GROEN }}>{euroRond(totalen.omzetGerealiseerd)}</span>
+              <span style={{ width: KOL.prognose + 'px' }}></span>
+              <span style={{ width: KOL.delta + 'px' }}></span>
+              <span style={{ width: '26px' }}></span>
+            </div>
+            {/* Begroot resultaat: inkomsten min kosten, zoals in de calculatiesheet. */}
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'baseline', padding: '10px 0 2px', marginTop: '6px', borderTop: '1px solid #eee' }}>
+              <span style={{ width: '16px' }}></span>
+              <span style={{ flex: 1, fontSize: '12px', fontWeight: 700, color: 'var(--navy)', textTransform: 'uppercase', letterSpacing: '1px' }}>
+                Begroot resultaat <span style={{ color: '#bbb', fontWeight: 400, letterSpacing: 0, textTransform: 'none' }}>(inkomsten {euroRond(totalen.omzetBegroot)} min kosten {euroRond(totalen.kostenBegroot)})</span>
+              </span>
+              <span style={{ width: KOL.cat + 'px' }}></span>
+              <span style={{ width: KOL.vorig + 'px' }}></span>
+              <span style={{ width: KOL.begroot + 'px', textAlign: 'right', fontSize: '13px', fontWeight: 800, color: totalen.resultaatBegroot >= 0 ? GROEN : 'var(--bordeaux)' }}>
+                {euroRond(totalen.resultaatBegroot)}
+              </span>
+              <span style={{ width: KOL.werkelijk + 'px' }}></span>
+              <span style={{ width: KOL.prognose + 'px' }}></span>
+              <span style={{ width: KOL.delta + 'px' }}></span>
+              <span style={{ width: '26px' }}></span>
+            </div>
+          </>
+        )}
         <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginTop: '14px', flexWrap: 'wrap' }}>
           <input style={{ ...smalInput, width: '160px' }} list="fin-categorieen" placeholder="categorie" value={nieuwOmzet.categorie}
             onChange={e => setNieuwOmzet(x => ({ ...x, categorie: e.target.value }))} />

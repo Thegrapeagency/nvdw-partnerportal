@@ -42,9 +42,10 @@ const STATUS_KLEUR: Record<ProgrammaStatus, { bg: string; fg: string }> = {
   geannuleerd: { bg: '#fdecea', fg: '#b71c1c' },
 }
 
+type Dag = 'fri' | 'sat' | 'sun'
 type Draft = {
   soort: ProgrammaSoort; titel: string; host: string; partner_id: string
-  dag: 'fri' | 'sat' | 'sun'; start_tijd: string; eind_tijd: string; locatie: string
+  dag: Dag; start_tijd: string; eind_tijd: string; locatie: string
   capaciteit: string; prijs: string; steekwoorden: string; foto_url: string
   beschrijving: string; beschrijving_kort: string; social_copy: string
 }
@@ -70,11 +71,14 @@ function naarDraft(p: Proeverij): Draft {
   }
 }
 
-function draftNaarRij(d: Draft) {
-  const dagInfo = PROGRAMMA_DAGEN.find(x => x.value === d.dag)!
+// Met dagOverride maak je dezelfde gegevens klaar voor een andere dag; de tijden
+// moeten dan mee naar de datum van die dag.
+function draftNaarRij(d: Draft, dagOverride?: Dag) {
+  const dag = dagOverride || d.dag
+  const dagInfo = PROGRAMMA_DAGEN.find(x => x.value === dag)!
   return {
     soort: d.soort, titel: d.titel.trim(), host: d.host.trim() || null,
-    partner_id: d.partner_id || null, dag: d.dag,
+    partner_id: d.partner_id || null, dag,
     start_tijd: d.start_tijd ? `${dagInfo.datum}T${d.start_tijd}:00+01:00` : null,
     eind_tijd: d.eind_tijd ? `${dagInfo.datum}T${d.eind_tijd}:00+01:00` : null,
     locatie: d.locatie.trim() || null,
@@ -94,6 +98,8 @@ export default function Programma({ partners, flash }: { partners: PartnerOptie[
   const [geladen, setGeladen] = useState(false)
   const [openId, setOpenId] = useState<string | 'nieuw' | null>(null)
   const [draft, setDraft] = useState<Draft>(leegDraft)
+  // Dagen die bij aanmaken zijn aangevinkt. Per dag komt er een eigen item.
+  const [nieuweDagen, setNieuweDagen] = useState<Dag[]>(['fri'])
   const [busy, setBusy] = useState(false)
   const [genBusy, setGenBusy] = useState(false)
 
@@ -115,7 +121,7 @@ export default function Programma({ partners, flash }: { partners: PartnerOptie[
   useEffect(() => { laad() }, [])
 
   const open = (p: Proeverij) => { setOpenId(p.id); setDraft(naarDraft(p)) }
-  const sluit = () => { setOpenId(null); setDraft(leegDraft) }
+  const sluit = () => { setOpenId(null); setDraft(leegDraft); setNieuweDagen(['fri']) }
   const huidige = openId && openId !== 'nieuw' ? items.find(i => i.id === openId) : null
 
   const foutTekst = (msg: string) =>
@@ -125,15 +131,39 @@ export default function Programma({ partners, flash }: { partners: PartnerOptie[
 
   const maakNieuw = async () => {
     if (!draft.titel.trim()) { flash('Vul in elk geval een titel in.', 5000); return }
+    if (nieuweDagen.length === 0) { flash('Vink minstens één dag aan.', 5000); return }
+    setBusy(true)
+    // Per aangevinkte dag een eigen item, in de volgorde van het festival.
+    const dagen = PROGRAMMA_DAGEN.map(d => d.value as Dag).filter(d => nieuweDagen.includes(d))
+    const start = Math.max(0, ...items.map(i => i.volgorde))
+    const { error } = await supabase.from('proeverijen').insert(
+      dagen.map((dag, i) => ({
+        ...draftNaarRij(draft, dag), status: 'concept', actief: true,
+        volgorde: start + 1 + i,
+      })),
+    )
+    setBusy(false)
+    if (error) { flash(foutTekst(error.message), 7000); return }
+    flash(dagen.length === 1
+      ? 'Concept aangemaakt. Genereer of schrijf de teksten en zet hem daarna in review.'
+      : `${dagen.length} concepten aangemaakt, één per aangevinkte dag. Loop ze langs voor de teksten en tijden.`, 7000)
+    sluit(); await laad()
+  }
+
+  // Een item kopiëren, standaard naar dezelfde dag. Alles gaat mee behalve de
+  // ticketverkoop: de kopie begint als concept en heeft dus nog geen tickets.
+  const dupliceer = async (p: Proeverij, dag: Dag = p.dag) => {
+    const d = naarDraft(p)
+    const dagLabel = PROGRAMMA_DAGEN.find(x => x.value === dag)?.label || dag
     setBusy(true)
     const { error } = await supabase.from('proeverijen').insert({
-      ...draftNaarRij(draft), status: 'concept', actief: true,
+      ...draftNaarRij(d, dag), status: 'concept', actief: true,
       volgorde: Math.max(0, ...items.map(i => i.volgorde)) + 1,
     })
     setBusy(false)
     if (error) { flash(foutTekst(error.message), 7000); return }
-    flash('Concept aangemaakt. Genereer of schrijf de teksten en zet hem daarna in review.')
-    sluit(); await laad()
+    flash(`"${p.titel}" gekopieerd naar ${dagLabel}, als concept. Pas de tijden en capaciteit aan.`, 7000)
+    await laad()
   }
 
   const bewaar = async (extra: Partial<Proeverij> = {}, melding = 'Opgeslagen') => {
@@ -249,10 +279,32 @@ export default function Programma({ partners, flash }: { partners: PartnerOptie[
           </select>
         </div>
         <div>
-          <label style={AS.label}>Dag</label>
-          <select style={AS.input} value={draft.dag} onChange={e => setDraft({ ...draft, dag: e.target.value as 'fri' | 'sat' | 'sun' })}>
-            {PROGRAMMA_DAGEN.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
-          </select>
+          <label style={AS.label}>{nieuw ? 'Dagen' : 'Dag'}</label>
+          {nieuw ? (
+            // Bij aanmaken meerdere dagen kunnen aanvinken: dan komt er per
+            // aangevinkte dag een eigen item, want elk item heeft z'n eigen
+            // capaciteit, tijden en ticketverkoop.
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', paddingTop: '6px' }}>
+              {PROGRAMMA_DAGEN.map(d => (
+                <label key={d.value} style={{ display: 'flex', alignItems: 'center', gap: '7px', fontSize: '13px', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={nieuweDagen.includes(d.value as Dag)}
+                    onChange={e => setNieuweDagen(ds => e.target.checked
+                      ? [...ds, d.value as Dag]
+                      : ds.filter(x => x !== d.value))} />
+                  {d.label}
+                </label>
+              ))}
+              <span style={{ fontSize: '11px', color: '#999' }}>
+                {nieuweDagen.length > 1
+                  ? `Er komen ${nieuweDagen.length} losse items, met dezelfde gegevens.`
+                  : 'Vink meerdere dagen aan om dit item meteen op elke dag te zetten.'}
+              </span>
+            </div>
+          ) : (
+            <select style={AS.input} value={draft.dag} onChange={e => setDraft({ ...draft, dag: e.target.value as Dag })}>
+              {PROGRAMMA_DAGEN.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
+            </select>
+          )}
         </div>
         <div>
           <label style={AS.label}>Zaal / locatie</label>
@@ -402,7 +454,20 @@ export default function Programma({ partners, flash }: { partners: PartnerOptie[
                       {t ? <>{t.per_type_sold}/{t.per_type_cap ?? '∞'} {vol && <span style={{ color: '#b71c1c', fontWeight: 700, fontSize: '11px' }}>VOL</span>}</> : '-'}
                     </td>
                     <td style={AS.td}>{p.ticket_type_id && wachtlijst[p.ticket_type_id] ? `${wachtlijst[p.ticket_type_id]} wachtenden` : '-'}</td>
-                    <td style={AS.td}><button style={AS.btnSm} onClick={e => { e.stopPropagation(); open(p) }}>Open</button></td>
+                    <td style={{ ...AS.td, whiteSpace: 'nowrap' }}>
+                      <button style={AS.btnSm} onClick={e => { e.stopPropagation(); open(p) }}>Open</button>
+                      {/* Kopie naar dezelfde of een andere dag, zonder het detailscherm in te hoeven. */}
+                      <select style={{ ...AS.btnSm, marginLeft: '6px', cursor: 'pointer' }} value="" disabled={busy}
+                        title="Dit item kopiëren" onClick={e => e.stopPropagation()}
+                        onChange={e => { const v = e.target.value; e.currentTarget.value = ''; if (v) dupliceer(p, v as Dag) }}>
+                        <option value="">Dupliceer…</option>
+                        {PROGRAMMA_DAGEN.map(d => (
+                          <option key={d.value} value={d.value}>
+                            naar {d.label}{d.value === p.dag ? ' (zelfde dag)' : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
                   </tr>
                 )
               })}
