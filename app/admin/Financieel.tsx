@@ -57,6 +57,17 @@ type Bijlage = {
 type PostDraft = { categorie: string; naam: string; begroot: string; vorig: string }
 type BoekingDraft = { omschrijving: string; leverancier: string; bedrag: string; datum: string; status: BoekingStatus }
 type TicketRegel = { naam: string; aantal: number; omzet_cents: number }
+// Eén bar uit de kassa, met het NvdW-deel al ex btw gerekend.
+type HorecaBar = {
+  merchant: string
+  eigen_bar: boolean
+  partner_naam: string | null
+  nvdw_pct: number
+  netto_bruto_cents: number
+  netto_ex_btw_cents: number
+  zonder_regels_cents: number
+  nvdw_ex_btw_cents: number
+}
 type ImportRij = {
   geldig: boolean
   fout?: string
@@ -224,10 +235,16 @@ export default function Financieel({ flash }: { flash: (m: string, ms?: number) 
   const [ticketRegels, setTicketRegels] = useState<TicketRegel[]>([])
   const [ticketFout, setTicketFout] = useState<string | null>(null)
   const [ticketOpen, setTicketOpen] = useState(false)
-  const [posBruto, setPosBruto] = useState(0)
   const [posNvdw, setPosNvdw] = useState(0)
   const [posAfdrachtGem, setPosAfdrachtGem] = useState(20)
   const [posStatus, setPosStatus] = useState<'laden' | 'ok' | 'fout'>('laden')
+  // Horeca-omzet van NvdW zelf, ex btw: afdracht op partnerbars plus 100% van de
+  // eigen bars. Dit is waar de begrote "Inkomsten horeca" tegenover staat.
+  const [horecaEx, setHorecaEx] = useState(0)
+  const [horecaBruto, setHorecaBruto] = useState(0)
+  const [horecaZonderRegels, setHorecaZonderRegels] = useState(0)
+  const [horecaBars, setHorecaBars] = useState<HorecaBar[]>([])
+  const [horecaOpen, setHorecaOpen] = useState(false)
   const [standgelden, setStandgelden] = useState(0)
   const [standAantal, setStandAantal] = useState(0)
   const [standFout, setStandFout] = useState<string | null>(null)
@@ -393,9 +410,22 @@ export default function Financieel({ flash }: { flash: (m: string, ms?: number) 
       const j = await posRpc<{ ok: boolean; partners: SettlementRow[] }>('partner_settlement')
       if (!j?.ok) throw new Error('Kassa gaf geen geldig antwoord.')
       const rijen = j.partners || []
-      setPosBruto(rijen.reduce((s, r) => s + (r.omzet_cents - r.refunded_cents), 0))
+      // Bruto afdracht van partnerbars: dat is wat je met de partners afrekent.
       setPosNvdw(Math.round(rijen.reduce((s, r) => s + (r.omzet_cents - r.refunded_cents) * r.afdracht_percentage / 100, 0)))
       if (rijen.length > 0) setPosAfdrachtGem(Math.round(rijen.reduce((s, r) => s + r.afdracht_percentage, 0) / rijen.length))
+      // Los hiervan de NvdW-horeca-omzet ex btw. Settlement gaat alleen over
+      // partnerbars; de eigen bars zitten daar niet in en zijn juist het
+      // grootste deel van de begrote horeca-inkomsten.
+      const h = await posRpc<{
+        ok: boolean; bars: HorecaBar[]
+        nvdw_ex_btw_cents: number; bruto_cents: number; zonder_regels_cents: number
+      }>('horeca_omzet_nvdw')
+      if (h?.ok) {
+        setHorecaEx(Number(h.nvdw_ex_btw_cents) || 0)
+        setHorecaBruto(Number(h.bruto_cents) || 0)
+        setHorecaZonderRegels(Number(h.zonder_regels_cents) || 0)
+        setHorecaBars(h.bars || [])
+      }
       setPosStatus('ok')
     } catch {
       setPosStatus('fout')
@@ -448,13 +478,14 @@ export default function Financieel({ flash }: { flash: (m: string, ms?: number) 
   const somPrognose = (l: BudgetPost[]) => l.reduce((s, p) => s + prognose(p), 0)
 
   // Realisatie van een live omzetpost komt uit de bron, niet uit boekingen.
+  // Alles ex btw, want zo staat de begroting erin.
   const liveWerkelijk = (bron: LiveBron) =>
     bron === 'ticketing' ? ticketTotaal
-      : bron === 'kassa' ? (posStatus === 'ok' ? posNvdw : 0)
+      : bron === 'kassa' ? (posStatus === 'ok' ? horecaEx : 0)
         : standgelden
 
   const totalen = useMemo(() => {
-    const posDeel = posStatus === 'ok' ? posNvdw : 0
+    const posDeel = posStatus === 'ok' ? horecaEx : 0
     const kostenBegroot = somBegroot(kostenPosten)
     const kostenWerkelijk = somWerkelijk(kostenPosten)
     const kostenVerwacht = somVerwacht(kostenPosten)
@@ -477,7 +508,7 @@ export default function Financieel({ flash }: { flash: (m: string, ms?: number) 
       resultaatBegroot: omzetBegroot - kostenBegroot,
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ticketTotaal, ticketServiceFee, posNvdw, posStatus, standgelden, kostenPosten, omzetPosten, perPost])
+  }, [ticketTotaal, ticketServiceFee, horecaEx, posStatus, standgelden, kostenPosten, omzetPosten, perPost])
 
   // ---------- scenario ----------
   // Vorige editie: 4750 bezoekers (bron: kostenspreadsheet 2025).
@@ -1544,14 +1575,61 @@ export default function Financieel({ flash }: { flash: (m: string, ms?: number) 
               </tr>
             )}
             <tr>
-              <td style={{ ...AS.td, fontWeight: 600 }}>POS bruto-omzet (alle bars){bronLabel('live uit kassa')}</td>
+              <td style={{ ...AS.td, fontWeight: 600 }}>
+                Baromzet bruto, alle bars samen{bronLabel('live uit kassa')}
+                {horecaBars.length > 0 && (
+                  <button style={{ ...AS.btnSm, marginLeft: '10px', padding: '3px 8px' }} onClick={() => setHorecaOpen(o => !o)}>
+                    {horecaOpen ? 'Verberg per bar' : 'Per bar'}
+                  </button>
+                )}
+              </td>
               <td style={{ ...AS.td, textAlign: 'right', fontWeight: 700, whiteSpace: 'nowrap' }}>
-                {posStatus === 'ok' ? euro(posBruto) : '-'}
+                {posStatus === 'ok' ? euro(horecaBruto) : '-'}
               </td>
             </tr>
+            {horecaOpen && horecaBars.map(b => (
+              <tr key={b.merchant}>
+                <td style={{ ...AS.td, paddingLeft: '32px', fontSize: '12px', color: '#666' }}>
+                  {b.merchant}
+                  <span style={{ color: '#999' }}>
+                    {' '}· {b.eigen_bar ? 'eigen bar, NvdW houdt alles' : `partnerbar, ${b.nvdw_pct}% afdracht`}
+                    {' '}· bruto {euro(Number(b.netto_bruto_cents))}
+                  </span>
+                  {Number(b.zonder_regels_cents) !== 0 && (
+                    <span style={{ color: 'var(--bordeaux)' }}>
+                      {' '}· {euro(Number(b.zonder_regels_cents))} zonder regels, btw niet te bepalen
+                    </span>
+                  )}
+                </td>
+                <td style={{ ...AS.td, textAlign: 'right', fontSize: '12px', color: '#666', whiteSpace: 'nowrap' }}>
+                  {euro(Number(b.nvdw_ex_btw_cents))}
+                </td>
+              </tr>
+            ))}
             <tr>
-              <td style={{ ...AS.td, fontWeight: 600 }}>NvdW-deel POS (afdrachten){bronLabel('live uit kassa')}</td>
-              <td style={{ ...AS.td, textAlign: 'right', fontWeight: 700, whiteSpace: 'nowrap' }}>
+              <td style={{ ...AS.td, fontWeight: 600 }}>
+                NvdW-deel horeca ex btw{bronLabel('live uit kassa')}
+                <div style={{ fontSize: '11px', color: '#999', fontWeight: 400 }}>
+                  Afdracht over de partnerbars plus de volledige omzet van de eigen bars. Btw per regel eruit: drank 21%, eten 9%.
+                </div>
+              </td>
+              <td style={{ ...AS.td, textAlign: 'right', fontWeight: 700, whiteSpace: 'nowrap', color: GROEN }}>
+                {posStatus === 'ok' ? euro(horecaEx) : '-'}
+              </td>
+            </tr>
+            {posStatus === 'ok' && horecaZonderRegels !== 0 && (
+              <tr>
+                <td colSpan={2} style={{ ...AS.td, fontSize: '12px', color: 'var(--bordeaux)' }}>
+                  Let op: van {euro(horecaZonderRegels)} baromzet staan geen orderregels in de kassa, dus daar valt geen btw-tarief
+                  uit te halen. Dat bedrag zit niet in het NvdW-deel hierboven.
+                </td>
+              </tr>
+            )}
+            <tr>
+              <td style={{ ...AS.td, fontSize: '12px', color: '#999' }}>
+                Waarvan afdrachten van partnerbars (bruto, voor de afrekening met partners)
+              </td>
+              <td style={{ ...AS.td, textAlign: 'right', fontSize: '12px', color: '#999', whiteSpace: 'nowrap' }}>
                 {posStatus === 'ok' ? euro(posNvdw) : '-'}
               </td>
             </tr>
