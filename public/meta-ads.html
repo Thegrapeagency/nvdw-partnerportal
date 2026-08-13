@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Meta Ads Sturing · Nacht van de Wijn</title>
+<style>
+  :root {
+    --navy: #010341; --navy2: #0a0c52; --cream: #fef1d5; --cream-dim: #f0e4c0;
+    --gold: #feb72a; --red: #9b3737; --green: #3f7d4e;
+    --card: rgba(254, 241, 213, 0.06); --border: rgba(254, 241, 213, 0.14);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--navy); color: var(--cream); font-family: Georgia, 'Times New Roman', serif; min-height: 100vh; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 24px 20px 80px; }
+  .kicker { font-size: 11px; letter-spacing: 2.5px; text-transform: uppercase; color: var(--gold); font-family: -apple-system, Helvetica, sans-serif; }
+  h1 { font-size: 30px; margin: 4px 0 2px; }
+  h2 { font-size: 20px; margin-bottom: 12px; }
+  .sub { color: var(--cream-dim); font-size: 14px; }
+  .badge { display: inline-block; padding: 4px 12px; border-radius: 999px; font-size: 12px; font-family: -apple-system, Helvetica, sans-serif; font-weight: 600; letter-spacing: 1px; }
+  .badge.dry { background: var(--gold); color: var(--navy); }
+  .badge.live { background: var(--red); color: var(--cream); }
+  .badge.err { background: transparent; border: 1px solid var(--red); color: #e77; }
+  .topbar { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
+  .topbar .rechts { text-align: right; display: flex; flex-direction: column; gap: 8px; align-items: flex-end; }
+  button { font-family: -apple-system, Helvetica, sans-serif; font-size: 14px; border: none; border-radius: 10px; padding: 10px 18px; cursor: pointer; }
+  button:disabled { opacity: 0.5; cursor: wait; }
+  .btn-p { background: var(--red); color: var(--cream); }
+  .btn-s { background: transparent; color: var(--cream); border: 1px solid var(--border); }
+  .btn-klein { padding: 6px 12px; font-size: 13px; }
+  .btn-groen { background: var(--green); color: var(--cream); }
+  .tabs { display: flex; gap: 6px; margin: 22px 0 18px; flex-wrap: wrap; }
+  .tabs button { background: transparent; color: var(--cream-dim); border: 1px solid var(--border); border-radius: 999px; }
+  .tabs button.actief { background: var(--cream); color: var(--navy); border-color: var(--cream); font-weight: 600; }
+  .kaart { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 18px 20px; margin-bottom: 14px; }
+  .kaart h3 { font-size: 17px; margin-bottom: 6px; }
+  .kaart .veld { margin: 8px 0; font-size: 14px; line-height: 1.55; }
+  .kaart .veld b { color: var(--gold); font-family: -apple-system, Helvetica, sans-serif; font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px; display: block; margin-bottom: 2px; }
+  .sev { font-family: -apple-system, Helvetica, sans-serif; font-size: 11px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; padding: 3px 10px; border-radius: 999px; }
+  .sev.alarm { background: var(--red); color: var(--cream); }
+  .sev.waarschuwing { background: var(--gold); color: var(--navy); }
+  .sev.kans { background: var(--green); color: var(--cream); }
+  .sev.info { background: transparent; border: 1px solid var(--border); color: var(--cream-dim); }
+  .kaart-kop { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
+  .acties { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; align-items: center; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 18px; }
+  .stat { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
+  .stat .l { font-family: -apple-system, Helvetica, sans-serif; font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px; color: var(--cream-dim); }
+  .stat .w { font-size: 24px; margin-top: 4px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; font-family: -apple-system, Helvetica, sans-serif; }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  th { color: var(--gold); font-size: 11px; text-transform: uppercase; letter-spacing: 1px; }
+  .tabel-scroll { overflow-x: auto; }
+  .type-tag { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 5px; background: var(--cream); color: var(--navy); margin-right: 6px; }
+  input[type=password], input[type=text], textarea { width: 100%; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--border); background: var(--navy2); color: var(--cream); font-size: 15px; font-family: inherit; }
+  .login-doos { max-width: 420px; margin: 12vh auto 0; text-align: center; }
+  .login-doos .kaart { text-align: left; margin-top: 24px; }
+  .melding { padding: 12px 16px; border-radius: 10px; margin-bottom: 16px; font-size: 14px; font-family: -apple-system, Helvetica, sans-serif; }
+  .melding.rood { background: rgba(155, 55, 55, 0.35); border: 1px solid var(--red); }
+  .melding.goud { background: rgba(254, 183, 42, 0.12); border: 1px solid var(--gold); }
+  .leeg { color: var(--cream-dim); font-style: italic; padding: 24px 0; text-align: center; }
+  .klein { font-size: 12px; color: var(--cream-dim); font-family: -apple-system, Helvetica, sans-serif; }
+  a { color: var(--gold); }
+  @media (max-width: 640px) { h1 { font-size: 24px; } .wrap { padding: 16px 12px 60px; } }
+</style>
+</head>
+<body>
+<div class="wrap" id="app"></div>
+<script>
+const API = 'https://snfojphxsbzfewwfbfka.supabase.co/functions/v1/meta-ads'
+let KEY = localStorage.getItem('meta_ads_key') || ''
+let status = null, tab = 'voorstellen', bezig = false
+
+async function api(action, extra = {}) {
+  const res = await fetch(API, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-admin-key': KEY },
+    body: JSON.stringify({ action, ...extra }),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (res.status === 401) { KEY = ''; localStorage.removeItem('meta_ads_key'); render(); throw new Error('unauthorized') }
+  if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status))
+  return data
+}
+
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))
+const eur = (n) => n == null ? '–' : 'EUR ' + Number(n).toFixed(2).replace('.', ',')
+const eurC = (c) => c == null ? '–' : eur(c / 100)
+const dt = (s) => s ? new Date(s).toLocaleString('nl-NL', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '–'
+
+function el(html) { const d = document.createElement('div'); d.innerHTML = html; return d }
+
+async function render() {
+  const app = document.getElementById('app')
+  if (!KEY) {
+    app.innerHTML = `
+      <div class="login-doos">
+        <div class="kicker">Nacht van de Wijn</div>
+        <h1>Meta Ads Sturing</h1>
+        <p class="sub">Bedieningspaneel voor de advertentiecampagnes</p>
+        <div class="kaart">
+          <div class="veld"><b>Admin-sleutel</b></div>
+          <input type="password" id="sleutel" placeholder="Plak je admin-sleutel" autocomplete="current-password">
+          <div class="acties"><button class="btn-p" onclick="login()">Inloggen</button></div>
+          <p class="klein" style="margin-top:10px">Zelfde sleutel als het ticketing-admin. Frank kan inloggen met zijn eigen sleutel.</p>
+        </div>
+      </div>`
+    return
+  }
+  app.innerHTML = '<p class="leeg">Laden…</p>'
+  try { status = await api('status') } catch (e) { if (KEY) app.innerHTML = `<div class="melding rood">Kan de status niet laden: ${esc(e.message)}</div>`; return }
+
+  const badge = status.live_mode
+    ? '<span class="badge live">LIVE MODUS</span>'
+    : '<span class="badge dry">DRY RUN</span>'
+  const cfgWaarschuwing = status.geconfigureerd ? '' : `
+    <div class="melding goud"><strong>Nog niet verbonden met Meta.</strong> Zet <code>META_ACCESS_TOKEN</code> en <code>META_AD_ACCOUNT_ID</code> als secrets bij de edge function in Supabase (Project → Edge Functions → Secrets). Daarna werkt “Sync nu” direct.</div>`
+  const laatste = status.laatste_sync
+  const syncInfo = laatste
+    ? `Laatste sync: ${dt(laatste.started_at)} · ${laatste.ok === false ? '<span style="color:#e77">mislukt: ' + esc(laatste.error || '') + '</span>' : laatste.ok ? 'gelukt' : 'bezig'}`
+    : 'Nog geen sync gedraaid'
+
+  app.innerHTML = `
+    <div class="topbar">
+      <div>
+        <div class="kicker">Nacht van de Wijn</div>
+        <h1>Meta Ads Sturing</h1>
+        <p class="sub">${syncInfo} · ${status.open_voorstellen} open ${status.open_voorstellen === 1 ? 'voorstel' : 'voorstellen'}</p>
+      </div>
+      <div class="rechts">
+        <div>${badge}</div>
+        <div class="acties">
+          <button class="btn-p" id="syncknop" onclick="syncNu()">Sync nu</button>
+          <button class="btn-s btn-klein" onclick="uitloggen()">Uitloggen</button>
+        </div>
+      </div>
+    </div>
+    ${cfgWaarschuwing}
+    <div class="tabs">
+      ${['voorstellen', 'overzicht', 'meting', 'logboek'].map(t =>
+        `<button class="${tab === t ? 'actief' : ''}" onclick="wisselTab('${t}')">${t[0].toUpperCase() + t.slice(1)}</button>`).join('')}
+    </div>
+    <div id="inhoud"><p class="leeg">Laden…</p></div>`
+  laadTab()
+}
+
+function wisselTab(t) { tab = t; render() }
+function login() { const v = document.getElementById('sleutel').value.trim(); if (!v) return; KEY = v; localStorage.setItem('meta_ads_key', v); render() }
+function uitloggen() { KEY = ''; localStorage.removeItem('meta_ads_key'); render() }
+
+async function syncNu() {
+  const knop = document.getElementById('syncknop')
+  knop.disabled = true; knop.textContent = 'Bezig…'
+  try {
+    const r = await api('sync')
+    if (r.ok === false) alert('Sync niet gelukt: ' + (r.melding || r.error))
+  } catch (e) { alert('Sync mislukt: ' + e.message) }
+  render()
+}
+
+async function laadTab() {
+  const c = document.getElementById('inhoud')
+  try {
+    if (tab === 'voorstellen') {
+      const { proposals } = await api('proposals')
+      const open = proposals.filter(p => p.status === 'open')
+      const rest = proposals.filter(p => p.status !== 'open').slice(0, 30)
+      const orde = { alarm: 0, waarschuwing: 1, kans: 2, info: 3 }
+      open.sort((a, b) => (orde[a.severity] ?? 9) - (orde[b.severity] ?? 9))
+      c.innerHTML = (open.length ? open.map(kaartVoorstel).join('') : '<p class="leeg">Geen open voorstellen. Draai een sync om de regels opnieuw te toetsen.</p>')
+        + (rest.length ? `<h2 style="margin-top:28px">Afgehandeld</h2>` + rest.map(kaartAfgehandeld).join('') : '')
+    } else if (tab === 'overzicht') {
+      const { adsets, account } = await api('overview')
+      const d7 = adsets.filter(s => s.venster === 'd7')
+      c.innerHTML = account ? `
+        <div class="stats">
+          <div class="stat"><div class="l">Spend 7 dagen</div><div class="w">${eur(account.spend)}</div></div>
+          <div class="stat"><div class="l">Meta-purchases 7d</div><div class="w">${account.purchases ?? '–'}</div></div>
+          <div class="stat"><div class="l">CPP (gemeten)</div><div class="w">${eur(account.cost_per_purchase)}</div></div>
+          <div class="stat"><div class="l">Frequentie</div><div class="w">${account.frequency ? Number(account.frequency).toFixed(1) : '–'}</div></div>
+        </div>` : ''
+      c.innerHTML += d7.length ? `
+        <div class="tabel-scroll"><table>
+          <tr><th>Ad set</th><th>Status</th><th>Dagbudget</th><th>Spend 7d</th><th>Aankopen</th><th>CPP</th><th>Freq</th><th>CTR</th><th>CPM</th></tr>
+          ${d7.map(s => `<tr>
+            <td>${typeTag(s.entity_name)}${esc(s.entity_name)}</td>
+            <td>${s.effective_status === 'ACTIVE' ? '🟢 actief' : '⚪ ' + esc((s.effective_status || '').toLowerCase())}</td>
+            <td>${eurC(s.daily_budget_cents)}</td>
+            <td>${eur(s.spend)}</td>
+            <td>${s.purchases ?? 0}</td>
+            <td>${eur(s.cost_per_purchase)}</td>
+            <td>${s.frequency ? Number(s.frequency).toFixed(1) : '–'}</td>
+            <td>${s.ctr ? Number(s.ctr).toFixed(2) + '%' : '–'}</td>
+            <td>${eur(s.cpm)}</td>
+          </tr>`).join('')}
+        </table></div>
+        <p class="klein" style="margin-top:10px">Cijfers over de laatste 7 dagen, uit de laatste geslaagde sync.</p>`
+        : '<p class="leeg">Nog geen data. Draai eerst een sync (daarvoor moeten de Meta-secrets gezet zijn).</p>'
+    } else if (tab === 'meting') {
+      c.innerHTML = `<div class="kaart">
+        <h3>Purchase-meting: Meta vs echte orders</h3>
+        <div class="veld">Vergelijkt het aantal purchases dat Meta rapporteert met de betaalde orders in de kaartverkoop over dezelfde periode. In 2025 mat Meta 490 van de 1.912 orders; deze check bewaakt dat dat niet opnieuw gebeurt.</div>
+        <div class="acties"><button class="btn-p" id="checkknop" onclick="draaiCheck()">Check nu</button></div>
+        <div id="checkresultaat"></div>
+      </div>`
+    } else if (tab === 'logboek') {
+      const { log } = await api('log')
+      c.innerHTML = log.length ? `
+        <div class="tabel-scroll"><table>
+          <tr><th>Wanneer</th><th>Modus</th><th>Wie</th><th>Actie</th><th>Voor → Na</th><th>Resultaat</th></tr>
+          ${log.map(r => `<tr>
+            <td>${dt(r.at)}</td>
+            <td>${r.mode === 'live' ? '<span class="badge live" style="font-size:10px;padding:2px 8px">LIVE</span>' : '<span class="badge dry" style="font-size:10px;padding:2px 8px">DRY</span>'}</td>
+            <td>${esc(r.actor || '–')}</td>
+            <td>${esc(actieTekst(r.actie))}</td>
+            <td>${r.voor?.daily_budget_cents != null ? eurC(r.voor.daily_budget_cents) + ' → ' + eurC(r.na?.daily_budget_cents) : '–'}</td>
+            <td>${esc(r.resultaat || '–')}</td>
+          </tr>`).join('')}
+        </table></div>` : '<p class="leeg">Nog geen wijzigingen gelogd.</p>'
+    }
+  } catch (e) {
+    c.innerHTML = `<div class="melding rood">Laden mislukt: ${esc(e.message)}</div>`
+  }
+}
+
+function typeTag(naam) {
+  const m = String(naam || '').trim().toUpperCase().match(/^(RET|LAL|GEO|AWARE|TEST)[-_ ]/)
+  return m ? `<span class="type-tag">${m[1]}</span>` : ''
+}
+
+function actieTekst(a) {
+  if (!a) return '–'
+  if (a.type === 'update_adset_budget') return `Budget ${a.adset_name || a.adset_id}`
+  if (a.type === 'set_live_mode') return a.value ? 'Live-modus AAN' : 'Live-modus UIT (dry run)'
+  return a.type || JSON.stringify(a)
+}
+
+function kaartVoorstel(p) {
+  const uitvoerbaar = p.actie && p.actie.type === 'update_adset_budget'
+  return `<div class="kaart" id="p-${p.id}">
+    <div class="kaart-kop">
+      <h3>${esc(p.titel)}</h3>
+      <span class="sev ${esc(p.severity)}">${esc(p.severity)}</span>
+    </div>
+    ${p.entity_name ? `<p class="klein">${typeTag(p.entity_name)}${esc(p.entity_name)}</p>` : ''}
+    <div class="veld"><b>Wat speelt er</b>${esc(p.probleem)}</div>
+    <div class="veld"><b>Voorstel</b>${esc(p.voorstel)}</div>
+    <div class="veld"><b>Onderbouwing</b>${esc(p.onderbouwing)}</div>
+    <div class="acties">
+      <button class="btn-groen" onclick="beslis('${p.id}', 'approve')">${uitvoerbaar ? 'Goedkeuren & uitvoeren' : 'Goedkeuren (signaal)'}</button>
+      <button class="btn-s" onclick="beslis('${p.id}', 'reject')">Afwijzen</button>
+      ${uitvoerbaar ? '<span class="klein">In dry run wordt de wijziging alleen gesimuleerd en gelogd.</span>' : ''}
+    </div>
+  </div>`
+}
+
+function kaartAfgehandeld(p) {
+  return `<div class="kaart" style="opacity:0.65">
+    <div class="kaart-kop"><h3 style="font-size:15px">${esc(p.titel)}</h3>
+    <span class="klein">${esc(p.status)} · ${esc(p.beslist_door || '')} · ${dt(p.beslist_op || p.created_at)}</span></div>
+  </div>`
+}
+
+async function beslis(id, decision) {
+  let notitie = null
+  if (decision === 'reject') notitie = prompt('Waarom wijs je dit af? (optioneel)') || null
+  try {
+    const r = await api('decide', { id, decision, notitie })
+    if (r.melding) alert(r.melding)
+  } catch (e) { alert('Niet gelukt: ' + e.message); return }
+  laadTab(); api('status').then(s => { status = s })
+}
+
+async function draaiCheck() {
+  const knop = document.getElementById('checkknop'), uit = document.getElementById('checkresultaat')
+  knop.disabled = true; knop.textContent = 'Bezig…'
+  try {
+    const r = await api('purchase_check')
+    if (!r.ok) { uit.innerHTML = `<div class="melding goud" style="margin-top:14px">Nog niet verbonden met Meta (secrets ontbreken).</div>` }
+    else {
+      const kleur = r.oordeel === 'alarm' ? 'rood' : 'goud'
+      const tekst = r.oordeel === 'in_orde'
+        ? `✅ In orde. Meta: ${r.meta_purchases} purchases, kaartverkoop: ${r.echte_orders} betaalde orders (ratio ${r.ratio ? r.ratio.toFixed(2) : '–'}).`
+        : r.oordeel === 'te_weinig_volume'
+          ? `Te weinig orders (${r.echte_orders}) in de periode om een betrouwbare uitspraak te doen. Meta rapporteert ${r.meta_purchases} purchases.`
+          : `🚨 ${esc(r.detail?.probleem || 'Afwijking gevonden')}<br><br><strong>Advies:</strong> ${esc(r.detail?.voorstel || '')}`
+      uit.innerHTML = `<div class="melding ${r.oordeel === 'in_orde' ? 'goud' : kleur}" style="margin-top:14px">${tekst}</div>`
+    }
+  } catch (e) { uit.innerHTML = `<div class="melding rood" style="margin-top:14px">Check mislukt: ${esc(e.message)}</div>` }
+  knop.disabled = false; knop.textContent = 'Check nu'
+}
+
+render()
+</script>
+</body>
+</html>
