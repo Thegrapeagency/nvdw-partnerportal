@@ -472,7 +472,27 @@ export default function AdminPage() {
     flash('Wijzigingen opgeslagen')
   }
   const deletePartner = async (p: Partner) => {
-    if (!confirm(`Weet je zeker dat je "${p.bedrijfsnaam}" wilt verwijderen? Dit kan niet ongedaan gemaakt worden.`)) return
+    // Eerst tellen wat er aan deze partner hangt. Dat verdwijnt namelijk mee,
+    // en dat hoor je te weten voordat je klikt.
+    const tel = async (tabel: string) => {
+      const { count } = await supabase.from(tabel).select('id', { count: 'exact', head: true }).eq('partner_id', p.id)
+      return count || 0
+    }
+    const [wijnen, gerechten, crewleden, docs, bestellingen, vragenVanPartner] = await Promise.all([
+      tel('wijnlijst'), tel('menukaart'), tel('crew'), tel('documenten'), tel('extra_bestellingen'), tel('partner_vragen'),
+    ])
+    const gaatMee = [
+      wijnen && `${wijnen} ${wijnen === 1 ? 'wijn' : 'wijnen'}`,
+      gerechten && `${gerechten} ${gerechten === 1 ? 'gerecht' : 'gerechten'}`,
+      crewleden && `${crewleden} ${crewleden === 1 ? 'crewlid' : 'crewleden'}`,
+      docs && `${docs} ${docs === 1 ? 'document' : 'documenten'}`,
+      bestellingen && `${bestellingen} ${bestellingen === 1 ? 'bestelling' : 'bestellingen'}`,
+      vragenVanPartner && `${vragenVanPartner} ${vragenVanPartner === 1 ? 'vraag' : 'vragen'}`,
+    ].filter(Boolean) as string[]
+    const melding = gaatMee.length > 0
+      ? `"${p.bedrijfsnaam}" verwijderen?\n\nDit verdwijnt mee: ${gaatMee.join(', ')}.\n\nAl verkochte tickets en orders blijven bestaan, die raken alleen de koppeling met deze partner kwijt. Dit kan niet ongedaan gemaakt worden.`
+      : `"${p.bedrijfsnaam}" verwijderen? Er hangt verder niets aan. Dit kan niet ongedaan gemaakt worden.`
+    if (!confirm(melding)) return
     const { error } = await supabase.from('partners').delete().eq('id', p.id)
     if (error) { flash('Verwijderen mislukt: ' + error.message, 10000); return }
     setPartners(partners.filter(x => x.id !== p.id))
@@ -1040,6 +1060,13 @@ export default function AdminPage() {
           return <>
             <div style={S.title}>Kassa & omzet</div>
             <div style={S.sub}>Koppel partners aan het kassasysteem, stel minimumprijzen in en zie wat elke partner krijgt uitbetaald.</div>
+            {/* Verwarring voorkomen: hier staat bruto omdat je daarop afrekent
+                met partners, terwijl de begroting ex btw rekent. */}
+            <div style={{ background: '#f7f4ec', borderRadius: '8px', padding: '10px 14px', margin: '0 0 16px', fontSize: '12px', color: 'var(--navy)', lineHeight: 1.6 }}>
+              <b>De bedragen op deze pagina zijn inclusief btw</b>, want dat is de omzet die door de kassa gaat en waarover
+              je met de partner afrekent. In Begroting &amp; kosten staat alles exclusief btw. Zoek je het bedrag dat
+              in de begroting meetelt, kijk dan daar bij Omzet live.
+            </div>
             {kassaFout && <div style={{ ...S.successMsg, background: '#fdecea', border: '1px solid #e57373', color: '#b3261e' }}>Kassakoppeling niet bereikbaar: {kassaFout}</div>}
 
             <div style={S.card}>

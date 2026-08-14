@@ -95,6 +95,14 @@ const MARKETING_CATEGORIE = 'promotie'
 const VORIGE_EDITIE = { bezoekers: 4750, omzet_cents: 13061375 }
 const STATUS_LABEL: Record<BoekingStatus, string> = { verwacht: 'Verwacht', factuur: 'Factuur', betaald: 'Betaald' }
 const LIVE_LABEL: Record<LiveBron, string> = { ticketing: 'ticketverkoop', kassa: 'kassa', standgelden: 'stagelden' }
+// Baromzet is een mix van drank (21%) en eten (9%). De calculatiesheet rekent met
+// driekwart drank, een kwart eten; die verhouding gebruiken we hier ook om van de
+// besteding per bezoeker (wat die betaalt, dus bruto) naar ex btw te komen.
+const BAR_DEEL_DRANK = 0.75
+const BTW_DRANK = 21
+const BTW_ETEN = 9
+const BAR_EX_BTW_FACTOR =
+  BAR_DEEL_DRANK / (1 + BTW_DRANK / 100) + (1 - BAR_DEEL_DRANK) / (1 + BTW_ETEN / 100)
 const SOORT_LABEL: Record<BijlageSoort, string> = { offerte: 'Offerte', factuur: 'Factuur', bon: 'Bon', contract: 'Contract', overig: 'Overig' }
 // Wat de bucket accepteert. Ruim genoeg voor een offerte uit de mail of een
 // foto van een bon, zonder uitvoerbare bestanden.
@@ -542,14 +550,18 @@ export default function Financieel({ flash }: { flash: (m: string, ms?: number) 
 
   const scenarioUitkomst = useMemo(() => {
     if (!scenario) return null
+    // De ticketprijs-slider staat al ex btw (afgeleid uit de live ticketomzet).
     const tickets = Math.round(scenario.bezoekers * scenario.ticketprijs * 100)
-    const bar = Math.round(scenario.bezoekers * scenario.barPerBezoeker * scenario.afdrachtPct / 100 * 100)
+    // De besteding aan de bar is wat de bezoeker betaalt, dus bruto. Eerst de
+    // btw eruit, dan het afdrachtpercentage erover: de hele begroting is ex btw.
+    const barExPB = scenario.barPerBezoeker * BAR_EX_BTW_FACTOR
+    const bar = Math.round(scenario.bezoekers * barExPB * scenario.afdrachtPct / 100 * 100)
     // Alleen de handmatige omzetposten erbij: tickets en bar rekent het scenario
     // zelf uit, dus de begrote live-posten zouden hier dubbel tellen.
     const vast = standgelden + totalen.omzetBegrootHandmatig
     const omzet = tickets + bar + vast
     const kosten = Math.round(totalen.kostenBegroot * (1 + scenario.kostenUitloopPct / 100))
-    const perBezoeker = scenario.ticketprijs + scenario.barPerBezoeker * scenario.afdrachtPct / 100
+    const perBezoeker = scenario.ticketprijs + barExPB * scenario.afdrachtPct / 100
     const breakEven = perBezoeker > 0 ? Math.max(0, Math.ceil((kosten - vast) / 100 / perBezoeker)) : null
     return { tickets, bar, vast, omzet, kosten, resultaat: omzet - kosten, breakEven }
   }, [scenario, standgelden, totalen.omzetBegrootHandmatig, totalen.kostenBegroot])
@@ -1472,12 +1484,15 @@ export default function Financieel({ flash }: { flash: (m: string, ms?: number) 
         </div>
         <div style={{ fontSize: '12px', color: '#888', marginBottom: '16px' }}>
           Schuif en zie direct wat er met het resultaat gebeurt. Het bezoekersaantal hier stuurt ook de per-bezoeker-KPI&apos;s bovenaan.
+          De uitkomst is ex btw, net als de begroting: de besteding aan de bar vul je bruto in (wat de bezoeker betaalt) en daar
+          gaat de btw af met {Math.round(BAR_DEEL_DRANK * 100)}% drank op {BTW_DRANK}% en de rest eten op {BTW_ETEN}%.
+          Let op: dit rekent alleen met de afdracht over partnerbars, dus zonder de eigen bars waar je alles houdt.
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '28px' }}>
           <div>
             {slider('Bezoekers (betaalde tickets)', s.bezoekers, `${s.bezoekers.toLocaleString('nl-NL')} van ${s.capaciteit.toLocaleString('nl-NL')}`, 0, s.capaciteit, 25, v => zetScenario({ bezoekers: v }))}
             {slider('Gemiddelde ticketprijs (ex btw)', s.ticketprijs, '€' + s.ticketprijs.toFixed(2).replace('.', ','), 10, 60, 0.5, v => zetScenario({ ticketprijs: v }))}
-            {slider('Baromzet per bezoeker', s.barPerBezoeker, '€' + s.barPerBezoeker.toFixed(0), 0, 60, 1, v => zetScenario({ barPerBezoeker: v }))}
+            {slider('Besteding aan de bar per bezoeker (bruto)', s.barPerBezoeker, '€' + s.barPerBezoeker.toFixed(0), 0, 60, 1, v => zetScenario({ barPerBezoeker: v }))}
             {slider('Gemiddelde afdracht bars', s.afdrachtPct, s.afdrachtPct + '%', 0, 40, 1, v => zetScenario({ afdrachtPct: v }))}
             {slider('Kostenuitloop', s.kostenUitloopPct, (s.kostenUitloopPct > 0 ? '+' : '') + s.kostenUitloopPct + '%', -15, 25, 1, v => zetScenario({ kostenUitloopPct: v }))}
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: '#666', marginTop: '4px' }}>
@@ -1498,7 +1513,7 @@ export default function Financieel({ flash }: { flash: (m: string, ms?: number) 
               </div>
               {[
                 ['Ticketomzet', u.tickets],
-                ['NvdW-deel baromzet', u.bar],
+                ['NvdW-deel baromzet ex btw', u.bar],
                 ['Standgelden + begrote overige omzet', u.vast],
                 ['Totale omzet', u.omzet],
                 ['Kosten' + (s.kostenUitloopPct !== 0 ? ` (begroot ${s.kostenUitloopPct > 0 ? '+' : ''}${s.kostenUitloopPct}%)` : ''), -u.kosten],
@@ -1521,6 +1536,13 @@ export default function Financieel({ flash }: { flash: (m: string, ms?: number) 
       {/* Omzet live */}
       <div style={AS.card}>
         <div style={AS.cardTitle}>Omzet live</div>
+        {/* Expliciet in beeld: hier kijken meerdere mensen mee en een bedrag
+            zonder btw-vermelding wordt makkelijk verkeerd overgenomen. */}
+        <div style={{ background: '#f7f4ec', borderRadius: '8px', padding: '10px 14px', marginBottom: '12px', fontSize: '12px', color: 'var(--navy)', lineHeight: 1.6 }}>
+          <b>Alle bedragen in dit scherm zijn exclusief btw.</b> Dat geldt voor de hele begroting, dus ook voor de
+          kosten en de inkomsten hierboven. De btw wordt per regel uit het brutobedrag gehaald: tickets 9%,
+          drank 21%, eten 9%. Wat een bezoeker betaalt is dus hoger dan wat hier staat.
+        </div>
         <table style={AS.table}>
           <tbody>
             <tr>
