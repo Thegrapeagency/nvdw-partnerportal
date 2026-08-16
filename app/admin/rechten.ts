@@ -35,6 +35,7 @@ export const TAB_GEBIED: Record<string, Gebied> = {
   // studio = schrijfstijl + carousel + huisstijl; appmarketing = push + advertenties.
   studio: 'marketing',
   attributie: 'marketing',
+  metaads: 'marketing',
   appmarketing: 'marketing',
   // Bewust een eigen gebied: aan de nieuwsbrief hangt het volledige
   // abonneebestand, dus die geef je los van de rest van marketing.

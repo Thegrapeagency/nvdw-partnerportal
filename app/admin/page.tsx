@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation'
 import Programma from './Programma'
 import Dashboard from './Dashboard'
 import Attributie from './Attributie'
+import MetaAds from './MetaAds'
 import CrewRooster from './CrewRooster'
 import Financieel from './Financieel'
 import Leveranciers from './Leveranciers'
@@ -854,6 +855,7 @@ export default function AdminPage() {
         { id: 'studio', label: 'Content-studio' },
         { id: 'nieuwsbrief', label: 'Nieuwsbrief' },
         { id: 'attributie', label: 'Attributie & spend' },
+        { id: 'metaads', label: 'Meta Ads sturing' },
         { id: 'app', label: 'Bezoekers-app' },
       ]
     },
@@ -1706,6 +1708,7 @@ export default function AdminPage() {
         {activeTab === 'todo' && <Todo flash={flash} />}
         {activeTab === 'overleg' && <Overleg flash={flash} />}
         {activeTab === 'attributie' && <Attributie flash={flash} />}
+        {activeTab === 'metaads' && <MetaAds flash={flash} />}
         {activeTab === 'crewrooster' && <CrewRooster flash={flash} />}
         {activeTab === 'financieel' && <Financieel flash={flash} />}
         {activeTab === 'leveranciers' && <Leveranciers flash={flash} />}
