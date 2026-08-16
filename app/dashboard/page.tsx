@@ -69,6 +69,7 @@ export default function Dashboard() {
   const [newWijn, setNewWijn] = useState({ naam: '', producent: '', regio: '', land: '', druif: '', jaar: '', prijs_half_glas: '', prijs_heel_glas: '', prijs_fles: '', beschrijving: '' })
   const [newWijnFoto, setNewWijnFoto] = useState<File | null>(null)
   const [wijnFotoBusy, setWijnFotoBusy] = useState<string | null>(null)
+  const [smaakOpen, setSmaakOpen] = useState<string | null>(null)
   const [menu, setMenu] = useState<MenukaartItem[]>([])
   const [crew, setCrew] = useState<CrewLid[]>([])
   const [mijnBestellingen, setMijnBestellingen] = useState<{ id: string; product: string; aantal: number; prijs_per_stuk: number; status: string; created_at: string }[]>([])
@@ -240,6 +241,14 @@ export default function Dashboard() {
   }
 
   const deleteWijn = async (id: string) => { await supabase.from('wijnlijst').delete().eq('id', id); setWijnen(wijnen.filter(w => w.id !== id)) }
+
+  // Smaakprofiel per wijn: 8 assen die de bezoekersapp gebruikt om wijnen aan
+  // bezoekers te matchen. Hoe vollediger, hoe vaker de wijn wordt aangeraden.
+  const updateSmaakAs = async (wijn: Wijn, as: string, val: number) => {
+    const assen = { ...(wijn.smaak_assen ?? {}), [as]: val }
+    setWijnen(wijnen.map(w => w.id === wijn.id ? { ...w, smaak_assen: assen } : w))
+    await supabase.from('wijnlijst').update({ smaak_assen: assen }).eq('id', wijn.id)
+  }
 
   const toggleAllergeen = (a: string) => {
     setNewGerecht(g => ({ ...g, allergenen: g.allergenen.includes(a) ? g.allergenen.filter(x => x !== a) : [...g.allergenen, a] }))
@@ -1019,7 +1028,7 @@ export default function Dashboard() {
           </div>
           <div style={{ background: 'var(--card)', borderTop: '1px solid rgba(1,3,65,0.08)', borderRight: '1px solid rgba(1,3,65,0.08)', borderBottom: '1px solid rgba(1,3,65,0.08)', borderLeft: '3px solid var(--gold)', borderRadius: '14px', padding: '14px 18px', marginBottom: '16px', fontSize: '13px', color: 'var(--navy)', lineHeight: '1.7' }}>
             <div style={{ fontSize: '11px', fontWeight: '600', letterSpacing: '1px', textTransform: 'uppercase', color: 'var(--bordeaux)', marginBottom: '6px' }}>Zichtbaar in de bezoekers-app én de kassa</div>
-            Alles wat je hier invult (je wijnen, prijzen en omschrijving) tonen we aan bezoekers in de NvdW app, en je wijnen staan direct als knoppen in je kassa. Hoe vollediger en aantrekkelijker je het omschrijft, hoe vaker jouw wijn wordt gekozen.
+            Alles wat je hier invult (je wijnen, prijzen en omschrijving) tonen we aan bezoekers in de NvdW app, en je wijnen staan direct als knoppen in je kassa. Hoe vollediger en aantrekkelijker je het omschrijft, hoe vaker jouw wijn wordt gekozen. Nieuw: vul per wijn ook het smaakprofiel in, dan matcht de app jouw wijnen persoonlijk aan de smaak van elke bezoeker.
           </div>
           <div style={{ background: 'var(--card)', border: '1px solid rgba(1,3,65,0.08)', borderRadius: '14px', padding: '16px 20px', marginBottom: '28px', fontSize: '13px', color: 'var(--navy)', lineHeight: '1.7' }}>
             <strong>Let op:</strong> De wijnen en prijzen die je hier invoert worden op <strong>{T('deadline_wijnlijst', '29 oktober 12:00')}</strong> geëxporteerd. Ze worden gedrukt op de signing en geladen in de kassa. Wijzigingen na die tijd zijn niet meer mogelijk.
@@ -1027,35 +1036,73 @@ export default function Dashboard() {
           <div style={{ borderTop: '1px solid rgba(1,3,65,0.1)', paddingTop: '28px' }}>
             {wijnen.length > 0 && <>
               <div style={S.sectionTitle}>{wijnen.length} {wijnen.length === 1 ? 'wijn' : 'wijnen'} ingevoerd</div>
-              {wijnen.map(w => (
-                <div key={w.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 0', borderBottom: '1px solid rgba(1,3,65,0.07)', gap: '14px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flex: 1, minWidth: 0 }}>
-                    {w.foto_url ? (
-                      <img src={w.foto_url} alt={w.naam} style={{ width: '48px', height: '48px', objectFit: 'cover', borderRadius: '8px', flexShrink: 0 }} />
-                    ) : (
-                      <div style={{ width: '48px', height: '48px', borderRadius: '8px', background: 'rgba(1,3,65,0.06)', flexShrink: 0 }} />
-                    )}
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontSize: '14px', fontWeight: '500', color: 'var(--navy)' }}>{w.naam}</div>
-                      <div style={{ fontSize: '12px', color: 'rgba(1,3,65,0.4)', marginTop: '2px' }}>
-                        {[w.producent, w.regio, w.land, w.druif, w.jaar].filter(Boolean).join(' · ')}
-                      </div>
-                      <div style={{ fontSize: '12px', color: 'var(--bordeaux)', marginTop: '2px' }}>
-                        {[w.prijs_half_glas && `½ €${w.prijs_half_glas}`, w.prijs_heel_glas && `glas €${w.prijs_heel_glas}`, w.prijs_fles && `fles €${w.prijs_fles}`].filter(Boolean).join(' · ')}
+              {wijnen.map(w => {
+                const ingevuld = Object.keys(w.smaak_assen ?? {}).length
+                return (
+                <div key={w.id} style={{ borderBottom: '1px solid rgba(1,3,65,0.07)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 0', gap: '14px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flex: 1, minWidth: 0 }}>
+                      {w.foto_url ? (
+                        <img src={w.foto_url} alt={w.naam} style={{ width: '48px', height: '48px', objectFit: 'cover', borderRadius: '8px', flexShrink: 0 }} />
+                      ) : (
+                        <div style={{ width: '48px', height: '48px', borderRadius: '8px', background: 'rgba(1,3,65,0.06)', flexShrink: 0 }} />
+                      )}
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: '14px', fontWeight: '500', color: 'var(--navy)' }}>{w.naam}</div>
+                        <div style={{ fontSize: '12px', color: 'rgba(1,3,65,0.4)', marginTop: '2px' }}>
+                          {[w.producent, w.regio, w.land, w.druif, w.jaar].filter(Boolean).join(' · ')}
+                        </div>
+                        <div style={{ fontSize: '12px', color: 'var(--bordeaux)', marginTop: '2px' }}>
+                          {[w.prijs_half_glas && `½ €${w.prijs_half_glas}`, w.prijs_heel_glas && `glas €${w.prijs_heel_glas}`, w.prijs_fles && `fles €${w.prijs_fles}`].filter(Boolean).join(' · ')}
+                        </div>
                       </div>
                     </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+                      <button onClick={() => setSmaakOpen(smaakOpen === w.id ? null : w.id)} style={{ ...S.btnOutline, ...(ingevuld === 0 ? { borderColor: 'var(--gold, #feb72a)', color: '#8a5e16' } : {}) }}>
+                        {smaakOpen === w.id ? 'Smaakprofiel sluiten' : ingevuld > 0 ? 'Smaakprofiel' : 'Smaakprofiel invullen'}
+                      </button>
+                      <label style={{ ...S.btnOutline, cursor: 'pointer', display: 'inline-block' }}>
+                        {wijnFotoBusy === w.id ? 'Bezig...' : w.foto_url ? 'Foto wijzigen' : 'Foto toevoegen'}
+                        <input type="file" accept="image/*" style={{ display: 'none' }} disabled={wijnFotoBusy === w.id}
+                          onChange={e => { const f = e.target.files?.[0]; if (f) wijzigWijnFoto(w, f); e.target.value = '' }} />
+                      </label>
+                      {w.foto_url && <button onClick={() => verwijderWijnFoto(w)} style={S.btnOutline}>Foto verwijderen</button>}
+                      <button onClick={() => deleteWijn(w.id)} style={S.btnOutline}>Verwijder</button>
+                    </div>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
-                    <label style={{ ...S.btnOutline, cursor: 'pointer', display: 'inline-block' }}>
-                      {wijnFotoBusy === w.id ? 'Bezig...' : w.foto_url ? 'Foto wijzigen' : 'Foto toevoegen'}
-                      <input type="file" accept="image/*" style={{ display: 'none' }} disabled={wijnFotoBusy === w.id}
-                        onChange={e => { const f = e.target.files?.[0]; if (f) wijzigWijnFoto(w, f); e.target.value = '' }} />
-                    </label>
-                    {w.foto_url && <button onClick={() => verwijderWijnFoto(w)} style={S.btnOutline}>Foto verwijderen</button>}
-                    <button onClick={() => deleteWijn(w.id)} style={S.btnOutline}>Verwijder</button>
-                  </div>
+                  {smaakOpen === w.id && (
+                    <div style={{ background: 'var(--cream)', border: '1px solid rgba(1,3,65,0.1)', borderRadius: '10px', padding: '16px 18px', margin: '0 0 16px' }}>
+                      <div style={{ fontSize: '12px', color: 'rgba(1,3,65,0.55)', lineHeight: 1.6, marginBottom: '14px' }}>
+                        Schuif per as naar waar deze wijn zit. De bezoekersapp matcht hiermee jouw wijn aan de smaak van elke bezoeker, dus hoe eerlijker en preciezer, hoe vaker jouw wijn als aanrader verschijnt.
+                      </div>
+                      {([
+                        ['zoet', 'Droog', 'Zoet'],
+                        ['body', 'Licht', 'Vol'],
+                        ['fris', 'Rijp', 'Fris'],
+                        ['tannine', 'Soepel', 'Stevig'],
+                        ['aards', 'Fruitig', 'Aards'],
+                        ['kruidig', 'Puur', 'Kruidig'],
+                        ['avontuur', 'Klassiek', 'Eigenzinnig'],
+                        ['bubbels', 'Stil', 'Bruisend'],
+                      ] as [string, string, string][]).map(([as, li, re]) => (
+                        <div key={as} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '5px 0' }}>
+                          <span style={{ fontSize: '11px', color: 'rgba(1,3,65,0.5)', width: '64px', textAlign: 'right' }}>{li}</span>
+                          <div style={{ display: 'flex', gap: '6px', flex: 1, justifyContent: 'center' }}>
+                            {[-2, -1, 0, 1, 2].map(v => {
+                              const actief = (w.smaak_assen?.[as] ?? null) === v
+                              return (
+                                <button key={v} onClick={() => updateSmaakAs(w, as, v)} aria-label={`${as} ${v}`}
+                                  style={{ width: '26px', height: '26px', borderRadius: '50%', cursor: 'pointer', border: actief ? '2px solid var(--bordeaux)' : '1px solid rgba(1,3,65,0.2)', background: actief ? 'var(--bordeaux)' : '#fff' }} />
+                              )
+                            })}
+                          </div>
+                          <span style={{ fontSize: '11px', color: 'rgba(1,3,65,0.5)', width: '64px' }}>{re}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              ))}
+              )})}
             </>}
             <div style={{ marginTop: wijnen.length > 0 ? '36px' : '0' }}>
               <div style={S.sectionTitle}>Wijn toevoegen</div>

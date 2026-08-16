@@ -208,6 +208,7 @@ export type Wijn = {
   beschrijving: string | null
   volgorde: number
   foto_url: string | null
+  smaak_assen: Record<string, number> | null
 }
 
 export type Crewcatering = {
