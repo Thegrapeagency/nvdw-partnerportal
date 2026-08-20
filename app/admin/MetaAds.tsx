@@ -86,7 +86,7 @@ export default function MetaAds({ flash }: { flash: (m: string, ms?: number) => 
   const [blad, setBlad] = useState<Tabblad>('voorstellen')
   const [bezig, setBezig] = useState<string | null>(null)
   const [fout, setFout] = useState<string | null>(null)
-  const [meting, setMeting] = useState<{ oordeel: string; meta_purchases: number; echte_orders: number; ratio: number | null; detail: Voorstel | null } | null>(null)
+  const [meting, setMeting] = useState<{ oordeel: string; meta_purchases: number; echte_orders: number; ratio: number | null; spend?: number; detail: Voorstel | null } | null>(null)
 
   const roep = useCallback(async <T,>(action: string, extra: Record<string, unknown> = {}): Promise<T> => {
     const { data: { session } } = await supabase.auth.getSession()
@@ -361,6 +361,7 @@ export default function MetaAds({ flash }: { flash: (m: string, ms?: number) => 
             <div style={{ marginTop: '16px', padding: '14px 16px', borderRadius: '12px', fontSize: '13px', lineHeight: 1.6,
               background: meting.oordeel === 'alarm' ? 'rgba(155,55,55,0.1)' : 'rgba(63,125,78,0.1)' }}>
               {meting.oordeel === 'in_orde' && <>In orde. Meta telt {meting.meta_purchases} aankopen, de kaartverkoop {meting.echte_orders} betaalde orders (verhouding {meting.ratio?.toFixed(2)}).</>}
+              {meting.oordeel === 'geen_spend' && <>Er draaien op dit moment geen advertenties (geen spend in de periode), dus valt er niets te vergelijken. Zodra er weer budget loopt zegt deze check je of de meting klopt.</>}
               {meting.oordeel === 'te_weinig_volume' && <>Te weinig orders ({meting.echte_orders}) in deze periode voor een betrouwbaar oordeel. Meta rapporteert {meting.meta_purchases} aankopen.</>}
               {meting.oordeel === 'alarm' && <><strong>{meting.detail?.probleem}</strong><br /><br />{meting.detail?.voorstel}</>}
             </div>
