@@ -96,6 +96,9 @@ export default function MetaAds({ flash }: { flash: (m: string, ms?: number) => 
   const [blad, setBlad] = useState<Tabblad>('voorstellen')
   const [bezig, setBezig] = useState<string | null>(null)
   const [fout, setFout] = useState<string | null>(null)
+  const [toonToken, setToonToken] = useState(false)
+  const [tokenVeld, setTokenVeld] = useState('')
+  const [tokenFout, setTokenFout] = useState<string | null>(null)
   const [meting, setMeting] = useState<{ oordeel: string; meta_purchases: number; echte_orders: number; ratio: number | null; spend?: number; detail: Voorstel | null } | null>(null)
 
   const roep = useCallback(async <T,>(action: string, extra: Record<string, unknown> = {}): Promise<T> => {
@@ -183,6 +186,19 @@ export default function MetaAds({ flash }: { flash: (m: string, ms?: number) => 
     setBezig(null)
   }
 
+  const bewaarToken = async () => {
+    setBezig('token'); setTokenFout(null)
+    try {
+      const r = await roep<{ account: string }>('set_token', { token: tokenVeld.trim() })
+      setTokenVeld(''); setToonToken(false)
+      flash(`Token opgeslagen en goedgekeurd door Meta voor ${r.account}`)
+      await laad()
+    } catch (e) {
+      setTokenFout(e instanceof Error ? e.message : 'Opslaan mislukt')
+    }
+    setBezig(null)
+  }
+
   const schakelLive = async (aan: boolean) => {
     if (aan && !confirm('Hierna voert het systeem goedgekeurde budgetverhogingen ECHT door bij Meta. Zeker weten?')) return
     setBezig('live')
@@ -238,6 +254,9 @@ export default function MetaAds({ flash }: { flash: (m: string, ms?: number) => 
                 {status.live_mode ? 'Terug naar dry run' : 'Live modus aanzetten'}
               </button>
             )}
+            <button style={AS.btnSm} onClick={() => setToonToken(!toonToken)}>
+              {status.geconfigureerd ? 'Token vervangen' : 'Token instellen'}
+            </button>
             <button style={{ ...AS.btn, marginTop: 0 }} disabled={bezig === 'sync'} onClick={sync}>
               {bezig === 'sync' ? 'Bezig…' : 'Sync nu'}
             </button>
@@ -249,6 +268,35 @@ export default function MetaAds({ flash }: { flash: (m: string, ms?: number) => 
         <div style={{ ...AS.card, background: 'rgba(254,183,42,0.1)', border: '1px solid rgba(254,183,42,0.4)' }}>
           <strong>Nog niet verbonden met Meta.</strong> Zet <code>META_ACCESS_TOKEN</code> en <code>META_AD_ACCOUNT_ID</code> als
           secrets bij de edge function <code>meta-ads</code> in Supabase (Project → Edge Functions → Secrets). Daarna werkt Sync nu direct.
+        </div>
+      )}
+
+      {toonToken && (
+        <div style={AS.card}>
+          <div style={AS.cardTitle}>Meta-token instellen</div>
+          <p style={{ fontSize: '13px', lineHeight: 1.6, marginBottom: '4px' }}>
+            Plak hier het toegangstoken uit Meta. Het wordt eerst bij Meta gecontroleerd en pas opgeslagen als het werkt
+            én bij het juiste advertentieaccount mag. Het token gaat rechtstreeks naar de beveiligde opslag en is daarna
+            niet meer op te vragen.
+          </p>
+          <label style={AS.label}>Toegangstoken</label>
+          <input
+            type="password"
+            style={AS.input}
+            value={tokenVeld}
+            placeholder="EAA..."
+            autoComplete="off"
+            onChange={e => setTokenVeld(e.target.value)}
+          />
+          {tokenFout && (
+            <p style={{ fontSize: '13px', lineHeight: 1.6, marginTop: '10px', color: 'var(--bordeaux)' }}>{tokenFout}</p>
+          )}
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: '12px' }}>
+            <button style={{ ...AS.btn, marginTop: 0 }} disabled={bezig === 'token' || tokenVeld.trim().length < 40} onClick={bewaarToken}>
+              {bezig === 'token' ? 'Controleren…' : 'Controleren en opslaan'}
+            </button>
+            <button style={AS.btnSm} onClick={() => { setToonToken(false); setTokenVeld(''); setTokenFout(null) }}>Annuleren</button>
+          </div>
         </div>
       )}
 
