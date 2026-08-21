@@ -70,6 +70,16 @@ const SEV_KLEUR: Record<Voorstel['severity'], { bg: string; fg: string; label: s
 
 const SEV_ORDE: Record<Voorstel['severity'], number> = { alarm: 0, waarschuwing: 1, kans: 2, info: 3 }
 
+// Meta-fouten zijn lang en Engels. De twee die je in de praktijk tegenkomt
+// vertalen we naar iets waar je wat mee kunt.
+const leesbareFout = (e: string | null): string => {
+  if (!e) return ''
+  if (e === 'not_configured') return 'Nog niet verbonden met Meta: token en accountnummer ontbreken.'
+  if (/access token|Session has expired/i.test(e)) return 'Het Meta-token is verlopen of ingetrokken. Zet een nieuw token in Supabase, dan werkt de sync weer.'
+  if (/permission|OAuthException/i.test(e)) return 'Meta weigert de toegang: het token mist rechten op dit advertentieaccount (ads_read en ads_management nodig).'
+  return e
+}
+
 const datumTijd = (s: string | null) =>
   s ? new Date(s).toLocaleString('nl-NL', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '–'
 
@@ -135,7 +145,7 @@ export default function MetaAds({ flash }: { flash: (m: string, ms?: number) => 
     setBezig('sync')
     try {
       const r = await roep<{ ok: boolean; melding?: string; error?: string; voorstellen_nieuw?: number }>('sync')
-      if (!r.ok) flash(r.melding || r.error || 'Sync mislukt', 8000)
+      if (!r.ok) flash(leesbareFout(r.error ?? null) || r.melding || 'Sync mislukt', 8000)
       else flash(`Sync klaar: ${r.voorstellen_nieuw ?? 0} nieuwe voorstellen`)
       setSnapshots([])
       await laad()
@@ -217,7 +227,7 @@ export default function MetaAds({ flash }: { flash: (m: string, ms?: number) => 
             </span>
             <span style={{ marginLeft: '12px', fontSize: '13px', color: '#8b8574' }}>
               {status.laatste_sync
-                ? `Laatste sync ${datumTijd(status.laatste_sync.started_at)}${status.laatste_sync.ok === false ? ` · mislukt: ${status.laatste_sync.error}` : ''}`
+                ? `Laatste sync ${datumTijd(status.laatste_sync.started_at)}${status.laatste_sync.ok === false ? ` · mislukt: ${leesbareFout(status.laatste_sync.error)}` : ''}`
                 : 'Nog geen sync gedraaid'}
               {' · '}{status.open_voorstellen} open
             </span>
