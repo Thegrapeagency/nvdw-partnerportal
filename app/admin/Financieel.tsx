@@ -92,7 +92,8 @@ const GROEN = '#2e7d32'
 const SCENARIO_KEY = 'nvdw_fin_scenario_v1'
 const MARKETING_CATEGORIE = 'promotie'
 // Referentie vorige editie (bron: Calculatie NVDW Utrecht 2026 - 3 daags.xlsx, totaaloverzicht)
-const VORIGE_EDITIE = { bezoekers: 4750, omzet_cents: 13061375 }
+// Ook gebruikt door Dashboard.tsx voor de tickets-vs-vorige-editie tegel op Start.
+export const VORIGE_EDITIE = { bezoekers: 4750, omzet_cents: 13061375 }
 const STATUS_LABEL: Record<BoekingStatus, string> = { verwacht: 'Verwacht', factuur: 'Factuur', betaald: 'Betaald' }
 const LIVE_LABEL: Record<LiveBron, string> = { ticketing: 'ticketverkoop', kassa: 'kassa', standgelden: 'stagelden' }
 // Baromzet is een mix van drank (21%) en eten (9%). De calculatiesheet rekent met

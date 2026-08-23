@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 import { supabase, posRpc } from '@/lib/supabase'
 import type { PosSummary } from '@/lib/supabase'
 import { euro } from './ui'
+import { VORIGE_EDITIE } from './Financieel'
 
 const FESTIVAL_START = new Date('2026-11-06T17:00:00+01:00')
 
@@ -61,6 +62,20 @@ export default function Dashboard() {
 
   const dagen = Math.max(0, Math.ceil((FESTIVAL_START.getTime() - Date.now()) / 86400000))
 
+  // Tickets t.o.v. vorige editie: hoeveel we voor of achter liggen, in
+  // aantal en percentage. Zelfde referentie als de Financieel-tab, zodat
+  // dit cijfer ook op een telefoon in één oogopslag te zien is.
+  const ticketVerschil = (totaal: number) => {
+    const verschil = totaal - VORIGE_EDITIE.bezoekers
+    const pct = VORIGE_EDITIE.bezoekers > 0 ? (verschil / VORIGE_EDITIE.bezoekers) * 100 : 0
+    const teken = verschil > 0 ? '+' : verschil < 0 ? '−' : ''
+    return {
+      val: teken + Math.abs(verschil).toLocaleString('nl-NL'),
+      sub: `${teken}${Math.abs(pct).toLocaleString('nl-NL', { maximumFractionDigits: 1, minimumFractionDigits: 1 })}% t.o.v. vorige editie (${VORIGE_EDITIE.bezoekers.toLocaleString('nl-NL')})`,
+      alarm: verschil < 0,
+    }
+  }
+
   const vak = (label: string, val: string, sub: string, alarm = false) => (
     <div key={label} style={{
       background: 'var(--card)', padding: '18px 20px', borderRadius: '14px',
@@ -73,12 +88,13 @@ export default function Dashboard() {
   )
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '12px', marginBottom: '20px' }}>
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px', marginBottom: '20px' }}>
       {c === null ? (
         <div style={{ gridColumn: '1 / -1', fontSize: '13px', color: '#999', padding: '12px 4px' }}>Cijfers laden...</div>
       ) : <>
         {vak('Tickets vandaag', String(c.ticketsVandaag), c.ticketsVandaag === 0 ? 'nog geen verkoop vandaag' : euro(c.omzetVandaagCents) + ' omzet')}
         {vak('Tickets totaal', String(c.ticketsTotaal), euro(c.omzetTotaalCents) + ' ticketomzet')}
+        {(() => { const v = ticketVerschil(c.ticketsTotaal); return vak('Tickets vs vorige editie', v.val, v.sub, v.alarm) })()}
         {vak('POS-omzet', c.posOmzetCents != null ? euro(c.posOmzetCents) : '–', c.posOmzetCents != null ? 'kassa, bruto' : 'kassa niet bereikbaar')}
         {vak('Dagen tot festival', String(dagen), '6, 7 en 8 november')}
         {vak('Crew-gaten', String(c.crewGaten), c.crewGaten === 0 ? 'rooster is rond' : 'plekken nog niet ingevuld', c.crewGaten > 0)}
