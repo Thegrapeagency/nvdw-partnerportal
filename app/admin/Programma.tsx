@@ -102,6 +102,7 @@ export default function Programma({ partners, flash }: { partners: PartnerOptie[
   const [nieuweDagen, setNieuweDagen] = useState<Dag[]>(['fri'])
   const [busy, setBusy] = useState(false)
   const [genBusy, setGenBusy] = useState(false)
+  const [fotoBezig, setFotoBezig] = useState(false)
 
   const laad = async () => {
     const [pv, tt, wl] = await Promise.all([
@@ -123,6 +124,46 @@ export default function Programma({ partners, flash }: { partners: PartnerOptie[
   const open = (p: Proeverij) => { setOpenId(p.id); setDraft(naarDraft(p)) }
   const sluit = () => { setOpenId(null); setDraft(leegDraft); setNieuweDagen(['fri']) }
   const huidige = openId && openId !== 'nieuw' ? items.find(i => i.id === openId) : null
+
+  // Een foto uit de camera is al gauw 5 MB en veel groter dan nodig: de kaart
+  // toont hem hooguit een paar honderd pixels breed. Daarom hier verkleinen
+  // voordat we uploaden, zodat de site en de app snel blijven.
+  const verklein = (file: File, maxZijde = 1600): Promise<Blob> => new Promise((klaar, mislukt) => {
+    const url = URL.createObjectURL(file)
+    const img = new Image()
+    img.onload = () => {
+      URL.revokeObjectURL(url)
+      const schaal = Math.min(1, maxZijde / Math.max(img.width, img.height))
+      // Al klein genoeg? Dan het origineel houden, scheelt een hercompressie.
+      if (schaal === 1 && file.size < 900_000) return klaar(file)
+      const canvas = document.createElement('canvas')
+      canvas.width = Math.round(img.width * schaal)
+      canvas.height = Math.round(img.height * schaal)
+      const ctx = canvas.getContext('2d')
+      if (!ctx) return mislukt(new Error('Verkleinen lukt niet in deze browser.'))
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+      canvas.toBlob(b => b ? klaar(b) : mislukt(new Error('Verkleinen mislukte.')), 'image/jpeg', 0.82)
+    }
+    img.onerror = () => { URL.revokeObjectURL(url); mislukt(new Error('Dit bestand is geen afbeelding die ik kan lezen.')) }
+    img.src = url
+  })
+
+  const uploadFoto = async (file: File) => {
+    setFotoBezig(true)
+    try {
+      const blob = await verklein(file)
+      const pad = `${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.-]/g, '-').toLowerCase().replace(/\.[^.]+$/, '')}.jpg`
+      const { error } = await supabase.storage.from('programma').upload(pad, blob, { contentType: 'image/jpeg' })
+      if (error) { flash('Uploaden mislukte: ' + error.message, 8000); return }
+      const url = supabase.storage.from('programma').getPublicUrl(pad).data.publicUrl
+      setDraft(d => ({ ...d, foto_url: url }))
+      flash('Foto geüpload. Vergeet niet op te slaan.', 6000)
+    } catch (e) {
+      flash(e instanceof Error ? e.message : 'Uploaden mislukte.', 8000)
+    } finally {
+      setFotoBezig(false)
+    }
+  }
 
   const foutTekst = (msg: string) =>
     msg.includes('CAPACITEIT_TE_LAAG')
@@ -319,8 +360,26 @@ export default function Programma({ partners, flash }: { partners: PartnerOptie[
           <input style={AS.input} type="time" value={draft.eind_tijd} onChange={e => setDraft({ ...draft, eind_tijd: e.target.value })} />
         </div>
         <div>
-          <label style={AS.label}>Foto (url, optioneel)</label>
-          <input style={AS.input} value={draft.foto_url} onChange={e => setDraft({ ...draft, foto_url: e.target.value })} placeholder="https://..." />
+          <label style={AS.label}>Foto (optioneel)</label>
+          <input style={AS.input} value={draft.foto_url} onChange={e => setDraft({ ...draft, foto_url: e.target.value })} placeholder="https://... of kies hieronder een bestand" />
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px', flexWrap: 'wrap' }}>
+            <label style={{ ...AS.btnSm, cursor: fotoBezig ? 'default' : 'pointer', opacity: fotoBezig ? 0.6 : 1, display: 'inline-block' }}>
+              {fotoBezig ? 'Uploaden...' : 'Kies een foto'}
+              <input type="file" accept="image/jpeg,image/png,image/webp" disabled={fotoBezig} style={{ display: 'none' }}
+                onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) uploadFoto(f) }} />
+            </label>
+            {draft.foto_url && (
+              <>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={draft.foto_url} alt="" style={{ width: '64px', height: '36px', objectFit: 'cover', objectPosition: 'center 25%', borderRadius: '4px', border: '1px solid #eee' }} />
+                <button style={{ ...AS.btnSm, borderColor: '#ddd', color: '#999' }} onClick={() => setDraft({ ...draft, foto_url: '' })}>Weghalen</button>
+              </>
+            )}
+          </div>
+          <div style={{ fontSize: '11px', color: '#999', marginTop: '4px', lineHeight: 1.5 }}>
+            Site en app snijden liggend bij, met het uitsnijpunt op een kwart van boven. Een staande foto met het
+            gezicht in de bovenste helft werkt dus goed. Grote foto&apos;s worden automatisch verkleind.
+          </div>
         </div>
         {isTicketSoort && (
           <>
