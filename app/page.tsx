@@ -8,17 +8,49 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [hulpBezig, setHulpBezig] = useState(false)
+  const [hulpMelding, setHulpMelding] = useState('')
   const router = useRouter()
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
     setError('')
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
-    if (error) { setError('E-mail of wachtwoord klopt niet.'); setLoading(false); return }
+    setHulpMelding('')
+    // Wachtwoorden worden vaak uit een mail of chat geplakt. Een spatie of
+    // regeleinde die daarbij meekomt, of een hoofdletter die de telefoon er
+    // zelf van maakt, kostte tot nu toe een rondje heen en weer met de
+    // organisatie. Daarom hier normaliseren in plaats van het af te wijzen.
+    const { error } = await supabase.auth.signInWithPassword({
+      email: email.trim().toLowerCase(),
+      password: password.trim(),
+    })
+    if (error) {
+      setError('E-mail of wachtwoord klopt niet. Plakken uit een chat gaat vaak mis, vraag hieronder een nieuwe link aan.')
+      setLoading(false)
+      return
+    }
     const { data: isAdmin } = await supabase.rpc('is_admin')
     if (isAdmin) router.push('/admin')
     else router.push('/dashboard')
+  }
+
+  // Zelf een verse wachtwoordlink aanvragen. De route antwoordt bewust altijd
+  // hetzelfde, zodat je er niet mee kunt uitvissen welke adressen bestaan.
+  const vraagLink = async () => {
+    const adres = email.trim().toLowerCase()
+    if (!adres) { setHulpMelding('Vul eerst je e-mailadres in, dan sturen we je een nieuwe link.'); return }
+    setHulpBezig(true)
+    setError('')
+    try {
+      await fetch('/api/hulp-inloggen', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: adres }),
+      })
+    } catch { /* de melding hieronder blijft hetzelfde */ }
+    setHulpBezig(false)
+    setHulpMelding(`Als ${adres} bij ons bekend is, staat er binnen een paar minuten een mail met een nieuwe link in de inbox. Kijk ook even in de spam.`)
   }
 
   return (
@@ -46,6 +78,7 @@ export default function LoginPage() {
             </label>
             <input
               type="email" value={email} onChange={e => setEmail(e.target.value)} required
+              autoComplete="email" autoCapitalize="none" autoCorrect="off" spellCheck={false}
               style={{ width: '100%', padding: '11px 14px', background: '#fff', border: '1px solid rgba(1,3,65,0.15)', borderRadius: '10px', color: 'var(--navy)', fontSize: '14px', outline: 'none' }}
             />
           </div>
@@ -55,6 +88,7 @@ export default function LoginPage() {
             </label>
             <input
               type="password" value={password} onChange={e => setPassword(e.target.value)} required
+              autoComplete="current-password" autoCapitalize="none" autoCorrect="off" spellCheck={false}
               style={{ width: '100%', padding: '11px 14px', background: '#fff', border: '1px solid rgba(1,3,65,0.15)', borderRadius: '10px', color: 'var(--navy)', fontSize: '14px', outline: 'none' }}
             />
           </div>
@@ -64,8 +98,22 @@ export default function LoginPage() {
           </button>
         </form>
 
-        <p style={{ marginTop: '24px', fontSize: '12px', color: 'rgba(1,3,65,0.35)', textAlign: 'center' }}>
-          Geen toegang? Mail naar info@nachtvandewijn.nl
+        {/* Zelfbediening bij een wachtwoord dat niet werkt. Zonder dit belandt
+            elke mislukte login bij de organisatie in de app. */}
+        <div style={{ marginTop: '20px', textAlign: 'center' }}>
+          <button type="button" onClick={vraagLink} disabled={hulpBezig}
+            style={{ background: 'none', border: 'none', padding: '6px', fontSize: '13px', color: 'var(--bordeaux)', fontWeight: 600, cursor: hulpBezig ? 'default' : 'pointer', textDecoration: 'underline' }}>
+            {hulpBezig ? 'Bezig...' : 'Wachtwoord vergeten of werkt je wachtwoord niet?'}
+          </button>
+          {hulpMelding && (
+            <div style={{ fontSize: '12px', color: 'var(--navy)', background: 'rgba(1,3,65,0.05)', borderRadius: '10px', padding: '10px 12px', marginTop: '8px', lineHeight: 1.6 }}>
+              {hulpMelding}
+            </div>
+          )}
+        </div>
+
+        <p style={{ marginTop: '16px', fontSize: '12px', color: 'rgba(1,3,65,0.35)', textAlign: 'center' }}>
+          Lukt het dan nog niet? Mail naar info@nachtvandewijn.nl
         </p>
       </div>
     </div>

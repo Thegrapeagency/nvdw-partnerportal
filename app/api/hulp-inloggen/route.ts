@@ -42,11 +42,19 @@ export async function POST(req: Request) {
       .eq('bucket', bucket).gte('at', sinds)
     if ((count ?? 0) > 0) return netjes()
 
-    // Alleen voor teamleden. Dit is wat de route ervan weerhoudt een open
-    // mailmachine te zijn.
+    // Alleen voor adressen die we kennen: teamleden en partners met een login.
+    // Dat is wat de route ervan weerhoudt een open mailmachine te zijn.
+    // Partners stonden er eerst niet in, waardoor de knop voor hen niets deed.
     const { data: teamlid } = await admin
       .from('admins').select('naam, email, actief').ilike('email', email).maybeSingle()
-    if (!teamlid || !teamlid.actief) return netjes()
+    let naam: string | null = teamlid && teamlid.actief ? (teamlid.naam || '') : null
+    if (naam === null) {
+      const { data: partner } = await admin
+        .from('partners').select('naam, bedrijfsnaam, user_id').ilike('email', email).maybeSingle()
+      // Zonder user_id is er nog geen login en heeft een herstellink geen zin.
+      if (partner?.user_id) naam = partner.naam || partner.bedrijfsnaam || ''
+    }
+    if (naam === null) return netjes()
 
     await admin.from('rate_events').insert({ bucket, ip: (req.headers.get('x-forwarded-for') || '0.0.0.0').split(',')[0].trim() })
 
@@ -68,7 +76,7 @@ export async function POST(req: Request) {
         from: MAIL_FROM,
         to: [email],
         subject: 'Nieuwe link voor het partnerportal',
-        html: wachtwoordHtml(teamlid.naam || '', linkData.properties.action_link),
+        html: wachtwoordHtml(naam, linkData.properties.action_link),
       }),
     })
     // Naar buiten blijft het antwoord hetzelfde, want anders is aan het
