@@ -17,6 +17,9 @@ export default function WachtwoordPage() {
   const [nieuwBezig, setNieuwBezig] = useState(false)
   const [nieuwGestuurd, setNieuwGestuurd] = useState(false)
   const [nieuwFout, setNieuwFout] = useState('')
+  // Waarom de link niet werkte, zodat de melding klopt en wij het kunnen zien.
+  const [linkFout, setLinkFout] = useState<'verlopen' | 'geweigerd' | 'geen-link' | null>(null)
+  const [linkDetail, setLinkDetail] = useState('')
 
   useEffect(() => {
     // De link kan in 3 vormen binnenkomen: #access_token (impliciet, auto via
@@ -25,17 +28,37 @@ export default function WachtwoordPage() {
     const magic = new URL(window.location.href).searchParams.get('magic') === '1'
     setIsMagic(magic)
     const run = async () => {
+      // Supabase zet de uitkomst in het fragment (#error=... of #access_token=...).
+      // Die reden is hier het enige spoor: hij komt niet bij de server aan en
+      // staat dus in geen enkel logboek. Eerst uitlezen, anders eindigt elke
+      // oorzaak op dezelfde melding en valt er niets te onderzoeken.
+      const url = new URL(window.location.href)
+      const frag = new URLSearchParams(window.location.hash.replace(/^#/, ''))
+      const foutCode = frag.get('error_code') || url.searchParams.get('error_code')
+      const fout = frag.get('error') || url.searchParams.get('error')
+      const foutTekst = frag.get('error_description') || url.searchParams.get('error_description')
+      const heeftToken = !!(frag.get('access_token') || url.searchParams.get('code') || url.searchParams.get('token_hash'))
+      setLinkFout(
+        foutCode === 'otp_expired' ? 'verlopen'
+          : fout ? 'geweigerd'
+            : !heeftToken ? 'geen-link'
+              : null,
+      )
+      setLinkDetail([fout, foutCode, foutTekst?.replace(/\+/g, ' ')].filter(Boolean).join(' · '))
       try {
-        const url = new URL(window.location.href)
         const code = url.searchParams.get('code')
         const token_hash = url.searchParams.get('token_hash')
         const type = url.searchParams.get('type')
         if (code) {
-          await supabase.auth.exchangeCodeForSession(code)
+          const { error } = await supabase.auth.exchangeCodeForSession(code)
+          if (error) setLinkDetail(d => d || 'code wisselen mislukte: ' + error.message)
         } else if (token_hash && type) {
-          await supabase.auth.verifyOtp({ token_hash, type: type as 'recovery' })
+          const { error } = await supabase.auth.verifyOtp({ token_hash, type: type as 'recovery' })
+          if (error) setLinkDetail(d => d || 'token controleren mislukte: ' + error.message)
         }
-      } catch { /* val terug op bestaande sessie hieronder */ }
+      } catch (e) {
+        setLinkDetail(d => d || (e instanceof Error ? e.message : 'onbekende fout'))
+      }
       const { data: { session } } = await supabase.auth.getSession()
       setHasSession(!!session)
       setReady(true)
@@ -120,13 +143,22 @@ export default function WachtwoordPage() {
         {ready && !done && !hasSession && (
           <div>
             <p style={{ fontSize: '14px', color: 'var(--navy)', marginBottom: '12px', lineHeight: 1.6 }}>
-              Deze link werkt niet meer.
+              {linkFout === 'geen-link'
+                ? 'Je bent hier zonder link binnengekomen.'
+                : linkFout === 'verlopen'
+                  ? 'Deze link is verlopen of al gebruikt.'
+                  : 'Deze link werkt niet meer.'}
             </p>
             <p style={{ fontSize: '13px', color: 'rgba(1,3,65,0.7)', marginBottom: '18px', lineHeight: 1.6 }}>
-              Dat komt bijna altijd doordat er daarna nog een mail is verstuurd, of doordat de link al een keer
-              gebruikt is. Er is er namelijk steeds maar één geldig. Staan er meerdere mails in je inbox, gebruik
-              dan de allerlaatste. Of vraag hieronder een verse link aan.
+              {linkFout === 'geen-link'
+                ? 'Deze pagina hoort bij de link uit de mail. Open die mail en klik op de knop, of vraag hieronder een verse link aan.'
+                : 'Er is per persoon steeds maar één link geldig, dus een nieuwe mail maakt de vorige ongeldig. Staan er meerdere mails in je inbox, gebruik dan de allerlaatste. Werkt dat niet, vraag hieronder een verse link aan en klik hem meteen aan.'}
             </p>
+            {linkDetail && (
+              <p style={{ fontSize: '11px', color: 'rgba(1,3,65,0.45)', marginBottom: '18px', lineHeight: 1.5 }}>
+                Technische reden: {linkDetail}. Noem dit erbij als je het doorgeeft, dan is het meteen te herleiden.
+              </p>
+            )}
             {nieuwGestuurd ? (
               <div style={{ fontSize: '14px', color: '#2e7d32', fontWeight: 500, lineHeight: 1.6 }}>
                 ✓ Staat dit adres in het team, dan is er nu een verse link onderweg naar {nieuwMail}.
