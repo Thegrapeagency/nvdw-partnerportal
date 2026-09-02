@@ -98,6 +98,7 @@ export default function MetaAds({ flash }: { flash: (m: string, ms?: number) => 
   const [fout, setFout] = useState<string | null>(null)
   const [toonToken, setToonToken] = useState(false)
   const [tokenVeld, setTokenVeld] = useState('')
+  const [tokenSoort, setTokenSoort] = useState<'ads' | 'capi'>('ads')
   const [tokenFout, setTokenFout] = useState<string | null>(null)
   const [meting, setMeting] = useState<{ oordeel: string; meta_purchases: number; echte_orders: number; ratio: number | null; spend?: number; detail: Voorstel | null } | null>(null)
 
@@ -189,9 +190,11 @@ export default function MetaAds({ flash }: { flash: (m: string, ms?: number) => 
   const bewaarToken = async () => {
     setBezig('token'); setTokenFout(null)
     try {
-      const r = await roep<{ account: string }>('set_token', { token: tokenVeld.trim() })
+      const r = await roep<{ account?: string; soort?: string }>('set_token', { token: tokenVeld.trim(), soort: tokenSoort })
       setTokenVeld(''); setToonToken(false)
-      flash(`Token opgeslagen en goedgekeurd door Meta voor ${r.account}`)
+      flash(tokenSoort === 'capi'
+        ? 'Conversions API-token opgeslagen; Meta accepteerde het testevent'
+        : `Token opgeslagen en goedgekeurd door Meta voor ${r.account}`)
       await laad()
     } catch (e) {
       setTokenFout(e instanceof Error ? e.message : 'Opslaan mislukt')
@@ -279,6 +282,17 @@ export default function MetaAds({ flash }: { flash: (m: string, ms?: number) => 
             én bij het juiste advertentieaccount mag. Het token gaat rechtstreeks naar de beveiligde opslag en is daarna
             niet meer op te vragen.
           </p>
+          <label style={AS.label}>Soort token</label>
+          <div style={{ display: 'flex', gap: '14px', fontSize: '13px' }}>
+            <label style={{ display: 'flex', gap: '6px', alignItems: 'center', cursor: 'pointer' }}>
+              <input type="radio" checked={tokenSoort === 'ads'} onChange={() => setTokenSoort('ads')} />
+              Advertenties (Graph API Explorer)
+            </label>
+            <label style={{ display: 'flex', gap: '6px', alignItems: 'center', cursor: 'pointer' }}>
+              <input type="radio" checked={tokenSoort === 'capi'} onChange={() => setTokenSoort('capi')} />
+              Conversions API (Events Manager)
+            </label>
+          </div>
           <label style={AS.label}>Toegangstoken</label>
           <input
             type="password"
