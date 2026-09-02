@@ -173,6 +173,10 @@ export default function AdminPage() {
   const [rechtenOpen, setRechtenOpen] = useState<string | null>(null)
   const [pwOpen, setPwOpen] = useState<string | null>(null)
   const [pwVeld, setPwVeld] = useState<Record<string, string>>({})
+  // Of het wachtwoord in het veld ook echt op het account staat. Genereren
+  // alleen zet niets; zonder dit onderscheid deel je een wachtwoord uit dat
+  // nergens geldig is en krijgt de ontvanger "combinatie onjuist".
+  const [pwGezet, setPwGezet] = useState<Record<string, boolean>>({})
   const [pwBezig, setPwBezig] = useState<string | null>(null)
   const [linkGestuurd, setLinkGestuurd] = useState<Record<string, number>>({})
   const magTab = (tab: string) => heeftTab(mijnRechten, tab)
@@ -673,8 +677,13 @@ export default function AdminPage() {
     })
     const j = await res.json().catch(() => ({}))
     setPwBezig(null)
-    if (res.ok && j.ok) flash(`Wachtwoord ingesteld voor ${a.naam || a.email}. Geef het nu door; hierna kun je het niet meer terugkijken.`, 12000)
-    else flash('Instellen mislukt: ' + (j.error || res.status), 8000)
+    if (res.ok && j.ok) {
+      setPwGezet(x => ({ ...x, [a.id]: true }))
+      flash(`Wachtwoord ingesteld voor ${a.naam || a.email}. Nu pas doorgeven; hierna kun je het niet meer terugkijken.`, 12000)
+    } else {
+      setPwGezet(x => ({ ...x, [a.id]: false }))
+      flash('Instellen mislukt: ' + (j.error || res.status), 8000)
+    }
   }
 
   // ---- Documenten ----
@@ -1864,16 +1873,27 @@ export default function AdminPage() {
                               <input
                                 style={{ ...S.input, width: '210px', fontFamily: 'ui-monospace, monospace', fontSize: '13px', padding: '7px 9px' }}
                                 value={pwVeld[a.id] || ''}
-                                onChange={e => setPwVeld(x => ({ ...x, [a.id]: e.target.value }))}
+                                onChange={e => { setPwVeld(x => ({ ...x, [a.id]: e.target.value })); setPwGezet(x => ({ ...x, [a.id]: false })) }}
                                 spellCheck={false} autoComplete="off" />
-                              <button style={S.btnSm} onClick={() => setPwVeld(x => ({ ...x, [a.id]: nieuwWachtwoord() }))}>Genereer</button>
-                              <button style={S.btnSm} onClick={() => navigator.clipboard?.writeText(pwVeld[a.id] || '').then(() => flash('Wachtwoord gekopieerd'), () => flash('Kopiëren lukte niet, selecteer het zelf', 6000))}>Kopieer</button>
+                              <button style={S.btnSm} onClick={() => { setPwVeld(x => ({ ...x, [a.id]: nieuwWachtwoord() })); setPwGezet(x => ({ ...x, [a.id]: false })) }}>Genereer</button>
+                              {/* Kopiëren kan pas als het ook echt op het account staat. */}
+                              <button style={{ ...S.btnSm, opacity: pwGezet[a.id] ? 1 : 0.45, cursor: pwGezet[a.id] ? 'pointer' : 'not-allowed' }}
+                                disabled={!pwGezet[a.id]}
+                                title={pwGezet[a.id] ? 'Kopieer het wachtwoord' : 'Eerst op Instellen klikken, anders deel je een wachtwoord dat nergens geldig is'}
+                                onClick={() => navigator.clipboard?.writeText(pwVeld[a.id] || '').then(() => flash('Wachtwoord gekopieerd'), () => flash('Kopiëren lukte niet, selecteer het zelf', 6000))}>Kopieer</button>
                               <button style={{ ...S.btnSm, borderColor: 'var(--navy)', color: 'var(--navy)', fontWeight: 700 }}
                                 disabled={pwBezig === a.id} onClick={() => zetWachtwoord(a)}>
                                 {pwBezig === a.id ? 'Bezig…' : 'Instellen'}
                               </button>
                               <button style={S.btnSm} onClick={() => setPwOpen(null)}>Sluit</button>
                             </div>
+                            {(pwVeld[a.id] || '').length > 0 && (
+                              <div style={{ fontSize: '12px', fontWeight: 700, marginTop: '10px', color: pwGezet[a.id] ? '#2e7d32' : 'var(--bordeaux)' }}>
+                                {pwGezet[a.id]
+                                  ? '✓ Dit wachtwoord staat nu op het account. Je kunt het doorgeven.'
+                                  : 'Nog niet ingesteld. Klik op Instellen, anders werkt dit wachtwoord niet.'}
+                              </div>
+                            )}
                           </div>
                         )}
                       </td>
