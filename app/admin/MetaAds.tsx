@@ -250,6 +250,11 @@ export default function MetaAds({ flash }: { flash: (m: string, ms?: number) => 
                 : 'Nog geen sync gedraaid'}
               {' · '}{status.open_voorstellen} open
             </span>
+            {status.account && (
+              <div style={{ marginTop: '7px', fontSize: '12px', color: '#8b8574' }}>
+                Gekoppeld account: <code>{status.account}</code>
+              </div>
+            )}
           </div>
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
             {status.mag_live_schakelen && (
