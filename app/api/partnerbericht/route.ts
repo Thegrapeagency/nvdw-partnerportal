@@ -32,21 +32,41 @@ function berichtHtml(naam: string, bericht: string, link: string) {
   </div></body></html>`
 }
 
+async function beveiligdeContext(req: Request) {
+  if (!SERVICE_KEY) return { error: Response.json({ error: 'Serverconfiguratie ontbreekt.' }, { status: 503 }) }
+  const token = (req.headers.get('authorization') || '').replace(/^Bearer\s+/i, '')
+  if (!token) return { error: Response.json({ error: 'Niet geautoriseerd' }, { status: 401 }) }
+  const asUser = createClient(SUPABASE_URL, ANON_KEY, {
+    global: { headers: { Authorization: `Bearer ${token}` } }, auth: { persistSession: false },
+  })
+  const { data: magPartners } = await asUser.rpc('mag', { gebied: 'partners' })
+  if (!magPartners) return { error: Response.json({ error: 'Hiervoor heb je partnerrechten nodig.' }, { status: 403 }) }
+  const admin = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } })
+  const { data: caller } = await asUser.auth.getUser()
+  return { asUser, admin, caller }
+}
+
+export async function GET(req: Request) {
+  const ctx = await beveiligdeContext(req)
+  if ('error' in ctx) return ctx.error
+  const partnerId = new URL(req.url).searchParams.get('partner_id')
+  let query = ctx.admin.from('partner_berichten')
+    .select('id,batch_id,partner_id,ontvanger_email,onderwerp,bericht,status,provider_id,foutmelding,verzonden_door,created_at,partners(bedrijfsnaam)')
+    .order('created_at', { ascending: false }).limit(100)
+  if (partnerId) query = query.eq('partner_id', partnerId)
+  const { data, error } = await query
+  if (error) return Response.json({ error: 'Geschiedenis ophalen mislukte.' }, { status: 500 })
+  return Response.json({ berichten: data || [] })
+}
+
 export async function POST(req: Request) {
   if (!SERVICE_KEY || !RESEND_API_KEY) {
     return Response.json({ error: 'E-maildienst is niet geconfigureerd.' }, { status: 503 })
   }
 
-  const authHeader = req.headers.get('authorization') || ''
-  const token = authHeader.replace(/^Bearer\s+/i, '')
-  if (!token) return Response.json({ error: 'Niet geautoriseerd' }, { status: 401 })
-
-  const asUser = createClient(SUPABASE_URL, ANON_KEY, {
-    global: { headers: { Authorization: `Bearer ${token}` } },
-    auth: { persistSession: false },
-  })
-  const { data: magPartners } = await asUser.rpc('mag', { gebied: 'partners' })
-  if (!magPartners) return Response.json({ error: 'Hiervoor heb je partnerrechten nodig.' }, { status: 403 })
+  const ctx = await beveiligdeContext(req)
+  if ('error' in ctx) return ctx.error
+  const { asUser, admin, caller } = ctx
 
   const body = await req.json().catch(() => ({}))
   const partnerIds = Array.isArray(body.partner_ids) ? [...new Set(body.partner_ids.filter((x: unknown) => typeof x === 'string'))] as string[] : []
@@ -56,19 +76,27 @@ export async function POST(req: Request) {
   if (!onderwerp || onderwerp.length > 160) return Response.json({ error: 'Vul een kort onderwerp in.' }, { status: 400 })
   if (!bericht || bericht.length > 5000) return Response.json({ error: 'Vul een bericht in.' }, { status: 400 })
 
-  const admin = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } })
-  const { data: caller } = await asUser.auth.getUser()
   const { data: partners, error: partnerError } = await admin.from('partners')
     .select('id,naam,bedrijfsnaam,email,user_id')
     .in('id', partnerIds)
   if (partnerError) return Response.json({ error: 'Partners ophalen mislukte.' }, { status: 500 })
 
   const origin = process.env.NEXT_PUBLIC_SITE_URL || new URL(req.url).origin
+  const batchId = crypto.randomUUID()
   const resultaten: { partner_id: string; bedrijf: string; email: string; ok: boolean; error?: string }[] = []
+
+  const registreer = async (partnerId: string, email: string, status: 'verstuurd' | 'mislukt', providerId?: string, foutmelding?: string) => {
+    await admin.from('partner_berichten').insert({
+      batch_id: batchId, partner_id: partnerId, ontvanger_email: email,
+      onderwerp, bericht, status, provider_id: providerId || null,
+      foutmelding: foutmelding || null, verzonden_door: caller.user?.email || null,
+    })
+  }
 
   for (const partner of partners || []) {
     const email = String(partner.email || '').trim().toLowerCase()
     if (!email) {
+      await registreer(partner.id, '', 'mislukt', undefined, 'Geen e-mailadres')
       resultaten.push({ partner_id: partner.id, bedrijf: partner.bedrijfsnaam, email: '', ok: false, error: 'Geen e-mailadres' })
       continue
     }
@@ -80,6 +108,7 @@ export async function POST(req: Request) {
         p_temp_password: tijdelijk,
       })
       if (loginError) {
+        await registreer(partner.id, email, 'mislukt', undefined, 'Login aanmaken mislukte')
         resultaten.push({ partner_id: partner.id, bedrijf: partner.bedrijfsnaam, email, ok: false, error: 'Login aanmaken mislukte' })
         continue
       }
@@ -92,6 +121,7 @@ export async function POST(req: Request) {
     })
     const link = linkData?.properties?.action_link
     if (linkError || !link) {
+      await registreer(partner.id, email, 'mislukt', undefined, 'Inloglink maken mislukte')
       resultaten.push({ partner_id: partner.id, bedrijf: partner.bedrijfsnaam, email, ok: false, error: 'Inloglink maken mislukte' })
       continue
     }
@@ -108,10 +138,13 @@ export async function POST(req: Request) {
       }),
     })
     if (!resend.ok) {
+      await registreer(partner.id, email, 'mislukt', undefined, 'Maildienst weigerde het bericht')
       resultaten.push({ partner_id: partner.id, bedrijf: partner.bedrijfsnaam, email, ok: false, error: 'Maildienst weigerde het bericht' })
       continue
     }
 
+    const provider = await resend.json().catch(() => ({})) as { id?: string }
+    await registreer(partner.id, email, 'verstuurd', provider.id)
     resultaten.push({ partner_id: partner.id, bedrijf: partner.bedrijfsnaam, email, ok: true })
     await admin.from('activiteit_log').insert({
       actor_email: caller.user?.email || null,

@@ -40,6 +40,21 @@ const DAGEN = ['vrijdag', 'zaterdag', 'zondag']
 const FAQ_CATEGORIEEN = ['logistiek', 'systemen', 'huisregels', 'catering', 'algemeen']
 const DOC_CATEGORIEEN = ['draaiboek', 'plattegrond', 'huisstijl', 'contracten', 'overig']
 
+type PartnerBericht = {
+  id: string
+  batch_id: string
+  partner_id: string
+  ontvanger_email: string
+  onderwerp: string
+  bericht: string
+  status: 'verstuurd' | 'mislukt'
+  provider_id: string | null
+  foutmelding: string | null
+  verzonden_door: string | null
+  created_at: string
+  partners?: { bedrijfsnaam?: string } | null
+}
+
 function genPassword() {
   const woorden = ['Wijn', 'Druif', 'Kurk', 'Glas', 'Vat', 'Oogst', 'Terroir', 'Proost']
   const w = woorden[Math.floor(Math.random() * woorden.length)]
@@ -200,6 +215,8 @@ export default function AdminPage() {
   const [berichtOnderwerp, setBerichtOnderwerp] = useState('Actie nodig in het partnerportal van Nacht van de Wijn')
   const [berichtTekst, setBerichtTekst] = useState('Wil je zo snel mogelijk inloggen in het partnerportal? Controleer daar je gegevens, lees je afspraken goed door en onderteken vervolgens het contract. Het contract bestaat uit het stageld, de afdracht, de algemene voorwaarden en de afspraken en restricties voor jouw bar of stand. Vul daarna ook je volledige wijnlijst of menukaart met producten en prijzen in. Zo kunnen wij alles op tijd voorbereiden.')
   const [berichtBezig, setBerichtBezig] = useState(false)
+  const [berichtGeschiedenis, setBerichtGeschiedenis] = useState<PartnerBericht[]>([])
+  const [berichtGeschiedenisLaden, setBerichtGeschiedenisLaden] = useState(false)
   const flash = (m: string, ms = 3500) => { setSaveMsg(m); setTimeout(() => setSaveMsg(''), ms) }
 
   const stuurWelkomstmail = async (email: string, naam: string, isFood = false): Promise<{ ok: boolean; error?: string }> => {
@@ -443,9 +460,20 @@ export default function AdminPage() {
     else flash('Versturen mislukt: ' + (j.error || res.status), 8000)
   }
 
+  const laadBerichtGeschiedenis = async (partnerId?: string) => {
+    setBerichtGeschiedenisLaden(true)
+    const { data: { session } } = await supabase.auth.getSession()
+    const query = partnerId ? `?partner_id=${encodeURIComponent(partnerId)}` : ''
+    const res = await fetch(`/api/partnerbericht${query}`, { headers: { Authorization: `Bearer ${session?.access_token || ''}` } })
+    const j = await res.json().catch(() => ({})) as { berichten?: PartnerBericht[] }
+    setBerichtGeschiedenis(res.ok ? (j.berichten || []) : [])
+    setBerichtGeschiedenisLaden(false)
+  }
+
   const openPartnerBericht = () => {
     setBerichtSelectie(new Set(partners.filter(p => p.email && !p.contract_ondertekend).map(p => p.id)))
     setBerichtOpen(true)
+    laadBerichtGeschiedenis()
   }
 
   const verstuurPartnerBericht = async () => {
@@ -472,6 +500,7 @@ export default function AdminPage() {
       flash(`${verstuurd} bericht${verstuurd === 1 ? '' : 'en'} verstuurd${j.mislukt ? `. ${j.mislukt} mislukt: ${fout.map(x => x.bedrijf).join(', ')}` : '.'}`, 12000)
       if (!j.mislukt) setBerichtOpen(false)
       await loadAll()
+      await laadBerichtGeschiedenis()
     } finally {
       setBerichtBezig(false)
     }
@@ -493,7 +522,10 @@ export default function AdminPage() {
 
   const openPartner = async (id: string) => {
     setSelectedId(id)
-    const { data } = await supabase.from('documenten').select('*').eq('partner_id', id).order('created_at', { ascending: false })
+    const [{ data }] = await Promise.all([
+      supabase.from('documenten').select('*').eq('partner_id', id).order('created_at', { ascending: false }),
+      laadBerichtGeschiedenis(id),
+    ])
     setPartnerDocs(data || [])
   }
 
@@ -1413,6 +1445,22 @@ export default function AdminPage() {
                   <span style={{ fontSize: '12px', color: '#777' }}>{berichtSelectie.size} ontvanger{berichtSelectie.size === 1 ? '' : 's'} geselecteerd</span>
                   <button style={{ ...S.btn, marginTop: 0, opacity: berichtBezig || !berichtSelectie.size ? 0.5 : 1 }} disabled={berichtBezig || !berichtSelectie.size || !berichtOnderwerp.trim() || !berichtTekst.trim()} onClick={verstuurPartnerBericht}>{berichtBezig ? 'Versturen...' : 'Bericht versturen'}</button>
                 </div>
+                <div style={{ borderTop: '1px solid #e5dfd2', marginTop: '24px', paddingTop: '20px' }}>
+                  <div style={S.cardTitle}>Verzendgeschiedenis</div>
+                  {berichtGeschiedenisLaden && <p style={{ fontSize: '13px', color: '#888' }}>Geschiedenis laden...</p>}
+                  {!berichtGeschiedenisLaden && berichtGeschiedenis.length === 0 && <p style={{ fontSize: '13px', color: '#888' }}>Nog geen partnerberichten verstuurd.</p>}
+                  {berichtGeschiedenis.slice(0, 25).map(b => (
+                    <details key={b.id} style={{ padding: '10px 0', borderBottom: '1px solid #eee' }}>
+                      <summary style={{ cursor: 'pointer', fontSize: '13px' }}>
+                        <strong>{b.status === 'verstuurd' ? '✓' : '✕'} {b.partners?.bedrijfsnaam || b.ontvanger_email}</strong>
+                        <span style={{ color: '#888' }}> · {b.onderwerp} · {new Date(b.created_at).toLocaleString('nl-NL')}</span>
+                      </summary>
+                      <div style={{ fontSize: '12px', color: '#666', lineHeight: 1.7, padding: '10px 0 0 20px', whiteSpace: 'pre-wrap' }}>
+                        Aan: {b.ontvanger_email}<br/>Door: {b.verzonden_door || 'onbekend'}<br/>Status: {b.status}{b.foutmelding ? ` · ${b.foutmelding}` : ''}<br/><br/>{b.bericht}
+                      </div>
+                    </details>
+                  ))}
+                </div>
               </div>
             )}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', marginBottom: '24px' }}>
@@ -1683,6 +1731,24 @@ export default function AdminPage() {
                     </div>
                   ))}
                 </div>
+              </div>
+
+              <div style={S.card}>
+                <div style={S.cardTitle}>Berichten &amp; e-mails</div>
+                {berichtGeschiedenisLaden && <p style={{ fontSize: '13px', color: '#888' }}>Geschiedenis laden...</p>}
+                {!berichtGeschiedenisLaden && berichtGeschiedenis.length === 0 && <p style={{ fontSize: '13px', color: '#888' }}>Nog geen geregistreerde berichten aan deze partner.</p>}
+                {berichtGeschiedenis.map(b => (
+                  <details key={b.id} style={{ padding: '12px 0', borderBottom: '1px solid #eee' }}>
+                    <summary style={{ cursor: 'pointer', fontSize: '13px' }}>
+                      <strong style={{ color: b.status === 'verstuurd' ? '#2e7d32' : 'var(--bordeaux)' }}>{b.status === 'verstuurd' ? '✓ Verstuurd' : '✕ Mislukt'}</strong>
+                      <span> · {b.onderwerp}</span>
+                      <span style={{ color: '#888' }}> · {new Date(b.created_at).toLocaleString('nl-NL')}</span>
+                    </summary>
+                    <div style={{ fontSize: '12px', color: '#666', lineHeight: 1.7, padding: '10px 0 0 20px', whiteSpace: 'pre-wrap' }}>
+                      Aan: {b.ontvanger_email}<br/>Door: {b.verzonden_door || 'onbekend'}{b.provider_id ? <><br/>Mail-ID: {b.provider_id}</> : null}{b.foutmelding ? <><br/>Fout: {b.foutmelding}</> : null}<br/><br/>{b.bericht}
+                    </div>
+                  </details>
+                ))}
               </div>
             </>
           )
