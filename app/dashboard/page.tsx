@@ -328,6 +328,11 @@ export default function Dashboard() {
     const { data, error } = await supabase.rpc('partner_onderteken_contract', {
       p_naam: signNaam.trim(),
       p_handtekening: signData,
+      p_akkoorden: {
+        gelezen: true,
+        afdracht: true,
+        stageld: stageld > 0,
+      },
     })
     if (error) { flash('Ondertekenen mislukt: ' + error.message); return }
     setPartner({

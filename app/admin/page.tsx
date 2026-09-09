@@ -195,6 +195,11 @@ export default function AdminPage() {
   const [partnerDocs, setPartnerDocs] = useState<Document[]>([])
   const [pDocUpload, setPDocUpload] = useState({ naam: '', file: null as File | null })
   const [pUploading, setPUploading] = useState(false)
+  const [berichtOpen, setBerichtOpen] = useState(false)
+  const [berichtSelectie, setBerichtSelectie] = useState<Set<string>>(new Set())
+  const [berichtOnderwerp, setBerichtOnderwerp] = useState('Actie nodig in het partnerportal van Nacht van de Wijn')
+  const [berichtTekst, setBerichtTekst] = useState('Wil je zo snel mogelijk inloggen in het partnerportal? Controleer daar je gegevens, lees je afspraken goed door en onderteken vervolgens het contract. Het contract bestaat uit het stageld, de afdracht, de algemene voorwaarden en de afspraken en restricties voor jouw bar of stand. Vul daarna ook je volledige wijnlijst of menukaart met producten en prijzen in. Zo kunnen wij alles op tijd voorbereiden.')
+  const [berichtBezig, setBerichtBezig] = useState(false)
   const flash = (m: string, ms = 3500) => { setSaveMsg(m); setTimeout(() => setSaveMsg(''), ms) }
 
   const stuurWelkomstmail = async (email: string, naam: string, isFood = false): Promise<{ ok: boolean; error?: string }> => {
@@ -436,6 +441,40 @@ export default function AdminPage() {
     const j = await res.json().catch(() => ({}))
     if (res.ok && j.ok) { setPartners(partners.map(x => x.id === p.id ? { ...x, user_id: x.user_id || 'set' } : x)); flash(`Inlogmail met inloggegevens verstuurd naar ${p.email}.`, 8000) }
     else flash('Versturen mislukt: ' + (j.error || res.status), 8000)
+  }
+
+  const openPartnerBericht = () => {
+    setBerichtSelectie(new Set(partners.filter(p => p.email && !p.contract_ondertekend).map(p => p.id)))
+    setBerichtOpen(true)
+  }
+
+  const verstuurPartnerBericht = async () => {
+    if (!berichtSelectie.size || !berichtOnderwerp.trim() || !berichtTekst.trim()) return
+    const ontvangers = partners.filter(p => berichtSelectie.has(p.id))
+    if (!confirm(`Dit bericht nu naar ${ontvangers.length} ${ontvangers.length === 1 ? 'partner' : 'partners'} sturen?\n\nIedere ontvanger krijgt een persoonlijke inloglink.`)) return
+    setBerichtBezig(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const res = await fetch('/api/partnerbericht', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token || ''}` },
+        body: JSON.stringify({ partner_ids: [...berichtSelectie], onderwerp: berichtOnderwerp, bericht: berichtTekst }),
+      })
+      const j = await res.json().catch(() => ({})) as {
+        error?: string
+        verstuurd?: number
+        mislukt?: number
+        resultaten?: { ok: boolean; bedrijf: string }[]
+      }
+      if (!res.ok) { flash('Versturen mislukt: ' + (j.error || res.status), 9000); return }
+      const fout = Array.isArray(j.resultaten) ? j.resultaten.filter(x => !x.ok) : []
+      const verstuurd = j.verstuurd || 0
+      flash(`${verstuurd} bericht${verstuurd === 1 ? '' : 'en'} verstuurd${j.mislukt ? `. ${j.mislukt} mislukt: ${fout.map(x => x.bedrijf).join(', ')}` : '.'}`, 12000)
+      if (!j.mislukt) setBerichtOpen(false)
+      await loadAll()
+    } finally {
+      setBerichtBezig(false)
+    }
   }
 
   const genTicketCode = () => 'NVDW-' + Array.from({ length: 6 }, () => 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[Math.floor(Math.random() * 32)]).join('')
@@ -1317,10 +1356,43 @@ export default function AdminPage() {
                 <div style={S.sub}>{partners.length} partners. Klik op een bedrijfsnaam voor het detailscherm.</div>
               </div>
               <div style={{ display: 'flex', gap: '8px' }}>
+                <button style={{ ...S.btnSm, padding: '10px 16px' }} onClick={openPartnerBericht}>Bericht sturen</button>
                 <button style={{ ...S.btn, marginTop: 0 }} onClick={() => setPartnersView('toevoegen')}>+ Partner toevoegen</button>
                 <button style={{ ...S.btnSm, padding: '10px 16px' }} onClick={() => setPartnersView('export')}>Exports</button>
               </div>
             </div>
+            {berichtOpen && (
+              <div style={{ ...S.card, borderTop: '3px solid var(--bordeaux)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-start' }}>
+                  <div>
+                    <div style={S.cardTitle}>Bericht naar partners</div>
+                    <div style={{ fontSize: '13px', color: '#777', lineHeight: 1.6 }}>Standaard zijn alle partners geselecteerd die nog niet hebben getekend. Iedere mail krijgt automatisch een persoonlijke inloglink.</div>
+                  </div>
+                  <button style={S.btnSm} onClick={() => setBerichtOpen(false)}>Sluiten</button>
+                </div>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', margin: '16px 0 8px' }}>
+                  <button style={S.btnSm} onClick={() => setBerichtSelectie(new Set(partners.filter(p => p.email && !p.contract_ondertekend).map(p => p.id)))}>Actie nodig</button>
+                  <button style={S.btnSm} onClick={() => setBerichtSelectie(new Set(partners.filter(p => p.email).map(p => p.id)))}>Iedereen met e-mail</button>
+                  <button style={S.btnSm} onClick={() => setBerichtSelectie(new Set())}>Niemand</button>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '8px', margin: '14px 0 20px', maxHeight: '210px', overflowY: 'auto', padding: '12px', background: '#f7f4ec' }}>
+                  {partners.filter(p => p.email).map(p => (
+                    <label key={p.id} style={{ display: 'flex', gap: '8px', alignItems: 'flex-start', fontSize: '12px', cursor: 'pointer' }}>
+                      <input type="checkbox" checked={berichtSelectie.has(p.id)} onChange={e => setBerichtSelectie(prev => { const n = new Set(prev); if (e.target.checked) n.add(p.id); else n.delete(p.id); return n })} />
+                      <span><strong>{p.bedrijfsnaam}</strong><br/><span style={{ color: '#888' }}>{p.contract_ondertekend ? 'getekend' : 'actie nodig'} · {p.user_id ? 'login actief' : 'login wordt aangemaakt'}</span></span>
+                    </label>
+                  ))}
+                </div>
+                <label style={S.label}>Onderwerp</label>
+                <input style={S.input} maxLength={160} value={berichtOnderwerp} onChange={e => setBerichtOnderwerp(e.target.value)} />
+                <label style={S.label}>Bericht</label>
+                <textarea style={{ ...S.input, minHeight: '180px', resize: 'vertical' }} maxLength={5000} value={berichtTekst} onChange={e => setBerichtTekst(e.target.value)} />
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', marginTop: '14px' }}>
+                  <span style={{ fontSize: '12px', color: '#777' }}>{berichtSelectie.size} ontvanger{berichtSelectie.size === 1 ? '' : 's'} geselecteerd</span>
+                  <button style={{ ...S.btn, marginTop: 0, opacity: berichtBezig || !berichtSelectie.size ? 0.5 : 1 }} disabled={berichtBezig || !berichtSelectie.size || !berichtOnderwerp.trim() || !berichtTekst.trim()} onClick={verstuurPartnerBericht}>{berichtBezig ? 'Versturen...' : 'Bericht versturen'}</button>
+                </div>
+              </div>
+            )}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', marginBottom: '24px' }}>
               {[
                 { label: 'Partners totaal', val: partners.length, sub: `${aantalWijn} wijn · ${aantalFood} food` },
