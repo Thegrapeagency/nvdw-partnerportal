@@ -82,6 +82,7 @@ export type Partner = {
   naam: string
   bedrijfsnaam: string
   email: string
+  telefoon: string | null
   pakket: string
   avond: string
   barlocatie: string | null

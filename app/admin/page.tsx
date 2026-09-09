@@ -508,7 +508,29 @@ export default function AdminPage() {
     const patch = partnerDraft[p.id]
     if (!patch || Object.keys(patch).length === 0) return
     setPartnerSaving(true)
-    const { error } = await supabase.from('partners').update(patch).eq('id', p.id)
+    const contactGewijzigd = ['naam', 'bedrijfsnaam', 'email', 'telefoon'].some(k => Object.prototype.hasOwnProperty.call(patch, k))
+    let error: Error | null = null
+    if (contactGewijzigd) {
+      const compleet = { ...p, ...patch }
+      const { data: { session } } = await supabase.auth.getSession()
+      const res = await fetch('/api/partnerprofiel', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token || ''}` },
+        body: JSON.stringify({ partner_id: p.id, naam: compleet.naam, bedrijfsnaam: compleet.bedrijfsnaam, email: compleet.email, telefoon: compleet.telefoon }),
+      })
+      const j = await res.json().catch(() => ({})) as { error?: string }
+      if (!res.ok) error = new Error(j.error || 'Contactgegevens opslaan mislukte.')
+      if (!error) {
+        const overigePatch = Object.fromEntries(Object.entries(patch).filter(([k]) => !['naam', 'bedrijfsnaam', 'email', 'telefoon'].includes(k)))
+        if (Object.keys(overigePatch).length) {
+          const rest = await supabase.from('partners').update(overigePatch).eq('id', p.id)
+          if (rest.error) error = new Error(rest.error.message)
+        }
+      }
+    } else {
+      const result = await supabase.from('partners').update(patch).eq('id', p.id)
+      if (result.error) error = new Error(result.error.message)
+    }
     setPartnerSaving(false)
     if (error) { flash('Opslaan mislukt: ' + error.message, 8000); return }
     setPartners(partners.map(x => x.id === p.id ? { ...x, ...patch } : x))
@@ -1366,7 +1388,7 @@ export default function AdminPage() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-start' }}>
                   <div>
                     <div style={S.cardTitle}>Bericht naar partners</div>
-                    <div style={{ fontSize: '13px', color: '#777', lineHeight: 1.6 }}>Standaard zijn alle partners geselecteerd die nog niet hebben getekend. Iedere mail krijgt automatisch een persoonlijke inloglink.</div>
+                    <div style={{ fontSize: '13px', color: '#777', lineHeight: 1.6 }}>Standaard zijn alle partners geselecteerd die nog niet hebben getekend. Iedere mail krijgt automatisch een persoonlijke magic link waarmee de partner direct kan inloggen.</div>
                   </div>
                   <button style={S.btnSm} onClick={() => setBerichtOpen(false)}>Sluiten</button>
                 </div>
@@ -1474,6 +1496,43 @@ export default function AdminPage() {
               </div>
               <div style={S.title}>{sp.bedrijfsnaam}</div>
               <div style={S.sub}>{sp.naam} · {sp.email} · {sp.type === 'food' ? 'Foodtruck' : 'Wijnpartner'}</div>
+
+              <div style={S.card}>
+                <div style={S.cardTitle}>Bedrijf &amp; contact</div>
+                <div style={{ fontSize: '12px', color: '#777', lineHeight: 1.6, marginBottom: '4px' }}>
+                  Het e-mailadres is ook de inlognaam. Als je dit wijzigt, wordt het gekoppelde account automatisch aangepast.
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: '0 16px' }}>
+                  <div>
+                    <label style={S.label}>Bedrijfsnaam *</label>
+                    <input style={S.input} value={draft.bedrijfsnaam || ''} onChange={e => setField({ bedrijfsnaam: e.target.value })} />
+                  </div>
+                  <div>
+                    <label style={S.label}>Contactpersoon</label>
+                    <input style={S.input} value={draft.naam || ''} onChange={e => setField({ naam: e.target.value })} placeholder="Voor- en achternaam" />
+                  </div>
+                  <div>
+                    <label style={S.label}>E-mailadres / inlog *</label>
+                    <input style={S.input} type="email" value={draft.email || ''} onChange={e => setField({ email: e.target.value })} placeholder="naam@bedrijf.nl" />
+                  </div>
+                  <div>
+                    <label style={S.label}>Telefoonnummer</label>
+                    <input style={S.input} type="tel" value={draft.telefoon || ''} onChange={e => setField({ telefoon: e.target.value || null })} placeholder="06 12 34 56 78" />
+                  </div>
+                  <div>
+                    <label style={S.label}>Type partner</label>
+                    <select style={S.input} value={draft.type} onChange={e => setField({ type: e.target.value })}>
+                      <option value="wijn">Wijnpartner</option>
+                      <option value="food">Foodtruck</option>
+                      <option value="restaurant">Restaurant</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style={S.label}>Interne status</label>
+                    <input style={S.input} value={draft.status || ''} onChange={e => setField({ status: e.target.value })} placeholder="bijvoorbeeld bevestigd" />
+                  </div>
+                </div>
+              </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                 {/* Afspraken */}
