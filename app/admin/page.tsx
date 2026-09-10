@@ -24,6 +24,7 @@ import Todo from './Todo'
 import Overleg from './Overleg'
 import BezoekerVragen from './BezoekerVragen'
 import AppBeheer from './AppBeheer'
+import Druivenpeiling from './Druivenpeiling'
 
 const PAKKET_LABELS: Record<string, string> = {
   branded_bar: 'Branded Bar',
@@ -956,6 +957,7 @@ export default function AdminPage() {
         { id: 'aankondigingen', label: 'Aankondigingen' },
         { id: 'studio', label: 'Content-studio' },
         { id: 'nieuwsbrief', label: 'Nieuwsbrief' },
+        { id: 'druivenpeiling', label: 'Druivenpeiling' },
         { id: 'attributie', label: 'Attributie & spend' },
         { id: 'metaads', label: 'Meta Ads sturing' },
         { id: 'app', label: 'Bezoekers-app' },
@@ -1125,6 +1127,7 @@ export default function AdminPage() {
         {activeTab === 'app' && appTab === 'instellingen' && magTab('app') && <AppBeheer flash={flash} />}
         {activeTab === 'app' && appTab === 'push' && magTab('appmarketing') && <Push flash={flash} />}
         {activeTab === 'app' && appTab === 'advertenties' && magTab('appmarketing') && <Advertenties flash={flash} />}
+        {activeTab === 'druivenpeiling' && <Druivenpeiling flash={flash} />}
         {activeTab === 'app' && appTab === 'cijfers' && magTab('app') && (
           <>
             <div style={S.title}>Bezoekers-app</div>

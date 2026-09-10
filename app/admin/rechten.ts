@@ -40,6 +40,7 @@ export const TAB_GEBIED: Record<string, Gebied> = {
   // Bewust een eigen gebied: aan de nieuwsbrief hangt het volledige
   // abonneebestand, dus die geef je los van de rest van marketing.
   nieuwsbrief: 'nieuwsbrief',
+  druivenpeiling: 'marketing',
 
   financieel: 'financieel',
   kassa: 'financieel',
