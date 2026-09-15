@@ -24,6 +24,9 @@ const S = {
   pageTitle: { fontFamily: 'Fraunces, Georgia, serif', fontWeight: 700, fontSize: '26px', letterSpacing: '0', color: 'var(--navy)', lineHeight: 1.1, marginBottom: '6px' } as React.CSSProperties,
   pageDesc: { fontSize: '13px', color: 'rgba(1,3,65,0.45)', marginBottom: '32px' } as React.CSSProperties,
   sectionTitle: { fontSize: '11px', fontWeight: '600', letterSpacing: '1.5px', textTransform: 'uppercase', color: 'rgba(1,3,65,0.4)', marginBottom: '16px' } as React.CSSProperties,
+  // Akkoordhokjes bij het contract: ruim aanklikbaar, ook op een telefoon.
+  vink: { display: 'flex', gap: '12px', alignItems: 'flex-start', fontSize: '13px', color: 'var(--navy)', lineHeight: 1.65, cursor: 'pointer', padding: '10px 0', borderBottom: '1px solid rgba(1,3,65,0.07)' } as React.CSSProperties,
+  vinkBox: { marginTop: '2px', flexShrink: 0, width: '18px', height: '18px', accentColor: '#010341', cursor: 'pointer' } as React.CSSProperties,
 }
 
 function SignaturePad({ onChange }: { onChange: (dataUrl: string | null) => void }) {
@@ -79,7 +82,14 @@ export default function Dashboard() {
   const [newVraag, setNewVraag] = useState({ onderwerp: '', bericht: '' })
   const [signNaam, setSignNaam] = useState('')
   const [signData, setSignData] = useState<string | null>(null)
-  const [akkoordVoorwaarden, setAkkoordVoorwaarden] = useState(false)
+  const [signFout, setSignFout] = useState('')
+  const [signBezig, setSignBezig] = useState(false)
+  // Drie losse verklaringen in plaats van één algemeen vinkje: gelezen, akkoord
+  // met het stageld en akkoord met de afdracht. Zo staat per punt vast waar
+  // iemand ja tegen heeft gezegd, en niet alleen dat hij ergens ja zei.
+  const [akkoordGelezen, setAkkoordGelezen] = useState(false)
+  const [akkoordStageld, setAkkoordStageld] = useState(false)
+  const [akkoordAfdracht, setAkkoordAfdracht] = useState(false)
   const [cateringForm, setCateringForm] = useState<Record<string, { aantal: string; dieet: string }>>({
     vrijdag: { aantal: '0', dieet: '' }, zaterdag: { aantal: '0', dieet: '' }, zondag: { aantal: '0', dieet: '' },
   })
@@ -320,21 +330,21 @@ export default function Dashboard() {
   const deleteCrew = async (id: string) => { await supabase.from('crew').delete().eq('id', id); setCrew(crew.filter(c => c.id !== id)) }
 
   const ondertekenContract = async () => {
-    if (!partner || !signNaam.trim() || !signData) { flash('Vul je naam in en zet je handtekening.'); return }
-    if (!akkoordVoorwaarden) { flash('Vink aan dat je akkoord gaat met de voorwaarden.'); return }
+    if (signBezig) return
+    if (!partner || !signNaam.trim() || !signData) { setSignFout('Vul je naam in en zet je handtekening.'); return }
+    if (!alleVinkjes) { setSignFout('Vink alle hokjes hierboven aan voordat je ondertekent.'); return }
+    setSignBezig(true)
+    setSignFout('')
     // Via een RPC, zodat de server de bedragen vastlegt en niet de browser.
     // Anders kon een partner een contract met nul procent afdracht laten
-    // opslaan.
+    // opslaan. De vinkjes gaan mee en worden daar opnieuw gecontroleerd.
     const { data, error } = await supabase.rpc('partner_onderteken_contract', {
       p_naam: signNaam.trim(),
       p_handtekening: signData,
-      p_akkoorden: {
-        gelezen: true,
-        afdracht: true,
-        stageld: stageld > 0,
-      },
+      p_akkoorden: { gelezen: akkoordGelezen, stageld: akkoordStageld, afdracht: akkoordAfdracht },
     })
-    if (error) { flash('Ondertekenen mislukt: ' + error.message); return }
+    setSignBezig(false)
+    if (error) { setSignFout('Ondertekenen mislukt: ' + error.message); return }
     setPartner({
       ...partner,
       contract_ondertekend: true,
@@ -345,6 +355,7 @@ export default function Dashboard() {
       offerte_akkoord: true,
       status: 'getekend',
     })
+    setSignFout('')
     flash('Ondertekend. Bedankt, je krijgt hier geen papieren versie van nodig.')
   }
 
@@ -408,6 +419,8 @@ export default function Dashboard() {
   // Eén regel per punt, zoals NvdW het invult.
   const stageldInbegrepen = (partner?.standplaats_inbegrepen || '').split('\n').map(r => r.trim()).filter(Boolean)
   const totaalVast = stageld + cateringTotaal + extrasTotaal
+  // Het stageldvinkje vragen we alleen als er ook stageld te betalen is.
+  const alleVinkjes = akkoordGelezen && akkoordAfdracht && (stageld === 0 || akkoordStageld)
 
   const stuurVraag = async () => {
     if (!partner || !newVraag.onderwerp || !newVraag.bericht) return
@@ -850,6 +863,20 @@ export default function Dashboard() {
         {tab === 'offerte' && <>
           <div style={S.pageTitle}>Offerte</div>
           <div style={S.pageDesc}>Jouw partnerafspraken voor Nacht van de Wijn 2026.</div>
+
+          {/* Zolang er niet getekend is staat de deadline bovenaan. Niet als
+              vriendelijk verzoek: de plekken zijn op en er wacht een rij. */}
+          {!partner.contract_ondertekend && !!T('deadline_contract', '') && (
+            <div style={{ background: '#fdf3f3', borderTop: '1px solid var(--bordeaux)', borderRight: '1px solid var(--bordeaux)', borderBottom: '1px solid var(--bordeaux)', borderLeft: '3px solid var(--bordeaux)', borderRadius: '14px', padding: '16px 20px', marginBottom: '28px' }}>
+              <div style={{ fontSize: '11px', fontWeight: '700', letterSpacing: '1px', textTransform: 'uppercase', color: 'var(--bordeaux)', marginBottom: '8px' }}>
+                Teken uiterlijk {T('deadline_contract', '')}
+              </div>
+              <div style={{ fontSize: '13px', color: 'var(--navy)', lineHeight: '1.7', whiteSpace: 'pre-line' }}>
+                {T('teken_urgentie', 'We zitten vol en er staat een wachtlijst.')}
+              </div>
+            </div>
+          )}
+
           <div style={{ borderTop: '1px solid rgba(1,3,65,0.1)', paddingTop: '28px' }}>
             {[
               ['Pakket', PAKKET[partner.pakket] || partner.pakket],
@@ -991,22 +1018,47 @@ export default function Dashboard() {
                   )}
                 </div>
 
-                <label style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', fontSize: '13px', color: 'var(--navy)', lineHeight: 1.65, cursor: 'pointer', marginBottom: '20px' }}>
-                  <input type="checkbox" checked={akkoordVoorwaarden} onChange={e => setAkkoordVoorwaarden(e.target.checked)} style={{ marginTop: '3px', flexShrink: 0 }} />
-                  <span>
-                    Ik ga akkoord met de algemene voorwaarden en met de afspraken hierboven: de afdracht van {partner.afdracht_percentage}%
-                    {stageld > 0 ? `, het stageld van ${euroFmt(stageld)}` : ''}
-                    {totaalVast > stageld ? ' en de genoemde extra posten' : ''}. Ik onderteken namens {partner.bedrijfsnaam}.
-                  </span>
-                </label>
+                {/* Elk punt apart aanvinken. Zo staat vast dat het bedrag en het
+                    percentage echt gezien zijn, en niet zijn weggeklikt in één
+                    algemeen akkoord. De server controleert dezelfde drie. */}
+                <div style={{ background: 'var(--card)', border: '1px solid rgba(1,3,65,0.08)', borderRadius: '14px', padding: '18px 20px', marginBottom: '20px' }}>
+                  <div style={{ fontSize: '12px', fontWeight: '600', color: 'rgba(1,3,65,0.5)', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '1px' }}>
+                    Vink alles aan
+                  </div>
+                  <label style={S.vink}>
+                    <input type="checkbox" checked={akkoordGelezen} onChange={e => setAkkoordGelezen(e.target.checked)} style={S.vinkBox} />
+                    <span>Ik heb de algemene voorwaarden en de afspraken hierboven gelezen.</span>
+                  </label>
+                  {stageld > 0 && (
+                    <label style={S.vink}>
+                      <input type="checkbox" checked={akkoordStageld} onChange={e => setAkkoordStageld(e.target.checked)} style={S.vinkBox} />
+                      <span>
+                        Ik ga akkoord met het stageld van <strong>{euroFmt(stageld)} excl. btw</strong>
+                        {totaalVast > stageld ? ' en met de extra posten hierboven' : ''}.
+                      </span>
+                    </label>
+                  )}
+                  <label style={{ ...S.vink, borderBottom: 'none' }}>
+                    <input type="checkbox" checked={akkoordAfdracht} onChange={e => setAkkoordAfdracht(e.target.checked)} style={S.vinkBox} />
+                    <span>Ik ga akkoord met de afdracht van <strong>{partner.afdracht_percentage}% van mijn netto kassaomzet</strong>.</span>
+                  </label>
+                  <p style={{ fontSize: '12px', color: 'rgba(1,3,65,0.45)', margin: '10px 0 0', lineHeight: 1.6 }}>
+                    Je ondertekent namens {partner.bedrijfsnaam}.
+                  </p>
+                </div>
 
                 <label style={S.label}>Volledige naam</label>
                 <input style={S.input} value={signNaam} onChange={e => setSignNaam(e.target.value)} placeholder="Voor- en achternaam" />
                 <label style={S.label}>Handtekening</label>
                 <SignaturePad onChange={setSignData} />
-                <button style={{ ...S.btn, opacity: (signNaam.trim() && signData && akkoordVoorwaarden) ? 1 : 0.5 }}
-                  disabled={!signNaam.trim() || !signData || !akkoordVoorwaarden}
-                  onClick={ondertekenContract}>Onderteken</button>
+                {signFout && (
+                  <div style={{ fontSize: '13px', color: '#b71c1c', background: '#fdf0f0', padding: '10px 16px', margin: '4px 0 16px', border: '1px solid #f0c8c8', borderRadius: '4px' }}>
+                    {signFout}
+                  </div>
+                )}
+                <button style={{ ...S.btn, opacity: (signNaam.trim() && signData && alleVinkjes && !signBezig) ? 1 : 0.5 }}
+                  disabled={!signNaam.trim() || !signData || !alleVinkjes || signBezig}
+                  onClick={ondertekenContract}>{signBezig ? 'Bezig...' : 'Onderteken'}</button>
               </>
             )}
           </div>
