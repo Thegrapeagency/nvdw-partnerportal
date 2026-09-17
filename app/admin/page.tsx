@@ -420,7 +420,7 @@ export default function AdminPage() {
       naam: newPartner.naam, bedrijfsnaam: newPartner.bedrijfsnaam, email: newPartner.email,
       type: newPartner.type, pakket: newPartner.pakket, avond: newPartner.avond,
       gratis_tickets: parseInt(newPartner.gratis_tickets), crew_tickets: parseInt(newPartner.crew_tickets || "0"), afdracht_percentage: parseInt(newPartner.afdracht_percentage),
-      standplaats_vergoeding: newPartner.type === 'food' && newPartner.standplaats_vergoeding ? parseFloat(newPartner.standplaats_vergoeding) : null,
+      standplaats_vergoeding: newPartner.standplaats_vergoeding ? parseFloat(newPartner.standplaats_vergoeding) : null,
       barlocatie: newPartner.barlocatie || null, notities: newPartner.notities || null,
     }).select().single()
     if (!error && data) {
@@ -1809,12 +1809,10 @@ export default function AdminPage() {
                     <option value="personeel">Personeelsleverancier</option>
                   </select>
                 </div>
-                {newPartner.type === 'food' && (
-                  <div>
-                    <label style={S.label}>Standplaatsvergoeding € (excl. btw)</label>
-                    <input style={S.input} type="number" step="0.01" value={newPartner.standplaats_vergoeding} onChange={e => setNewPartner({ ...newPartner, standplaats_vergoeding: e.target.value })} placeholder="bijv. 750.00" />
-                  </div>
-                )}
+                <div>
+                  <label style={S.label}>Standplaatsvergoeding € (excl. btw)</label>
+                  <input style={S.input} type="number" step="0.01" value={newPartner.standplaats_vergoeding} onChange={e => setNewPartner({ ...newPartner, standplaats_vergoeding: e.target.value })} placeholder="leeg = geen stageld" />
+                </div>
               </div>
               <div style={S.grid3}>
                 <div>
