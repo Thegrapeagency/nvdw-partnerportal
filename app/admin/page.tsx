@@ -1865,6 +1865,44 @@ export default function AdminPage() {
             <div style={S.title}>Producten (extra&apos;s)</div>
             <div style={S.sub}>De catalogus die partners onder &quot;Extra bestellen&quot; zien. Prijzen exclusief btw.</div>
             <div style={S.card}>
+              <div style={S.cardTitle}>Totaal afgenomen</div>
+              {(() => {
+                const euroFmt = (n: number) => '€' + n.toFixed(2).replace('.', ',')
+                const actief = extraBestellingen.filter(e => e.status !== 'afgewezen')
+                const perProduct = producten
+                  .map(p => {
+                    const regels = actief.filter(e => e.product === p.naam)
+                    return {
+                      product: p,
+                      regels,
+                      totaalAantal: regels.reduce((s, e) => s + e.aantal, 0),
+                      totaalBedrag: regels.reduce((s, e) => s + e.aantal * e.prijs_per_stuk, 0),
+                    }
+                  })
+                  .filter(r => r.totaalAantal > 0)
+                if (perProduct.length === 0) {
+                  return <p style={{ fontSize: '13px', color: 'rgba(1,3,65,0.45)' }}>Nog niets besteld door partners.</p>
+                }
+                return (
+                  <table style={S.table}>
+                    <thead><tr>{['Product', 'Totaal', 'Besteld door', 'Bedrag'].map(h => <th key={h} style={S.th}>{h}</th>)}</tr></thead>
+                    <tbody>
+                      {perProduct.map(r => (
+                        <tr key={r.product.id}>
+                          <td style={{ ...S.td, fontWeight: '600' }}>{r.product.naam}</td>
+                          <td style={S.td}>{r.totaalAantal} {r.product.eenheid}</td>
+                          <td style={S.td}>
+                            {r.regels.map(e => `${partners.find(p => p.id === e.partner_id)?.bedrijfsnaam || '?'} (${e.aantal})`).join(', ')}
+                          </td>
+                          <td style={S.td}>{euroFmt(r.totaalBedrag)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )
+              })()}
+            </div>
+            <div style={S.card}>
               <div style={S.cardTitle}>Huidige producten</div>
               <table style={S.table}>
                 <thead><tr>{['Naam', 'Omschrijving', 'Prijs', 'Eenheid', 'Actief', ''].map(h => <th key={h} style={S.th}>{h}</th>)}</tr></thead>
