@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase'
 import { AS } from './ui'
 
 type Option = { id: string; slug: string; name: string; subtitle: string | null; accent: string; active: boolean; position: number; votes: number }
-type Poll = { id: string; slug: string; title: string; year: number; status: 'draft' | 'open' | 'closed'; starts_at: string | null; ends_at: string | null; discount_code: string; votes: number; options: Option[] }
+type Poll = { id: string; slug: string; title: string; year: number; status: 'draft' | 'open' | 'closed'; starts_at: string | null; ends_at: string | null; discount_code: string; votes: number; new_emails: number; options: Option[] }
 type DailyVote = { date: string; votes: number }
 type Winner = { year: number; grape_name: string; note: string | null }
 type PollDashboard = { polls: Poll[]; daily_votes: DailyVote[]; winners: Winner[] }
@@ -52,9 +52,10 @@ export default function Druivenpeiling({ flash }: { flash: (message: string, ms?
     <div style={AS.title}>Populairste druif</div>
     <div style={AS.sub}>Live overzicht van de stemactie, zonder e-mailadressen of individuele stemmen te tonen.</div>
 
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: '12px', marginBottom: '20px' }}>
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(0, 1fr))', gap: '12px', marginBottom: '20px' }}>
       {[
         { label: 'Stemmen', value: current.votes, sub: 'unieke e-mailadressen' },
+        { label: 'Nieuwe adressen', value: current.new_emails, sub: 'binnengehaald via deze stemronde' },
         { label: 'Koploper', value: leader?.name || '–', sub: leader ? `${leader.votes} stemmen` : 'nog geen stemmen' },
         { label: 'Korting', value: '€2,50', sub: current.discount_code },
         { label: 'Status', value: statusLabel[current.status], sub: `t/m ${fmt(current.ends_at)}` },
