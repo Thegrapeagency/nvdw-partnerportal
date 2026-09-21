@@ -246,7 +246,9 @@ export default function AdminPage() {
     const magPartners = heeftGebiedLezen(rechten, rechtenLezen, 'partners')
     const magBeheer = heeftTab(rechten, 'team', rechtenLezen)
     const [p, v, pr, f, t, a, d, l, cw, eb, cc] = await Promise.all([
-      magPartners ? supabase.from('partners').select('*').order('created_at', { ascending: false }) : leeg,
+      // partners_lezen i.p.v. de brontabel: die view maskeert afdracht en
+      // standgeld voor wie geen volledige (schrijf)toegang tot partners heeft.
+      magPartners ? supabase.from('partners_lezen').select('*').order('created_at', { ascending: false }) : leeg,
       magPartners ? supabase.from('partner_vragen').select('*').order('created_at', { ascending: false }) : leeg,
       magPartners ? supabase.from('producten_catalogus').select('*').order('volgorde') : leeg,
       magPartners ? supabase.from('faq').select('*').order('categorie').order('volgorde') : leeg,
