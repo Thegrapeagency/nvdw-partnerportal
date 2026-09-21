@@ -65,10 +65,22 @@ export function heeftGebied(rechten: Gebied[] | null, gebied: Gebied): boolean {
   return rechten === null || rechten.includes(gebied)
 }
 
-export function heeftTab(rechten: Gebied[] | null, tab: string): boolean {
+// Zien: via rechten (lees+schrijf) of via rechten_lezen (alleen-lezen).
+// Schrijven blijft alleen via heeftGebied()/mag() lopen, dat is bewust
+// ongewijzigd gelaten zodat alleen-lezen nergens per ongeluk schrijftoegang geeft.
+export function heeftGebiedLezen(rechten: Gebied[] | null, rechtenLezen: Gebied[] | null, gebied: Gebied): boolean {
+  return heeftGebied(rechten, gebied) || !!rechtenLezen?.includes(gebied)
+}
+
+// Alleen-lezen voor dit gebied: zichtbaar, maar geen schrijfrecht.
+export function isAlleenLezen(rechten: Gebied[] | null, rechtenLezen: Gebied[] | null, gebied: Gebied): boolean {
+  return !heeftGebied(rechten, gebied) && !!rechtenLezen?.includes(gebied)
+}
+
+export function heeftTab(rechten: Gebied[] | null, tab: string, rechtenLezen: Gebied[] | null = null): boolean {
   const gebied = TAB_GEBIED[tab]
   if (!gebied) return true            // start en andere neutrale tabs
-  return heeftGebied(rechten, gebied)
+  return heeftGebiedLezen(rechten, rechtenLezen, gebied)
 }
 
 // Alle tabs die bij een gebied horen, voor de uitleg onder de vinkjes.

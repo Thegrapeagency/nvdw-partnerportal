@@ -17,7 +17,7 @@ import Aankondigingen from './Aankondigingen'
 import Draaiboek from './Draaiboek'
 import Carousel from './Carousel'
 import Schrijfstijl from './Schrijfstijl'
-import { heeftTab, GEBIEDEN, type Gebied } from './rechten'
+import { heeftTab, heeftGebied, heeftGebiedLezen, isAlleenLezen, GEBIEDEN, type Gebied } from './rechten'
 import Huisstijl from './Huisstijl'
 import Nieuwsbrief from './Nieuwsbrief'
 import Todo from './Todo'
@@ -63,7 +63,7 @@ function genPassword() {
   return `${w}${n}!`
 }
 
-function TicketCodesCell({ partner, onSave }: { partner: any; onSave: (codes: string) => void }) {
+function TicketCodesCell({ partner, onSave, readOnly }: { partner: any; onSave: (codes: string) => void; readOnly?: boolean }) {
   const [editing, setEditing] = useState(false)
   const [val, setVal] = useState((partner as any).ticket_codes || '')
 
@@ -76,7 +76,7 @@ function TicketCodesCell({ partner, onSave }: { partner: any; onSave: (codes: st
 
   const codes = val ? val.split(',').filter(Boolean) : []
 
-  if (editing) return (
+  if (editing && !readOnly) return (
     <div style={{ minWidth: '180px' }}>
       <textarea value={val} onChange={e => setVal(e.target.value)} placeholder="CODE1,CODE2,CODE3"
         style={{ width: '100%', padding: '6px 8px', fontSize: '11px', fontFamily: 'monospace', border: '1px solid #ddd', height: '70px', resize: 'vertical' }} />
@@ -88,15 +88,15 @@ function TicketCodesCell({ partner, onSave }: { partner: any; onSave: (codes: st
   )
 
   return (
-    <div style={{ cursor: 'pointer' }} onClick={() => setEditing(true)}>
+    <div style={readOnly ? undefined : { cursor: 'pointer' }} onClick={readOnly ? undefined : () => setEditing(true)}>
       {codes.length > 0
         ? <span style={{ fontSize: '11px', color: '#2d8a4e', fontWeight: '600' }}>{codes.length} codes</span>
-        : <span style={{ fontSize: '11px', color: '#bbb' }}>+ Toevoegen</span>}
+        : <span style={{ fontSize: '11px', color: '#bbb' }}>{readOnly ? 'geen' : '+ Toevoegen'}</span>}
     </div>
   )
 }
 
-function KortingscodeCell({ partner, onSave }: { partner: Partner; onSave: (code: string) => void }) {
+function KortingscodeCell({ partner, onSave, readOnly }: { partner: Partner; onSave: (code: string) => void; readOnly?: boolean }) {
   const [editing, setEditing] = useState(false)
   const [val, setVal] = useState(partner.kortingscode || '')
   const save = async () => {
@@ -105,7 +105,7 @@ function KortingscodeCell({ partner, onSave }: { partner: Partner; onSave: (code
     onSave(val)
     setEditing(false)
   }
-  if (editing) return (
+  if (editing && !readOnly) return (
     <div style={{ display: 'flex', gap: '4px', minWidth: '140px' }}>
       <input value={val} onChange={e => setVal(e.target.value.toUpperCase())} placeholder="EIGENCODE"
         style={{ width: '100%', padding: '5px 7px', fontSize: '11px', fontFamily: 'monospace', border: '1px solid #ddd' }} />
@@ -113,7 +113,7 @@ function KortingscodeCell({ partner, onSave }: { partner: Partner; onSave: (code
     </div>
   )
   return (
-    <div style={{ cursor: 'pointer' }} onClick={() => setEditing(true)}>
+    <div style={readOnly ? undefined : { cursor: 'pointer' }} onClick={readOnly ? undefined : () => setEditing(true)}>
       {partner.kortingscode
         ? <span style={{ fontSize: '11px', fontFamily: 'monospace', color: 'var(--navy)', fontWeight: '600' }}>{partner.kortingscode}</span>
         : <span style={{ fontSize: '11px', color: '#bbb' }}>standaard</span>}
@@ -185,6 +185,8 @@ export default function AdminPage() {
   const [newTeamlidRechten, setNewTeamlidRechten] = useState<Gebied[] | null>(null)
   // null = volledige toegang (alle huidige admins). Een array betekent beperkt.
   const [mijnRechten, setMijnRechten] = useState<Gebied[] | null>(null)
+  // Gebieden die je mag ZIEN zonder te mogen schrijven, los van mijnRechten.
+  const [mijnRechtenLezen, setMijnRechtenLezen] = useState<Gebied[] | null>(null)
   const [mijnEmail, setMijnEmail] = useState('')
   const [rechtenOpen, setRechtenOpen] = useState<string | null>(null)
   const [pwOpen, setPwOpen] = useState<string | null>(null)
@@ -195,16 +197,20 @@ export default function AdminPage() {
   const [pwGezet, setPwGezet] = useState<Record<string, boolean>>({})
   const [pwBezig, setPwBezig] = useState<string | null>(null)
   const [linkGestuurd, setLinkGestuurd] = useState<Record<string, number>>({})
-  const magTab = (tab: string) => heeftTab(mijnRechten, tab)
+  const magTab = (tab: string) => heeftTab(mijnRechten, tab, mijnRechtenLezen)
   // De samengevoegde Vragen-tab is zichtbaar als je bij partnervragen ÓF bij
   // bezoekersvragen mag; binnenin filtert vragenTab op het juiste recht.
   const magView = (tab: string) => {
-    if (tab === 'vragen') return heeftTab(mijnRechten, 'vragen') || heeftTab(mijnRechten, 'bezoekersvragen')
+    if (tab === 'vragen') return heeftTab(mijnRechten, 'vragen', mijnRechtenLezen) || heeftTab(mijnRechten, 'bezoekersvragen', mijnRechtenLezen)
     // Bezoekers-app bundelt cijfers (gebied bezoekers) met push/advertenties
     // (gebied marketing); zichtbaar zodra je één van beide mag.
-    if (tab === 'app') return heeftTab(mijnRechten, 'app') || heeftTab(mijnRechten, 'appmarketing')
-    return heeftTab(mijnRechten, tab)
+    if (tab === 'app') return heeftTab(mijnRechten, 'app', mijnRechtenLezen) || heeftTab(mijnRechten, 'appmarketing', mijnRechtenLezen)
+    return heeftTab(mijnRechten, tab, mijnRechtenLezen)
   }
+  // Schrijftoegang tot het partners-gebied (partners, producten, crew,
+  // partnerinfo, vragen). Alleen-lezen betekent: wel zien, niet wijzigen.
+  const magPartnersSchrijven = heeftGebied(mijnRechten, 'partners')
+  const alleenLezenPartners = isAlleenLezen(mijnRechten, mijnRechtenLezen, 'partners')
   const [docUpload, setDocUpload] = useState({ naam: '', categorie: 'draaiboek', file: null as File | null })
   const [uploading, setUploading] = useState(false)
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -233,12 +239,12 @@ export default function AdminPage() {
     } catch (e) { return { ok: false, error: (e as Error)?.message } }
   }
 
-  const loadAll = async (rechten: Gebied[] | null = mijnRechten) => {
+  const loadAll = async (rechten: Gebied[] | null = mijnRechten, rechtenLezen: Gebied[] | null = mijnRechtenLezen) => {
     // Alleen ophalen waar deze gebruiker recht op heeft. RLS zou het anders
     // toch blokkeren, maar dan met een lege lijst en onnodige verzoeken.
     const leeg = Promise.resolve({ data: [] as never[] })
-    const magPartners = heeftTab(rechten, 'partners')
-    const magBeheer = heeftTab(rechten, 'team')
+    const magPartners = heeftGebiedLezen(rechten, rechtenLezen, 'partners')
+    const magBeheer = heeftTab(rechten, 'team', rechtenLezen)
     const [p, v, pr, f, t, a, d, l, cw, eb, cc] = await Promise.all([
       magPartners ? supabase.from('partners').select('*').order('created_at', { ascending: false }) : leeg,
       magPartners ? supabase.from('partner_vragen').select('*').order('created_at', { ascending: false }) : leeg,
@@ -271,7 +277,7 @@ export default function AdminPage() {
   useEffect(() => {
     if (!loading && !magView(activeTab)) setActiveTab('start')
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mijnRechten, activeTab, loading])
+  }, [mijnRechten, mijnRechtenLezen, activeTab, loading])
 
   // Wie alleen bezoekersvragen mag zien, landt in de Vragen-tab direct daar.
   useEffect(() => {
@@ -294,10 +300,13 @@ export default function AdminPage() {
       const { data: rechten } = await supabase.rpc('mijn_rechten')
       const rechtenLijst = (rechten as Gebied[] | null) ?? null
       setMijnRechten(rechtenLijst)
+      const { data: rechtenLezen } = await supabase.rpc('mijn_rechten_lezen')
+      const rechtenLezenLijst = (rechtenLezen as Gebied[] | null) ?? null
+      setMijnRechtenLezen(rechtenLezenLijst)
       const { data: me } = await supabase.from('admins').select('naam').eq('email', user.email).maybeSingle()
       setMijnNaam(me?.naam || user.email || '')
       setMijnEmail(user.email || '')
-      await loadAll(rechtenLijst)
+      await loadAll(rechtenLijst, rechtenLezenLijst)
       setLoading(false)
     }
     init()
@@ -714,12 +723,22 @@ export default function AdminPage() {
     setAdmins(admins.map(x => x.id === a.id ? ({ ...x, rechten } as Admin) : x))
     if (a.email.toLowerCase() === (mijnEmail || '').toLowerCase()) setMijnRechten(rechten)
   }
+  // Alleen-lezen gebieden van een teamlid aanpassen: zien zonder te schrijven.
+  const zetRechtenLezen = async (a: Admin, rechtenLezen: Gebied[]) => {
+    const { error } = await supabase.from('admins').update({ rechten_lezen: rechtenLezen } as never).eq('id', a.id)
+    if (error) { flash('Opslaan mislukte: ' + error.message, 7000); return }
+    setAdmins(admins.map(x => x.id === a.id ? ({ ...x, rechten_lezen: rechtenLezen } as Admin) : x))
+    if (a.email.toLowerCase() === (mijnEmail || '').toLowerCase()) setMijnRechtenLezen(rechtenLezen)
+  }
   const samenvattingRechten = (a: Admin) => {
     const r = (a as Admin & { rechten: Gebied[] | null }).rechten
-    if (r === null) return 'Alles'
-    if (!r.length) return 'Niets'
-    if (r.length === GEBIEDEN.length) return 'Alles'
-    return r.map(id => GEBIEDEN.find(g => g.id === id)?.naam || id).join(', ')
+    const rl = ((a as Admin & { rechten_lezen: Gebied[] | null }).rechten_lezen || []).filter(id => r === null || !r.includes(id))
+    const basis = r === null ? 'Alles' : !r.length ? 'Niets' : r.length === GEBIEDEN.length ? 'Alles' : r.map(id => GEBIEDEN.find(g => g.id === id)?.naam || id).join(', ')
+    if (r !== null && rl.length) {
+      const lezenNamen = rl.map(id => GEBIEDEN.find(g => g.id === id)?.naam || id).join(', ')
+      return (basis === 'Niets' ? '' : basis + ' · ') + lezenNamen + ' (alleen-lezen)'
+    }
+    return basis
   }
 
   const stuurTeamToegang = async (a: Admin, type: 'recovery' | 'magiclink') => {
@@ -1413,11 +1432,16 @@ export default function AdminPage() {
                 <div style={S.sub}>{partners.length} partners. Klik op een bedrijfsnaam voor het detailscherm.</div>
               </div>
               <div style={{ display: 'flex', gap: '8px' }}>
-                <button style={{ ...S.btnSm, padding: '10px 16px' }} onClick={openPartnerBericht}>Bericht sturen</button>
-                <button style={{ ...S.btn, marginTop: 0 }} onClick={() => setPartnersView('toevoegen')}>+ Partner toevoegen</button>
+                {magPartnersSchrijven && <button style={{ ...S.btnSm, padding: '10px 16px' }} onClick={openPartnerBericht}>Bericht sturen</button>}
+                {magPartnersSchrijven && <button style={{ ...S.btn, marginTop: 0 }} onClick={() => setPartnersView('toevoegen')}>+ Partner toevoegen</button>}
                 <button style={{ ...S.btnSm, padding: '10px 16px' }} onClick={() => setPartnersView('export')}>Exports</button>
               </div>
             </div>
+            {alleenLezenPartners && (
+              <div style={{ background: '#f7f4ec', border: '1px solid #e4dcc8', borderRadius: '6px', padding: '10px 14px', fontSize: '12px', color: '#777', marginTop: '12px' }}>
+                Je hebt hier alleen-lezen toegang: je ziet alles, maar kunt niets aanmaken, wijzigen of verwijderen.
+              </div>
+            )}
             {berichtOpen && (
               <div style={{ ...S.card, borderTop: '3px solid var(--bordeaux)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-start' }}>
@@ -1501,15 +1525,15 @@ export default function AdminPage() {
                         <td style={S.td}>{p.gratis_tickets}</td>
                         <td style={S.td}>{p.afdracht_percentage}%</td>
                         <td style={S.td}>
-                          <TicketCodesCell partner={p} onSave={(codes) => { setPartners(partners.map(x => x.id === p.id ? { ...x, ticket_codes: codes } as any : x)); flash('Codes opgeslagen') }} />
+                          <TicketCodesCell partner={p} readOnly={alleenLezenPartners} onSave={(codes) => { setPartners(partners.map(x => x.id === p.id ? { ...x, ticket_codes: codes } as any : x)); flash('Codes opgeslagen') }} />
                         </td>
                         <td style={S.td}>
-                          <KortingscodeCell partner={p} onSave={(code) => { setPartners(partners.map(x => x.id === p.id ? { ...x, kortingscode: code || null } : x)) }} />
+                          <KortingscodeCell partner={p} readOnly={alleenLezenPartners} onSave={(code) => { setPartners(partners.map(x => x.id === p.id ? { ...x, kortingscode: code || null } : x)) }} />
                         </td>
                         <td style={S.td}>
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-start' }}>
                             {p.user_id && <span style={S.badge(true)}>actief</span>}
-                            <button style={S.btnSm} onClick={() => stuurInlog(p)}>{p.user_id ? 'Mail opnieuw' : 'Stuur inlog'}</button>
+                            {magPartnersSchrijven && <button style={S.btnSm} onClick={() => stuurInlog(p)}>{p.user_id ? 'Mail opnieuw' : 'Stuur inlog'}</button>}
                           </div>
                         </td>
                       </tr>
@@ -1541,12 +1565,18 @@ export default function AdminPage() {
                 <button style={S.btnSm} onClick={() => { if (dirty && !confirm('Niet-opgeslagen wijzigingen weggooien?')) return; setSelectedId(null); setPartnerDocs([]); setPartnerDraft(d => { const nd = { ...d }; delete nd[sp.id]; return nd }) }}>← Terug naar overzicht</button>
                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                   {dirty && <span style={{ fontSize: '12px', color: 'var(--bordeaux)', fontWeight: 600 }}>Niet-opgeslagen wijzigingen</span>}
-                  <button style={{ ...S.btn, marginTop: 0, opacity: dirty && !partnerSaving ? 1 : 0.5 }} disabled={!dirty || partnerSaving} onClick={() => savePartnerDraft(sp)}>{partnerSaving ? 'Opslaan...' : 'Opslaan'}</button>
-                  <button style={{ ...S.btnSm, color: 'var(--bordeaux)' }} onClick={() => deletePartner(sp)}>Partner verwijderen</button>
+                  {magPartnersSchrijven && <button style={{ ...S.btn, marginTop: 0, opacity: dirty && !partnerSaving ? 1 : 0.5 }} disabled={!dirty || partnerSaving} onClick={() => savePartnerDraft(sp)}>{partnerSaving ? 'Opslaan...' : 'Opslaan'}</button>}
+                  {magPartnersSchrijven && <button style={{ ...S.btnSm, color: 'var(--bordeaux)' }} onClick={() => deletePartner(sp)}>Partner verwijderen</button>}
                 </div>
               </div>
               <div style={S.title}>{sp.bedrijfsnaam}</div>
               <div style={S.sub}>{sp.naam} · {sp.email} · {sp.type === 'food' ? 'Foodtruck' : 'Wijnpartner'}</div>
+              {alleenLezenPartners && (
+                <div style={{ background: '#f7f4ec', border: '1px solid #e4dcc8', borderRadius: '6px', padding: '10px 14px', fontSize: '12px', color: '#777', margin: '12px 0' }}>
+                  Alleen-lezen: je kunt hier niets wijzigen, aanmaken of verwijderen.
+                </div>
+              )}
+              <fieldset style={{ border: 0, padding: 0, margin: 0 }} disabled={alleenLezenPartners}>
 
               <div style={S.card}>
                 <div style={S.cardTitle}>Bedrijf &amp; contact</div>
@@ -1753,12 +1783,13 @@ export default function AdminPage() {
                   </details>
                 ))}
               </div>
+              </fieldset>
             </>
           )
         })()}
 
         {/* PARTNERS — toevoegen (subweergave) */}
-        {activeTab === 'partners' && !selectedId && partnersView === 'toevoegen' && (
+        {activeTab === 'partners' && !selectedId && partnersView === 'toevoegen' && magPartnersSchrijven && (
           <>
             <button style={{ ...S.btnSm, marginBottom: '16px' }} onClick={() => setPartnersView('lijst')}>← Terug naar partners</button>
             <div style={S.title}>Partner toevoegen</div>
@@ -1864,6 +1895,12 @@ export default function AdminPage() {
           <>
             <div style={S.title}>Producten (extra&apos;s)</div>
             <div style={S.sub}>De catalogus die partners onder &quot;Extra bestellen&quot; zien. Prijzen exclusief btw.</div>
+            {alleenLezenPartners && (
+              <div style={{ background: '#f7f4ec', border: '1px solid #e4dcc8', borderRadius: '6px', padding: '10px 14px', fontSize: '12px', color: '#777', margin: '12px 0' }}>
+                Alleen-lezen: je kunt hier niets wijzigen, aanmaken of verwijderen.
+              </div>
+            )}
+            <fieldset style={{ border: 0, padding: 0, margin: 0 }} disabled={alleenLezenPartners}>
             <div style={S.card}>
               <div style={S.cardTitle}>Totaal afgenomen</div>
               {(() => {
@@ -1930,6 +1967,7 @@ export default function AdminPage() {
               </div>
               <button style={S.btn} onClick={addProduct}>Toevoegen</button>
             </div>
+            </fieldset>
           </>
         )}
 
@@ -1968,10 +2006,15 @@ export default function AdminPage() {
               { id: 'teksten' as const, label: 'Teksten & deadlines' },
               { id: 'documenten' as const, label: 'Documenten' },
             ], infoTab, setInfoTab)}
+            {alleenLezenPartners && (
+              <div style={{ background: '#f7f4ec', border: '1px solid #e4dcc8', borderRadius: '6px', padding: '10px 14px', fontSize: '12px', color: '#777', margin: '12px 0' }}>
+                Alleen-lezen: je kunt hier niets wijzigen, aanmaken of verwijderen.
+              </div>
+            )}
           </>
         )}
         {activeTab === 'partnerinfo' && infoTab === 'faq' && (
-          <>
+          <fieldset style={{ border: 0, padding: 0, margin: 0 }} disabled={alleenLezenPartners}>
             {FAQ_CATEGORIEEN.map(cat => {
               const items = faqItems.filter(f => f.categorie === cat)
               if (!items.length) return null
@@ -2005,27 +2048,29 @@ export default function AdminPage() {
               <textarea style={{ ...S.input, height: '80px', resize: 'vertical' }} value={newFaq.antwoord} onChange={e => setNewFaq({ ...newFaq, antwoord: e.target.value })} />
               <button style={S.btn} onClick={addFaq}>Toevoegen</button>
             </div>
-          </>
+          </fieldset>
         )}
 
         {/* DOCUMENTEN (subtab van Info & documenten) */}
         {activeTab === 'partnerinfo' && infoTab === 'documenten' && (
           <>
-            <div style={S.card}>
-              <div style={S.cardTitle}>Document uploaden</div>
-              <div style={S.grid2}>
-                <div><label style={S.label}>Weergavenaam</label><input style={S.input} value={docUpload.naam} onChange={e => setDocUpload({ ...docUpload, naam: e.target.value })} placeholder="bijv. Draaiboek opbouw" /></div>
-                <div><label style={S.label}>Categorie</label>
-                  <select style={S.input} value={docUpload.categorie} onChange={e => setDocUpload({ ...docUpload, categorie: e.target.value })}>
-                    {DOC_CATEGORIEEN.map(c => <option key={c} value={c}>{c}</option>)}
-                  </select>
+            {!alleenLezenPartners && (
+              <div style={S.card}>
+                <div style={S.cardTitle}>Document uploaden</div>
+                <div style={S.grid2}>
+                  <div><label style={S.label}>Weergavenaam</label><input style={S.input} value={docUpload.naam} onChange={e => setDocUpload({ ...docUpload, naam: e.target.value })} placeholder="bijv. Draaiboek opbouw" /></div>
+                  <div><label style={S.label}>Categorie</label>
+                    <select style={S.input} value={docUpload.categorie} onChange={e => setDocUpload({ ...docUpload, categorie: e.target.value })}>
+                      {DOC_CATEGORIEEN.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
                 </div>
+                <label style={S.label}>Bestand</label>
+                <input type="file" onChange={e => setDocUpload({ ...docUpload, file: e.target.files?.[0] || null })} style={{ fontSize: '13px' }} />
+                <br />
+                <button style={{ ...S.btn, opacity: uploading ? 0.6 : 1 }} disabled={uploading} onClick={uploadDoc}>{uploading ? 'Uploaden...' : 'Uploaden'}</button>
               </div>
-              <label style={S.label}>Bestand</label>
-              <input type="file" onChange={e => setDocUpload({ ...docUpload, file: e.target.files?.[0] || null })} style={{ fontSize: '13px' }} />
-              <br />
-              <button style={{ ...S.btn, opacity: uploading ? 0.6 : 1 }} disabled={uploading} onClick={uploadDoc}>{uploading ? 'Uploaden...' : 'Uploaden'}</button>
-            </div>
+            )}
             <div style={S.card}>
               <div style={S.cardTitle}>{documenten.length} document(en)</div>
               {documenten.length === 0 && <p style={{ fontSize: '13px', color: '#999' }}>Nog geen documenten.</p>}
@@ -2036,7 +2081,7 @@ export default function AdminPage() {
                       <td style={S.td}><div style={{ fontWeight: '600' }}>{d.naam}</div><div style={{ fontSize: '11px', color: '#999' }}>{d.bestandsnaam}</div></td>
                       <td style={S.td}>{d.categorie}</td>
                       <td style={S.td}>{new Date(d.created_at).toLocaleDateString('nl-NL')}</td>
-                      <td style={S.td}><button style={{ ...S.btnSm, marginRight: '6px' }} onClick={() => downloadDoc(d)}>Bekijk</button><button style={S.btnSm} onClick={() => deleteDoc(d)}>Verwijder</button></td>
+                      <td style={S.td}><button style={{ ...S.btnSm, marginRight: '6px' }} onClick={() => downloadDoc(d)}>Bekijk</button>{!alleenLezenPartners && <button style={S.btnSm} onClick={() => deleteDoc(d)}>Verwijder</button>}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -2047,7 +2092,7 @@ export default function AdminPage() {
 
         {/* TEKSTEN (subtab van Info & documenten) */}
         {activeTab === 'partnerinfo' && infoTab === 'teksten' && (
-          <>
+          <fieldset style={{ border: 0, padding: 0, margin: 0 }} disabled={alleenLezenPartners}>
             {Array.from(new Set(teksten.map(t => t.groep))).map(groep => (
               <div key={groep} style={S.card}>
                 <div style={S.cardTitle}>{groep}</div>
@@ -2062,7 +2107,7 @@ export default function AdminPage() {
                 ))}
               </div>
             ))}
-          </>
+          </fieldset>
         )}
 
         {/* TEAM */}
@@ -2143,6 +2188,7 @@ export default function AdminPage() {
               const a = admins.find(x => x.id === rechtenOpen)
               if (!a) return null
               const huidig = (a as Admin & { rechten: Gebied[] | null }).rechten
+              const huidigLezen = (a as Admin & { rechten_lezen: Gebied[] | null }).rechten_lezen || []
               const alles = huidig === null
               return (
                 <div style={{ ...S.card, borderLeft: '3px solid var(--bordeaux)' }}>
@@ -2182,6 +2228,34 @@ export default function AdminPage() {
                       Zonder Beheer kan diegene het team en deze rechten niet zien of aanpassen. Dat is meestal precies
                       wat je wil bij iemand van buiten.
                     </p>
+                  )}
+                  {!alles && (
+                    <div style={{ marginTop: '20px', paddingTop: '18px', borderTop: '1px solid #eee' }}>
+                      <div style={{ fontSize: '13px', fontWeight: 700, marginBottom: '4px' }}>Alleen-lezen</div>
+                      <p style={{ fontSize: '12px', color: '#888', marginBottom: '10px', lineHeight: 1.5 }}>
+                        Los van bovenstaande: gebieden die deze persoon mag zien maar nergens in mag wijzigen,
+                        toevoegen of verwijderen. Vooralsnog alleen afgedwongen voor Partners.
+                      </p>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                        {GEBIEDEN.filter(g => g.id === 'partners').map(g => (
+                          <label key={g.id} style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', cursor: 'pointer' }}>
+                            <input
+                              type="checkbox"
+                              style={{ marginTop: '3px' }}
+                              checked={huidigLezen.includes(g.id) && !(huidig || []).includes(g.id)}
+                              disabled={(huidig || []).includes(g.id)}
+                              onChange={e => zetRechtenLezen(a, e.target.checked ? [...huidigLezen, g.id] : huidigLezen.filter(x => x !== g.id))}
+                            />
+                            <span>
+                              <span style={{ fontSize: '13px', fontWeight: 600 }}>{g.naam} (alleen-lezen)</span>
+                              <span style={{ fontSize: '12px', color: '#888', display: 'block' }}>
+                                {(huidig || []).includes(g.id) ? 'Staat al aan als volledige toegang hierboven.' : g.uitleg}
+                              </span>
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
                   )}
                   <button style={{ ...S.btnSm, marginTop: '14px' }} onClick={() => setRechtenOpen(null)}>Sluiten</button>
                 </div>
@@ -2268,7 +2342,7 @@ export default function AdminPage() {
                   <span style={{ fontSize: '10px', fontWeight: '700', color: v.status === 'open' ? 'var(--bordeaux)' : '#999', textTransform: 'uppercase', letterSpacing: '1px' }}>{v.status}</span>
                 </div>
                 <div style={{ fontSize: '13px', color: '#555', marginBottom: '12px' }}>{v.bericht}</div>
-                {v.status === 'open' && (
+                {v.status === 'open' && !alleenLezenPartners && (
                   <div>
                     <textarea style={{ ...S.input, height: '80px', resize: 'vertical' }} value={antwoordMap[v.id] || ''} onChange={e => setAntwoordMap({ ...antwoordMap, [v.id]: e.target.value })} placeholder="Typ je antwoord..." />
                     <button style={S.btn} onClick={() => handleAntwoord(v.id)}>Antwoord opslaan</button>

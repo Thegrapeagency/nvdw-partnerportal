@@ -150,6 +150,10 @@ export type Admin = {
   // voor de mogelijke waarden). De echte afdwinging zit in de RLS-policies via
   // de SQL-functie mag().
   rechten: import('@/app/admin/rechten').Gebied[] | null
+  // Gebieden die iemand mag ZIEN zonder te mogen schrijven, los van rechten.
+  // Afgedwongen via mag_lezen() in de RLS-policies, vooralsnog alleen op de
+  // partners-gebied-tabellen (zie app/admin/rechten.ts).
+  rechten_lezen: import('@/app/admin/rechten').Gebied[] | null
 }
 
 export type PortalTekst = {
