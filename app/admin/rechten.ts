@@ -26,6 +26,7 @@ export const TAB_GEBIED: Record<string, Gebied> = {
   // Partners is één scherm (lijst, toevoegen en exports zitten erin);
   // partnerinfo bundelt faq/spelregels, teksten/deadlines en documenten.
   partners: 'partners',
+  wijnen: 'partners',
   producten: 'partners',
   crew: 'partners',
   partnerinfo: 'partners',

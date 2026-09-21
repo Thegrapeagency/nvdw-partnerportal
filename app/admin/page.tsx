@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { supabase, posRpc, posSelect, posPatch } from '@/lib/supabase'
-import type { Partner, PartnerVraag, Product, FAQ, PortalTekst, Admin, Document, ActiviteitLog, CrewLid, PriceFloor, SettlementRow } from '@/lib/supabase'
+import type { Partner, PartnerVraag, Product, FAQ, PortalTekst, Admin, Document, ActiviteitLog, CrewLid, PriceFloor, SettlementRow, Wijn } from '@/lib/supabase'
 import { LOG_TABEL_LABEL, LOG_ACTIE_LABEL } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import Programma from './Programma'
@@ -131,6 +131,8 @@ export default function AdminPage() {
   const [partnerSaving, setPartnerSaving] = useState(false)
   const [vragen, setVragen] = useState<PartnerVraag[]>([])
   const [producten, setProducten] = useState<Product[]>([])
+  const [wijnen, setWijnen] = useState<(Wijn & { partners: { bedrijfsnaam: string; type: string } | null })[]>([])
+  const [wijnenZoek, setWijnenZoek] = useState('')
   const [faqItems, setFaqItems] = useState<FAQ[]>([])
   const [teksten, setTeksten] = useState<PortalTekst[]>([])
   const [admins, setAdmins] = useState<Admin[]>([])
@@ -245,7 +247,7 @@ export default function AdminPage() {
     const leeg = Promise.resolve({ data: [] as never[] })
     const magPartners = heeftGebiedLezen(rechten, rechtenLezen, 'partners')
     const magBeheer = heeftTab(rechten, 'team', rechtenLezen)
-    const [p, v, pr, f, t, a, d, l, cw, eb, cc] = await Promise.all([
+    const [p, v, pr, f, t, a, d, l, cw, eb, cc, wl] = await Promise.all([
       // partners_lezen i.p.v. de brontabel: die view maskeert afdracht en
       // standgeld voor wie geen volledige (schrijf)toegang tot partners heeft.
       magPartners ? supabase.from('partners_lezen').select('*').order('created_at', { ascending: false }) : leeg,
@@ -259,11 +261,13 @@ export default function AdminPage() {
       magPartners ? supabase.from('crew').select('*').order('created_at') : leeg,
       magPartners ? supabase.from('extra_bestellingen').select('id, partner_id, product, aantal, prijs_per_stuk, status').order('created_at', { ascending: false }) : leeg,
       magPartners ? supabase.from('crewcatering').select('id, partner_id, avond, aantal_personen, dieetwensen') : leeg,
+      magPartners ? supabase.from('wijnlijst').select('*, partners(bedrijfsnaam, type)').eq('actief', true).order('partner_id').order('volgorde') : leeg,
     ])
     setPartners(p.data || []); setVragen(v.data || []); setProducten(pr.data || [])
     setFaqItems(f.data || []); setTeksten(t.data || []); setAdmins(a.data || []); setDocumenten(d.data || [])
     setLog(l.data || []); setCrew(cw.data || [])
     setExtraBestellingen(eb.data || []); setCrewcatering(cc.data || [])
+    setWijnen((wl.data as any) || [])
     const td: Record<string, string> = {}
     ;(t.data || []).forEach((x: PortalTekst) => { td[x.sleutel] = x.waarde })
     setTekstDraft(td)
@@ -967,6 +971,7 @@ export default function AdminPage() {
     {
       id: 'thema-partners', label: 'Partners', leaves: [
         { id: 'partners', label: 'Partners' },
+        { id: 'wijnen', label: 'Wijnen' },
         { id: 'producten', label: 'Producten (extra’s)' },
         { id: 'partnerinfo', label: 'Info & documenten' },
         { id: 'vragen', label: `Vragen${openVragen.length > 0 ? ` (${openVragen.length})` : ''}` },
@@ -1891,6 +1896,57 @@ export default function AdminPage() {
             </div>
           </>
         )}
+
+        {/* WIJNEN — galerij van alles wat partners in hun eigen portal invullen */}
+        {activeTab === 'wijnen' && (() => {
+          const euroFmt = (n: number) => '€' + n.toFixed(2).replace('.', ',')
+          const zoek = wijnenZoek.trim().toLowerCase()
+          const treft = (w: typeof wijnen[number]) => !zoek || [w.naam, w.producent, w.regio, w.land, w.druif, w.partners?.bedrijfsnaam]
+            .some(v => (v || '').toLowerCase().includes(zoek))
+          const gefilterd = wijnen.filter(treft)
+          const perPartner = new Map<string, typeof wijnen>()
+          gefilterd.forEach(w => {
+            const naam = w.partners?.bedrijfsnaam || 'Onbekende partner'
+            perPartner.set(naam, [...(perPartner.get(naam) || []), w])
+          })
+          const partnerNamen = Array.from(perPartner.keys()).sort((a, b) => a.localeCompare(b))
+          return (
+            <>
+              <div style={S.title}>Wijnen</div>
+              <div style={S.sub}>{wijnen.length} wijnen, ingevuld door partners in hun eigen portal (foto, druif, streek, prijzen). Alleen actieve wijnen.</div>
+              <input style={{ ...S.input, maxWidth: '360px', margin: '4px 0 20px' }} value={wijnenZoek} onChange={e => setWijnenZoek(e.target.value)}
+                placeholder="Zoek op wijn, druif, streek of partner..." />
+              {partnerNamen.length === 0 && <p style={{ fontSize: '13px', color: '#999' }}>{wijnen.length === 0 ? 'Nog geen wijnen ingevuld.' : 'Niets gevonden.'}</p>}
+              {partnerNamen.map(naam => (
+                <div key={naam} style={S.card}>
+                  <div style={S.cardTitle}>{naam}</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '14px' }}>
+                    {(perPartner.get(naam) || []).map(w => (
+                      <div key={w.id} style={{ border: '1px solid #eee', borderRadius: '6px', overflow: 'hidden' }}>
+                        {w.foto_url
+                          ? <img src={w.foto_url} alt={w.naam} style={{ width: '100%', height: '140px', objectFit: 'cover', display: 'block' }} />
+                          : <div style={{ width: '100%', height: '140px', background: '#f7f4ec', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', color: '#bbb' }}>Geen foto</div>}
+                        <div style={{ padding: '10px 12px' }}>
+                          <div style={{ fontWeight: '700', fontSize: '13px' }}>{w.naam}</div>
+                          {w.producent && <div style={{ fontSize: '12px', color: '#777' }}>{w.producent}</div>}
+                          <div style={{ fontSize: '11px', color: '#999', marginTop: '4px' }}>
+                            {[w.druif, [w.regio, w.land].filter(Boolean).join(', '), w.jaar].filter(Boolean).join(' · ')}
+                          </div>
+                          {(w.prijs_half_glas || w.prijs_heel_glas || w.prijs_fles) && (
+                            <div style={{ fontSize: '11px', color: 'var(--bordeaux)', marginTop: '6px', fontWeight: '600' }}>
+                              {[w.prijs_half_glas && `½ ${euroFmt(w.prijs_half_glas)}`, w.prijs_heel_glas && `glas ${euroFmt(w.prijs_heel_glas)}`, w.prijs_fles && `fles ${euroFmt(w.prijs_fles)}`].filter(Boolean).join(' · ')}
+                            </div>
+                          )}
+                          {w.beschrijving && <div style={{ fontSize: '11px', color: '#888', marginTop: '6px', lineHeight: 1.5 }}>{w.beschrijving}</div>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </>
+          )
+        })()}
 
         {/* PRODUCTEN */}
         {activeTab === 'producten' && (
