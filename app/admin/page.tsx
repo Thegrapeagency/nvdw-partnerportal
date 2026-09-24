@@ -887,6 +887,13 @@ export default function AdminPage() {
     await supabase.from('crew').delete().eq('id', id)
     setCrew(crew.filter(c => c.id !== id)); flash('Verwijderd')
   }
+  // Betaald crewlid vs. vrijwilliger: alleen intern zichtbaar/zetbaar, de
+  // partner die dit crewlid heeft toegevoegd ziet dit veld niet (crew_partner_lezen).
+  const toggleBetaald = async (c: CrewLid) => {
+    const { error } = await supabase.from('crew').update({ betaald: !c.betaald }).eq('id', c.id)
+    if (error) { flash('Opslaan mislukte: ' + error.message, 6000); return }
+    setCrew(crew.map(x => x.id === c.id ? { ...x, betaald: !c.betaald } : x))
+  }
   const partnerNaam = (pid: string | null) => pid ? (partners.find(p => p.id === pid)?.bedrijfsnaam || 'Onbekend') : 'Eigen organisatie'
   const handleExportCrew = async () => {
     if (crew.length === 0) { flash('Geen crew om te exporteren.'); return }
@@ -1387,9 +1394,9 @@ export default function AdminPage() {
                 </div>
                 <div style={{ overflowX: 'auto' }}>
                   <table style={S.table}>
-                    <thead><tr>{['Bron', 'Naam', 'Functie', 'E-mail', 'Dagen', 'Catering', 'Dieet/allergie', ''].map(h => <th key={h} style={S.th}>{h}</th>)}</tr></thead>
+                    <thead><tr>{['Bron', 'Naam', 'Functie', 'E-mail', 'Dagen', 'Catering', 'Dieet/allergie', 'Betaald', ''].map(h => <th key={h} style={S.th}>{h}</th>)}</tr></thead>
                     <tbody>
-                      {crew.length === 0 && <tr><td style={S.td} colSpan={8}><span style={{ color: '#999' }}>Nog geen crew.</span></td></tr>}
+                      {crew.length === 0 && <tr><td style={S.td} colSpan={9}><span style={{ color: '#999' }}>Nog geen crew.</span></td></tr>}
                       {crew.map(c => (
                         <tr key={c.id}>
                           <td style={S.td}><span style={{ fontSize: '11px', fontWeight: 700, color: c.partner_id ? 'var(--navy)' : 'var(--bordeaux)' }}>{partnerNaam(c.partner_id)}</span></td>
@@ -1399,6 +1406,9 @@ export default function AdminPage() {
                           <td style={S.td}>{(c.dagen || []).join(', ') || '—'}</td>
                           <td style={S.td}>{(c.catering_dagen || []).join(', ') || '—'}</td>
                           <td style={S.td}>{c.dieet || '—'}</td>
+                          <td style={S.td} title="Alleen intern zichtbaar, de partner ziet dit niet">
+                            <input type="checkbox" checked={!!c.betaald} onChange={() => toggleBetaald(c)} />
+                          </td>
                           <td style={S.td}><button style={S.btnSm} onClick={() => deleteCrewLid(c.id)}>Verwijder</button></td>
                         </tr>
                       ))}

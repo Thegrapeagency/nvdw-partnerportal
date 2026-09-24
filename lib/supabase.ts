@@ -127,6 +127,9 @@ export type CrewLid = {
   catering_dagen: string[]
   dieet: string | null
   created_at: string
+  // Alleen admin-intern (betaald personeel vs. vrijwilliger). Partners
+  // krijgen dit veld niet mee, ook niet via de API: zie crew_partner_lezen.
+  betaald?: boolean
 }
 
 export type MenukaartItem = {

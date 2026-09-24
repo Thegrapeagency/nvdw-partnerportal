@@ -137,7 +137,9 @@ export default function Dashboard() {
         supabase.from('wijnlijst').select('*').eq('partner_id', p.id).order('volgorde'),
         supabase.from('menukaart').select('*').eq('partner_id', p.id).order('volgorde'),
         supabase.from('crewcatering').select('*').eq('partner_id', p.id),
-        supabase.from('crew').select('*').eq('partner_id', p.id).order('created_at'),
+        // crew_partner_lezen i.p.v. de brontabel: die laat het admin-only
+        // betaald-veld weg (betaald personeel vs. vrijwilliger).
+        supabase.from('crew_partner_lezen').select('*').eq('partner_id', p.id).order('created_at'),
         supabase.from('faq').select('*').eq('actief', true).order('volgorde'),
         supabase.from('partner_vragen').select('*').eq('partner_id', p.id).order('created_at', { ascending: false }),
         supabase.from('producten_catalogus').select('*').eq('actief', true).order('volgorde'),
@@ -296,10 +298,13 @@ export default function Dashboard() {
 
   const addCrew = async () => {
     if (!partner || !newCrew.naam) return
+    // Expliciete kolomlijst i.p.v. select(): dit gaat naar de brontabel (insert
+    // kan niet op een view), dus zonder dat zou het admin-only betaald-veld
+    // toch in de respons van deze partner terechtkomen.
     const { data, error } = await supabase.from('crew').insert({
       partner_id: partner.id, naam: newCrew.naam, functie: newCrew.functie || null, email: newCrew.email || null,
       dagen: newCrew.dagen, catering_dagen: newCrew.catering_dagen, dieet: newCrew.dieet || null,
-    }).select().single()
+    }).select('id, partner_id, naam, functie, email, dagen, catering_dagen, dieet, created_at, updated_at').single()
     if (error || !data) { flash('Crewlid toevoegen mislukt.'); return }
     setCrew([...crew, data])
     const naam = newCrew.naam.trim()
