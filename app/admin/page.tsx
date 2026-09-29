@@ -1910,6 +1910,11 @@ export default function AdminPage() {
         {/* WIJNEN — galerij van alles wat partners in hun eigen portal invullen */}
         {activeTab === 'wijnen' && (() => {
           const euroFmt = (n: number) => '€' + n.toFixed(2).replace('.', ',')
+          // Zelfde 4 waarden als de bezoekers-app (src/lib/types.ts Kleur).
+          const KLEUR: Record<string, { l: string; c: string }> = {
+            rood: { l: 'Rode wijn', c: '#9B3737' }, wit: { l: 'Witte wijn', c: '#E8EBD6' },
+            rose: { l: 'Rosé', c: '#E3A6A0' }, bubbels: { l: 'Mousserend', c: '#BFD3D6' },
+          }
           const zoek = wijnenZoek.trim().toLowerCase()
           const treft = (w: typeof wijnen[number]) => !zoek || [w.naam, w.producent, w.regio, w.land, w.druif, w.partners?.bedrijfsnaam]
             .some(v => (v || '').toLowerCase().includes(zoek))
@@ -1937,7 +1942,11 @@ export default function AdminPage() {
                           ? <img src={w.foto_url} alt={w.naam} style={{ width: '100%', height: '140px', objectFit: 'cover', display: 'block' }} />
                           : <div style={{ width: '100%', height: '140px', background: '#f7f4ec', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', color: '#bbb' }}>Geen foto</div>}
                         <div style={{ padding: '10px 12px' }}>
-                          <div style={{ fontWeight: '700', fontSize: '13px' }}>{w.naam}</div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            {(w as any).kleur_type && <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: KLEUR[(w as any).kleur_type]?.c || '#ccc', border: '1px solid rgba(0,0,0,0.1)', flexShrink: 0 }} />}
+                            <div style={{ fontWeight: '700', fontSize: '13px' }}>{w.naam}</div>
+                          </div>
+                          {(w as any).kleur_type && <div style={{ fontSize: '11px', color: '#999' }}>{KLEUR[(w as any).kleur_type]?.l}</div>}
                           {w.producent && <div style={{ fontSize: '12px', color: '#777' }}>{w.producent}</div>}
                           <div style={{ fontSize: '11px', color: '#999', marginTop: '4px' }}>
                             {[w.druif, [w.regio, w.land].filter(Boolean).join(', '), w.jaar].filter(Boolean).join(' · ')}

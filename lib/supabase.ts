@@ -217,6 +217,8 @@ export type Wijn = {
   volgorde: number
   foto_url: string | null
   smaak_assen: Record<string, number> | null
+  // Kleurtype voor de bezoekers-app (filter, kleurstip, smaakmatching).
+  kleur_type: 'rood' | 'wit' | 'rose' | 'bubbels' | null
 }
 
 export type Crewcatering = {

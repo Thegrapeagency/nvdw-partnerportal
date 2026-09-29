@@ -72,9 +72,26 @@ export default function Dashboard() {
   const [documenten, setDocumenten] = useState<Document[]>([])
   const [log, setLog] = useState<ActiviteitLog[]>([])
   const [msg, setMsg] = useState('')
-  const [newWijn, setNewWijn] = useState({ naam: '', producent: '', regio: '', land: '', druif: '', jaar: '', prijs_half_glas: '', prijs_heel_glas: '', prijs_fles: '', beschrijving: '' })
+  const [newWijn, setNewWijn] = useState({ naam: '', producent: '', regio: '', land: '', druif: '', jaar: '', kleur_type: '', prijs_half_glas: '', prijs_heel_glas: '', prijs_fles: '', beschrijving: '' })
   const [newWijnFoto, setNewWijnFoto] = useState<File | null>(null)
   const [wijnFotoBusy, setWijnFotoBusy] = useState<string | null>(null)
+  // Een al ingevulde wijn bewerken (naam, prijzen etc.), los van het
+  // smaakprofiel-paneel en het "nieuwe wijn"-formulier hieronder.
+  const [wijnEditOpen, setWijnEditOpen] = useState<string | null>(null)
+  const [wijnEditForm, setWijnEditForm] = useState({ naam: '', producent: '', regio: '', land: '', druif: '', jaar: '', kleur_type: '', prijs_half_glas: '', prijs_heel_glas: '', prijs_fles: '', beschrijving: '' })
+  const [wijnEditBezig, setWijnEditBezig] = useState(false)
+  // Zelfde 4 waarden als de bezoekers-app (src/lib/types.ts Kleur), die
+  // gebruikt dit veld voor de kleurstip, filter en smaakmatching.
+  const KLEUR_OPTIES: { v: 'rood' | 'wit' | 'rose' | 'bubbels'; l: string; c: string }[] = [
+    { v: 'rood', l: 'Rode wijn', c: '#9B3737' },
+    { v: 'wit', l: 'Witte wijn', c: '#E8EBD6' },
+    { v: 'rose', l: 'Rosé', c: '#E3A6A0' },
+    { v: 'bubbels', l: 'Mousserend', c: '#BFD3D6' },
+  ]
+  const kleurLabel = (k: string | null) => KLEUR_OPTIES.find(o => o.v === k)?.l || ''
+  const kleurDot = (k: string | null) => (
+    <span style={{ display: 'inline-block', width: '9px', height: '9px', borderRadius: '50%', background: KLEUR_OPTIES.find(o => o.v === k)?.c || 'rgba(1,3,65,0.15)', border: '1px solid rgba(1,3,65,0.15)', flexShrink: 0 }} />
+  )
   const [smaakOpen, setSmaakOpen] = useState<string | null>(null)
   const [menu, setMenu] = useState<MenukaartItem[]>([])
   const [crew, setCrew] = useState<CrewLid[]>([])
@@ -258,12 +275,13 @@ export default function Dashboard() {
       partner_id: partner.id, naam: newWijn.naam, producent: newWijn.producent || null,
       regio: newWijn.regio || null, land: newWijn.land || null, druif: newWijn.druif || null,
       jaar: newWijn.jaar ? parseInt(newWijn.jaar) : null,
+      kleur_type: newWijn.kleur_type || null,
       prijs_half_glas: leesPrijs(newWijn.prijs_half_glas),
       prijs_heel_glas: leesPrijs(newWijn.prijs_heel_glas),
       prijs_fles: leesPrijs(newWijn.prijs_fles),
       beschrijving: newWijn.beschrijving || null, volgorde: wijnen.length, foto_url,
     }).select().single()
-    if (!error && data) { setWijnen([...wijnen, data]); setNewWijn({ naam: '', producent: '', regio: '', land: '', druif: '', jaar: '', prijs_half_glas: '', prijs_heel_glas: '', prijs_fles: '', beschrijving: '' }); setNewWijnFoto(null); flash('Wijn toegevoegd. Staat direct in de kassa.') }
+    if (!error && data) { setWijnen([...wijnen, data]); setNewWijn({ naam: '', producent: '', regio: '', land: '', druif: '', jaar: '', kleur_type: '', prijs_half_glas: '', prijs_heel_glas: '', prijs_fles: '', beschrijving: '' }); setNewWijnFoto(null); flash('Wijn toegevoegd. Staat direct in de kassa.') }
     else if (error) flash(error.message)
   }
 
@@ -291,6 +309,38 @@ export default function Dashboard() {
     const assen = { ...(wijn.smaak_assen ?? {}), [as]: val }
     setWijnen(wijnen.map(w => w.id === wijn.id ? { ...w, smaak_assen: assen } : w))
     await supabase.from('wijnlijst').update({ smaak_assen: assen }).eq('id', wijn.id)
+  }
+
+  const openWijnEdit = (w: Wijn) => {
+    setWijnEditForm({
+      naam: w.naam || '', producent: w.producent || '', regio: w.regio || '', land: w.land || '',
+      druif: w.druif || '', jaar: w.jaar != null ? String(w.jaar) : '', kleur_type: w.kleur_type || '',
+      prijs_half_glas: w.prijs_half_glas != null ? String(w.prijs_half_glas) : '',
+      prijs_heel_glas: w.prijs_heel_glas != null ? String(w.prijs_heel_glas) : '',
+      prijs_fles: w.prijs_fles != null ? String(w.prijs_fles) : '',
+      beschrijving: w.beschrijving || '',
+    })
+    setWijnEditOpen(w.id)
+  }
+  const saveWijnEdit = async (w: Wijn) => {
+    if (!wijnEditForm.naam.trim()) { flash('Naam mag niet leeg zijn.'); return }
+    setWijnEditBezig(true)
+    const patch = {
+      naam: wijnEditForm.naam.trim(), producent: wijnEditForm.producent || null,
+      regio: wijnEditForm.regio || null, land: wijnEditForm.land || null, druif: wijnEditForm.druif || null,
+      jaar: wijnEditForm.jaar ? parseInt(wijnEditForm.jaar) : null,
+      kleur_type: (wijnEditForm.kleur_type || null) as Wijn['kleur_type'],
+      prijs_half_glas: leesPrijs(wijnEditForm.prijs_half_glas),
+      prijs_heel_glas: leesPrijs(wijnEditForm.prijs_heel_glas),
+      prijs_fles: leesPrijs(wijnEditForm.prijs_fles),
+      beschrijving: wijnEditForm.beschrijving || null,
+    }
+    const { error } = await supabase.from('wijnlijst').update(patch).eq('id', w.id)
+    setWijnEditBezig(false)
+    if (error) { flash('Opslaan mislukte: ' + error.message); return }
+    setWijnen(wijnen.map(x => x.id === w.id ? { ...x, ...patch } : x))
+    setWijnEditOpen(null)
+    flash('Wijn bijgewerkt.')
   }
 
   const toggleAllergeen = (a: string) => {
@@ -1165,9 +1215,12 @@ export default function Dashboard() {
                         <div style={{ width: '48px', height: '48px', borderRadius: '8px', background: 'rgba(1,3,65,0.06)', flexShrink: 0 }} />
                       )}
                       <div style={{ minWidth: 0 }}>
-                        <div style={{ fontSize: '14px', fontWeight: '500', color: 'var(--navy)' }}>{w.naam}</div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
+                          {kleurDot(w.kleur_type)}
+                          <span style={{ fontSize: '14px', fontWeight: '500', color: 'var(--navy)' }}>{w.naam}</span>
+                        </div>
                         <div style={{ fontSize: '12px', color: 'rgba(1,3,65,0.4)', marginTop: '2px' }}>
-                          {[w.producent, w.regio, w.land, w.druif, w.jaar].filter(Boolean).join(' · ')}
+                          {[kleurLabel(w.kleur_type), w.producent, w.regio, w.land, w.druif, w.jaar].filter(Boolean).join(' · ')}
                         </div>
                         <div style={{ fontSize: '12px', color: 'var(--bordeaux)', marginTop: '2px' }}>
                           {[w.prijs_half_glas && `½ €${w.prijs_half_glas}`, w.prijs_heel_glas && `glas €${w.prijs_heel_glas}`, w.prijs_fles && `fles €${w.prijs_fles}`].filter(Boolean).join(' · ')}
@@ -1175,6 +1228,9 @@ export default function Dashboard() {
                       </div>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+                      <button onClick={() => (wijnEditOpen === w.id ? setWijnEditOpen(null) : openWijnEdit(w))} style={{ ...S.btnOutline, ...(!w.kleur_type ? { borderColor: 'var(--gold, #feb72a)', color: '#8a5e16' } : {}) }}>
+                        {wijnEditOpen === w.id ? 'Bewerken sluiten' : 'Bewerken'}
+                      </button>
                       <button onClick={() => setSmaakOpen(smaakOpen === w.id ? null : w.id)} style={{ ...S.btnOutline, ...(ingevuld === 0 ? { borderColor: 'var(--gold, #feb72a)', color: '#8a5e16' } : {}) }}>
                         {smaakOpen === w.id ? 'Smaakprofiel sluiten' : ingevuld > 0 ? 'Smaakprofiel' : 'Smaakprofiel invullen'}
                       </button>
@@ -1187,6 +1243,43 @@ export default function Dashboard() {
                       <button onClick={() => deleteWijn(w.id)} style={S.btnOutline}>Verwijder</button>
                     </div>
                   </div>
+                  {wijnEditOpen === w.id && (
+                    <div style={{ background: 'var(--cream)', border: '1px solid rgba(1,3,65,0.1)', borderRadius: '10px', padding: '16px 18px', margin: '0 0 16px' }}>
+                      <div style={S.grid2}>
+                        {[
+                          { k: 'naam', l: 'Naam *', p: 'bijv. Rioja Reserva' },
+                          { k: 'producent', l: 'Producent', p: '' },
+                          { k: 'regio', l: 'Regio', p: '' },
+                          { k: 'land', l: 'Land', p: '' },
+                          { k: 'druif', l: 'Druif', p: '' },
+                          { k: 'jaar', l: 'Jaar', p: '2021' },
+                          { k: 'prijs_half_glas', l: '½ glas (€)', p: '0.00' },
+                          { k: 'prijs_heel_glas', l: 'Heel glas (€)', p: '0.00' },
+                          { k: 'prijs_fles', l: 'Fles (€)', p: '0.00' },
+                        ].map(({ k, l, p }) => (
+                          <div key={k}>
+                            <label style={S.label}>{l}</label>
+                            <input style={S.input} value={(wijnEditForm as any)[k]} onChange={e => setWijnEditForm({ ...wijnEditForm, [k]: e.target.value })} placeholder={p} />
+                          </div>
+                        ))}
+                        <div>
+                          <label style={S.label}>Kleur *</label>
+                          <select style={S.input} value={wijnEditForm.kleur_type} onChange={e => setWijnEditForm({ ...wijnEditForm, kleur_type: e.target.value })}>
+                            <option value="">Kies...</option>
+                            {KLEUR_OPTIES.map(o => <option key={o.v} value={o.v}>{o.l}</option>)}
+                          </select>
+                        </div>
+                      </div>
+                      <label style={S.label}>Omschrijving</label>
+                      <textarea style={{ ...S.input, height: '72px', resize: 'vertical' }} value={wijnEditForm.beschrijving} onChange={e => setWijnEditForm({ ...wijnEditForm, beschrijving: e.target.value })} />
+                      <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
+                        <button style={{ ...S.btn, marginTop: 0, opacity: wijnEditBezig ? 0.6 : 1 }} disabled={wijnEditBezig} onClick={() => saveWijnEdit(w)}>
+                          {wijnEditBezig ? 'Opslaan...' : 'Wijzigingen opslaan'}
+                        </button>
+                        <button style={{ ...S.btnOutline, marginTop: '20px' }} onClick={() => setWijnEditOpen(null)}>Annuleer</button>
+                      </div>
+                    </div>
+                  )}
                   {smaakOpen === w.id && (
                     <div style={{ background: 'var(--cream)', border: '1px solid rgba(1,3,65,0.1)', borderRadius: '10px', padding: '16px 18px', margin: '0 0 16px' }}>
                       <div style={{ fontSize: '12px', color: 'rgba(1,3,65,0.55)', lineHeight: 1.6, marginBottom: '14px' }}>
@@ -1240,6 +1333,13 @@ export default function Dashboard() {
                     <input style={S.input} value={(newWijn as any)[k]} onChange={e => setNewWijn({ ...newWijn, [k]: e.target.value })} placeholder={p} />
                   </div>
                 ))}
+                <div>
+                  <label style={S.label}>Kleur *</label>
+                  <select style={S.input} value={newWijn.kleur_type} onChange={e => setNewWijn({ ...newWijn, kleur_type: e.target.value })}>
+                    <option value="">Kies...</option>
+                    {KLEUR_OPTIES.map(o => <option key={o.v} value={o.v}>{o.l}</option>)}
+                  </select>
+                </div>
               </div>
               <label style={S.label}>Omschrijving</label>
               <textarea style={{ ...S.input, height: '72px', resize: 'vertical' }} value={newWijn.beschrijving} onChange={e => setNewWijn({ ...newWijn, beschrijving: e.target.value })} />
