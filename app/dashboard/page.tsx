@@ -1,9 +1,11 @@
 'use client'
 import { useEffect, useState, useRef } from 'react'
-import { supabase, posRpc } from '@/lib/supabase'
-import type { Partner, Wijn, Crewcatering, FAQ, PartnerVraag, Product, PortalTekst, Document, MenukaartItem, ActiviteitLog, CrewLid, PosMe, PosSummary } from '@/lib/supabase'
+import { supabase, posRpc, posSelect } from '@/lib/supabase'
+import type { PriceFloor, Partner, Wijn, Crewcatering, FAQ, PartnerVraag, Product, PortalTekst, Document, MenukaartItem, ActiviteitLog, CrewLid, PosMe, PosSummary } from '@/lib/supabase'
 import { ALLERGENEN, LOG_TABEL_LABEL, LOG_ACTIE_LABEL } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
+
+const FAQ_TITEL: Record<string, string> = { bar: 'Je bar & team', wijn: 'Wijn & prijzen', afrekening: 'Afrekening' }
 
 const PAKKET: Record<string, string> = {
   branded_bar: 'Branded Bar', own_bar: 'Own Bar',
@@ -65,6 +67,7 @@ export default function Dashboard() {
   const [wijnen, setWijnen] = useState<Wijn[]>([])
   const [catering, setCatering] = useState<Crewcatering[]>([])
   const [faqItems, setFaqItems] = useState<FAQ[]>([])
+  const [floors, setFloors] = useState<PriceFloor[]>([])
   const [vragen, setVragen] = useState<PartnerVraag[]>([])
   const [producten, setProducten] = useState<Product[]>([])
   const [extraAantal, setExtraAantal] = useState<Record<string, number>>({})
@@ -171,6 +174,8 @@ export default function Dashboard() {
     setTeksten(tmap); setDocumenten(d || [])
     const { data: lg } = await supabase.from('activiteit_log').select('*').order('created_at', { ascending: false }).limit(15)
     setLog(lg || [])
+    // Minimumprijzen van het festival: alleen tonen, afdwingen doet de database.
+    try { setFloors((await posSelect<PriceFloor>('price_floors?select=key,label,min_cents,active')).filter(f => f.active && f.min_cents > 0)) } catch { setFloors([]) }
     if (c && c.length > 0) {
       const fs: Record<string, { aantal: string; dieet: string }> = { vrijdag: { aantal: '0', dieet: '' }, zaterdag: { aantal: '0', dieet: '' }, zondag: { aantal: '0', dieet: '' } }
       c.forEach((x: Crewcatering) => { fs[x.avond] = { aantal: x.aantal_personen.toString(), dieet: x.dieetwensen || '' } })
@@ -251,6 +256,21 @@ export default function Dashboard() {
     if (data?.signedUrl) window.open(data.signedUrl, '_blank')
   }
 
+  const floorKey: Record<string, string> = { prijs_half_glas: 'half_glas', prijs_heel_glas: 'heel_glas', prijs_fles: 'fles' }
+  const floorTekst = (k: string) => {
+    const f = floors.find(x => x.key === floorKey[k])
+    return f ? ` · min. € ${(f.min_cents / 100).toFixed(2).replace('.', ',')}` : ''
+  }
+  // Zelfde controle als de database, zodat de partner het meteen bij het invullen ziet.
+  const floorFout = (form: Record<string, string>): string | null => {
+    for (const k of Object.keys(floorKey)) {
+      const f = floors.find(x => x.key === floorKey[k])
+      const v = leesPrijs(form[k])
+      if (f && v != null && Math.round(v * 100) < f.min_cents) return `${f.label} moet minimaal € ${(f.min_cents / 100).toFixed(2).replace('.', ',')} zijn (minimumprijs festival).`
+    }
+    return null
+  }
+
   // "4,50" en "4.50" allebei goed inlezen (komma is hier de normale invoer)
   const leesPrijs = (s: string): number | null => {
     if (!s || !s.trim()) return null
@@ -270,6 +290,7 @@ export default function Dashboard() {
 
   const addWijn = async () => {
     if (!partner || !newWijn.naam) return
+    const fout = floorFout(newWijn); if (fout) { flash(fout); return }
     const foto_url = newWijnFoto ? await uploadWijnFoto(newWijnFoto) : null
     const { data, error } = await supabase.from('wijnlijst').insert({
       partner_id: partner.id, naam: newWijn.naam, producent: newWijn.producent || null,
@@ -324,6 +345,7 @@ export default function Dashboard() {
   }
   const saveWijnEdit = async (w: Wijn) => {
     if (!wijnEditForm.naam.trim()) { flash('Naam mag niet leeg zijn.'); return }
+    const fout = floorFout(wijnEditForm); if (fout) { flash(fout); return }
     setWijnEditBezig(true)
     const patch = {
       naam: wijnEditForm.naam.trim(), producent: wijnEditForm.producent || null,
@@ -1258,7 +1280,7 @@ export default function Dashboard() {
                           { k: 'prijs_fles', l: 'Fles (€)', p: '0.00' },
                         ].map(({ k, l, p }) => (
                           <div key={k}>
-                            <label style={S.label}>{l}</label>
+                            <label style={S.label}>{l}{floorTekst(k)}</label>
                             <input style={S.input} value={(wijnEditForm as any)[k]} onChange={e => setWijnEditForm({ ...wijnEditForm, [k]: e.target.value })} placeholder={p} />
                           </div>
                         ))}
@@ -1329,7 +1351,7 @@ export default function Dashboard() {
                   { k: 'prijs_fles', l: 'Fles (€)', p: '0.00' },
                 ].map(({ k, l, p }) => (
                   <div key={k}>
-                    <label style={S.label}>{l}</label>
+                    <label style={S.label}>{l}{floorTekst(k)}</label>
                     <input style={S.input} value={(newWijn as any)[k]} onChange={e => setNewWijn({ ...newWijn, [k]: e.target.value })} placeholder={p} />
                   </div>
                 ))}
@@ -1627,12 +1649,12 @@ export default function Dashboard() {
           <div style={S.pageTitle}>Spelregels & FAQ</div>
           <div style={S.pageDesc}>Antwoorden op de meest gestelde vragen.</div>
           <div style={{ borderTop: '1px solid rgba(1,3,65,0.1)', paddingTop: '28px' }}>
-            {['logistiek', 'systemen', 'huisregels', 'catering'].map(cat => {
+            {['bar', 'wijn', 'afrekening', 'logistiek', 'systemen', 'huisregels', 'catering'].map(cat => {
               const items = faqItems.filter(f => f.categorie === cat)
               if (!items.length) return null
               return (
                 <div key={cat} style={{ marginBottom: '32px' }}>
-                  <div style={S.sectionTitle}>{cat.charAt(0).toUpperCase() + cat.slice(1)}</div>
+                  <div style={S.sectionTitle}>{FAQ_TITEL[cat] || cat.charAt(0).toUpperCase() + cat.slice(1)}</div>
                   {items.map(item => (
                     <div key={item.id} style={{ padding: '14px 0', borderBottom: '1px solid rgba(1,3,65,0.07)' }}>
                       <div style={{ fontSize: '14px', fontWeight: '500', color: 'var(--navy)', marginBottom: '5px' }}>{item.vraag}</div>

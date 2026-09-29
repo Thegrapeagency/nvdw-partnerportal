@@ -38,7 +38,7 @@ const PAKKET_LABELS: Record<string, string> = {
 
 const DAGEN = ['vrijdag', 'zaterdag', 'zondag']
 
-const FAQ_CATEGORIEEN = ['logistiek', 'systemen', 'huisregels', 'catering', 'algemeen']
+const FAQ_CATEGORIEEN = ['bar', 'wijn', 'afrekening', 'logistiek', 'systemen', 'huisregels', 'catering', 'algemeen']
 const DOC_CATEGORIEEN = ['draaiboek', 'plattegrond', 'huisstijl', 'contracten', 'overig']
 
 type PartnerBericht = {
