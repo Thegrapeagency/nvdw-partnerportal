@@ -68,6 +68,7 @@ export default function Dashboard() {
   const [catering, setCatering] = useState<Crewcatering[]>([])
   const [faqItems, setFaqItems] = useState<FAQ[]>([])
   const [floors, setFloors] = useState<PriceFloor[]>([])
+  const [mededelingWeg, setMededelingWeg] = useState<string | null>(null)
   const [vragen, setVragen] = useState<PartnerVraag[]>([])
   const [producten, setProducten] = useState<Product[]>([])
   const [extraAantal, setExtraAantal] = useState<Record<string, number>>({})
@@ -249,6 +250,7 @@ export default function Dashboard() {
   const flash = (m: string) => { setMsg(m); setTimeout(() => setMsg(''), 3000) }
   const logout = async () => { await supabase.auth.signOut(); router.push('/') }
   const T = (k: string, fallback = '') => teksten[k] || fallback
+  useEffect(() => { try { setMededelingWeg(localStorage.getItem('mededeling_weg')) } catch {} }, [])
   const cateringPrijs = parseFloat(T('prijs_catering_pp', '19.50')) || 19.5
 
   const downloadDoc = async (d: Document) => {
@@ -532,7 +534,8 @@ export default function Dashboard() {
 
   const stuurVraag = async () => {
     if (!partner || !newVraag.onderwerp || !newVraag.bericht) return
-    const { data } = await supabase.from('partner_vragen').insert({ partner_id: partner.id, ...newVraag }).select().single()
+    const { data, error } = await supabase.from('partner_vragen').insert({ partner_id: partner.id, ...newVraag }).select().single()
+    if (error) { flash('Versturen mislukte: ' + error.message); return }
     if (data) { setVragen([data, ...vragen]); setNewVraag({ onderwerp: '', bericht: '' }); flash('Vraag verstuurd') }
   }
 
@@ -708,6 +711,18 @@ export default function Dashboard() {
           return <>
             <div style={S.pageTitle}>Welkom terug</div>
             <div style={S.pageDesc}>{partner.bedrijfsnaam} · {partner.avond} · {PAKKET[partner.pakket]}</div>
+
+            {/* Mededeling van NvdW aan alle partners (tekst staat in de admin onder Info & documenten) */}
+            {T('mededeling_titel') && T('mededeling_tekst') && mededelingWeg !== T('mededeling_titel') + T('mededeling_tekst') && (
+              <div style={{ background: 'var(--card)', border: '1px solid rgba(1,3,65,0.08)', borderLeft: '3px solid var(--gold)', borderRadius: '14px', padding: '16px 20px', marginBottom: '16px' }}>
+                <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--navy)', marginBottom: '6px' }}>{T('mededeling_titel')}</div>
+                <div style={{ fontSize: '13px', color: 'var(--navy)', lineHeight: 1.7 }}>{T('mededeling_tekst')}</div>
+                <div style={{ display: 'flex', gap: '10px', marginTop: '14px', flexWrap: 'wrap' }}>
+                  <button onClick={() => setTab(isFood ? 'menukaart' : 'wijnlijst')} style={{ ...S.btn, marginTop: 0 }}>{isFood ? 'Naar mijn menukaart' : 'Naar mijn wijnlijst'}</button>
+                  <button onClick={() => { const k = T('mededeling_titel') + T('mededeling_tekst'); setMededelingWeg(k); try { localStorage.setItem('mededeling_weg', k) } catch {} }} style={{ ...S.btn, marginTop: 0, background: 'transparent', color: 'var(--navy)', border: '1px solid rgba(1,3,65,0.2)' }}>Sluiten</button>
+                </div>
+              </div>
+            )}
 
             {/* Zonder wijnlijst kan deze partner op het festival niets
                 verkopen, dus dat mag niet weggemoffeld worden in een lijstje. */}
@@ -1647,7 +1662,7 @@ export default function Dashboard() {
         {/* FAQ */}
         {tab === 'faq' && <>
           <div style={S.pageTitle}>Spelregels & FAQ</div>
-          <div style={S.pageDesc}>Antwoorden op de meest gestelde vragen.</div>
+          <div style={S.pageDesc}>Antwoorden op de meest gestelde vragen. Staat het er niet bij, stel hem onderaan.</div>
           <div style={{ borderTop: '1px solid rgba(1,3,65,0.1)', paddingTop: '28px' }}>
             {['bar', 'wijn', 'afrekening', 'logistiek', 'systemen', 'huisregels', 'catering'].map(cat => {
               const items = faqItems.filter(f => f.categorie === cat)
@@ -1664,6 +1679,28 @@ export default function Dashboard() {
                 </div>
               )
             })}
+            <div style={{ marginTop: '8px', paddingTop: '28px', borderTop: '1px solid rgba(1,3,65,0.1)' }}>
+              <div style={S.sectionTitle}>Staat je vraag er niet bij?</div>
+              <div style={{ fontSize: '13px', color: 'rgba(1,3,65,0.6)', marginBottom: '12px' }}>Stuur hem hier in. We reageren binnen 24 uur en zetten veelgestelde vragen in deze lijst.</div>
+              <label style={S.label}>Onderwerp</label>
+              <input style={S.input} value={newVraag.onderwerp} onChange={e => setNewVraag({ ...newVraag, onderwerp: e.target.value })} />
+              <label style={S.label}>Je vraag</label>
+              <textarea style={{ ...S.input, height: '100px', resize: 'vertical' }} value={newVraag.bericht} onChange={e => setNewVraag({ ...newVraag, bericht: e.target.value })} />
+              <button style={S.btn} onClick={stuurVraag}>Vraag versturen</button>
+              {vragen.length > 0 && <>
+                <div style={{ ...S.sectionTitle, marginTop: '32px' }}>Jouw vragen</div>
+                {vragen.map(v => (
+                  <div key={v.id} style={{ padding: '14px 0', borderBottom: '1px solid rgba(1,3,65,0.07)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                      <span style={{ fontSize: '14px', fontWeight: '500', color: 'var(--navy)' }}>{v.onderwerp}</span>
+                      <span style={{ fontSize: '10px', fontWeight: '600', color: v.status === 'open' ? 'var(--bordeaux)' : '#2d8a4e', textTransform: 'uppercase', letterSpacing: '1px' }}>{v.status}</span>
+                    </div>
+                    <div style={{ fontSize: '13px', color: 'rgba(1,3,65,0.5)' }}>{v.bericht}</div>
+                    {v.antwoord && <div style={{ marginTop: '8px', padding: '10px 14px', background: 'var(--cream)', fontSize: '13px', color: 'var(--navy)', borderLeft: '2px solid var(--bordeaux)' }}>{v.antwoord}</div>}
+                  </div>
+                ))}
+              </>}
+            </div>
           </div>
         </>}
 
