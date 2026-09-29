@@ -39,8 +39,12 @@ export async function PATCH(req: Request) {
 
   const emailGewijzigd = bestaand.email.toLowerCase() !== email
   if (emailGewijzigd) {
-    const { data: dubbel } = await admin.from('partners').select('id').ilike('email', email).neq('id', partnerId).maybeSingle()
-    if (dubbel) return Response.json({ error: 'Dit e-mailadres staat al bij een andere partner.' }, { status: 409 })
+    // Eén login kan meerdere bars beheren, dus dezelfde e-mail bij een andere
+    // rij van dezelfde user_id is geen conflict. Alleen blokkeren als het
+    // e-mailadres al bij een ANDERE login in gebruik is.
+    const { data: dubbel } = await admin.from('partners').select('id,user_id').ilike('email', email).neq('id', partnerId)
+    const conflict = (dubbel || []).some(d => !bestaand.user_id || d.user_id !== bestaand.user_id)
+    if (conflict) return Response.json({ error: 'Dit e-mailadres staat al bij een andere login.' }, { status: 409 })
   }
 
   if (emailGewijzigd && bestaand.user_id) {

@@ -58,6 +58,9 @@ export default function Dashboard() {
   const router = useRouter()
   const [tab, setTab] = useState('home')
   const [partner, setPartner] = useState<Partner | null>(null)
+  // Alle bars/standplaatsen die onder dit login vallen. Meestal 1, maar
+  // iemand kan meerdere partnerrijen op hetzelfde e-mailadres hebben.
+  const [bars, setBars] = useState<Partner[]>([])
   const [loading, setLoading] = useState(true)
   const [wijnen, setWijnen] = useState<Wijn[]>([])
   const [catering, setCatering] = useState<Crewcatering[]>([])
@@ -120,45 +123,73 @@ export default function Dashboard() {
   const [omzetStatus, setOmzetStatus] = useState<'idle' | 'laden' | 'ok' | 'niet_gekoppeld' | 'fout'>('idle')
   const [omzetTijd, setOmzetTijd] = useState<Date | null>(null)
 
+  // Haalt alles op voor één gekozen bar. Losgetrokken van init() zodat we
+  // 'm ook opnieuw kunnen draaien als iemand met meerdere bars wisselt.
+  const laadVoorPartner = async (p: Partner) => {
+    setPartner(p)
+    setTechForm({
+      stroom_kw: p.stroom_kw != null ? String(p.stroom_kw) : '',
+      stroom_aansluitingen: p.stroom_aansluitingen || '',
+      gas_nodig: !!p.gas_nodig, water_nodig: !!p.water_nodig,
+      techniek_opmerkingen: p.techniek_opmerkingen || '',
+    })
+    const [{ data: w }, { data: m }, { data: c }, { data: cr }, { data: f }, { data: v }, { data: pr }, { data: t }, { data: d }, { data: eb }] = await Promise.all([
+      supabase.from('wijnlijst').select('*').eq('partner_id', p.id).order('volgorde'),
+      supabase.from('menukaart').select('*').eq('partner_id', p.id).order('volgorde'),
+      supabase.from('crewcatering').select('*').eq('partner_id', p.id),
+      // crew_partner_lezen i.p.v. de brontabel: die laat het admin-only
+      // betaald-veld weg (betaald personeel vs. vrijwilliger).
+      supabase.from('crew_partner_lezen').select('*').eq('partner_id', p.id).order('created_at'),
+      supabase.from('faq').select('*').eq('actief', true).order('volgorde'),
+      supabase.from('partner_vragen').select('*').eq('partner_id', p.id).order('created_at', { ascending: false }),
+      supabase.from('producten_catalogus').select('*').eq('actief', true).order('volgorde'),
+      supabase.from('portal_teksten').select('*'),
+      supabase.from('documenten').select('*').order('created_at', { ascending: false }),
+      supabase.from('extra_bestellingen').select('id, product, aantal, prijs_per_stuk, status, created_at').eq('partner_id', p.id).order('created_at', { ascending: false }),
+    ])
+    setWijnen(w || []); setMenu(m || []); setCatering(c || []); setCrew(cr || []); setFaqItems(f || []); setVragen(v || []); setProducten(pr || [])
+    setMijnBestellingen(eb || [])
+    const tmap: Record<string, string> = {}
+    ;(t as PortalTekst[] || []).forEach(x => { tmap[x.sleutel] = x.waarde })
+    setTeksten(tmap); setDocumenten(d || [])
+    const { data: lg } = await supabase.from('activiteit_log').select('*').order('created_at', { ascending: false }).limit(15)
+    setLog(lg || [])
+    if (c && c.length > 0) {
+      const fs: Record<string, { aantal: string; dieet: string }> = { vrijdag: { aantal: '0', dieet: '' }, zaterdag: { aantal: '0', dieet: '' }, zondag: { aantal: '0', dieet: '' } }
+      c.forEach((x: Crewcatering) => { fs[x.avond] = { aantal: x.aantal_personen.toString(), dieet: x.dieetwensen || '' } })
+      setCateringForm(fs)
+    }
+  }
+
+  // Gekozen bar onthouden per browser, zodat je bij de volgende keer inloggen
+  // niet opnieuw hoeft te kiezen. Los account, dus login als sleutel erbij.
+  const barSleutel = (userId: string) => 'nvdw_gekozen_bar_' + userId
+  const kiesBar = async (p: Partner) => {
+    setLoading(true)
+    const { data: { user } } = await supabase.auth.getUser()
+    if (user) { try { localStorage.setItem(barSleutel(user.id), p.id) } catch { /* privénavigatie o.i.d. */ } }
+    await laadVoorPartner(p)
+    setLoading(false)
+  }
+  const wisselBar = async () => {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (user) { try { localStorage.removeItem(barSleutel(user.id)) } catch { /* privénavigatie o.i.d. */ } }
+    window.location.reload()
+  }
+
   useEffect(() => {
     const init = async () => {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { router.push('/'); return }
-      const { data: p } = await supabase.from('partners').select('*').eq('user_id', user.id).single()
-      if (!p) { setLoading(false); return }
-      setPartner(p)
-      setTechForm({
-        stroom_kw: p.stroom_kw != null ? String(p.stroom_kw) : '',
-        stroom_aansluitingen: p.stroom_aansluitingen || '',
-        gas_nodig: !!p.gas_nodig, water_nodig: !!p.water_nodig,
-        techniek_opmerkingen: p.techniek_opmerkingen || '',
-      })
-      const [{ data: w }, { data: m }, { data: c }, { data: cr }, { data: f }, { data: v }, { data: pr }, { data: t }, { data: d }, { data: eb }] = await Promise.all([
-        supabase.from('wijnlijst').select('*').eq('partner_id', p.id).order('volgorde'),
-        supabase.from('menukaart').select('*').eq('partner_id', p.id).order('volgorde'),
-        supabase.from('crewcatering').select('*').eq('partner_id', p.id),
-        // crew_partner_lezen i.p.v. de brontabel: die laat het admin-only
-        // betaald-veld weg (betaald personeel vs. vrijwilliger).
-        supabase.from('crew_partner_lezen').select('*').eq('partner_id', p.id).order('created_at'),
-        supabase.from('faq').select('*').eq('actief', true).order('volgorde'),
-        supabase.from('partner_vragen').select('*').eq('partner_id', p.id).order('created_at', { ascending: false }),
-        supabase.from('producten_catalogus').select('*').eq('actief', true).order('volgorde'),
-        supabase.from('portal_teksten').select('*'),
-        supabase.from('documenten').select('*').order('created_at', { ascending: false }),
-        supabase.from('extra_bestellingen').select('id, product, aantal, prijs_per_stuk, status, created_at').eq('partner_id', p.id).order('created_at', { ascending: false }),
-      ])
-      setWijnen(w || []); setMenu(m || []); setCatering(c || []); setCrew(cr || []); setFaqItems(f || []); setVragen(v || []); setProducten(pr || [])
-      setMijnBestellingen(eb || [])
-      const tmap: Record<string, string> = {}
-      ;(t as PortalTekst[] || []).forEach(x => { tmap[x.sleutel] = x.waarde })
-      setTeksten(tmap); setDocumenten(d || [])
-      const { data: lg } = await supabase.from('activiteit_log').select('*').order('created_at', { ascending: false }).limit(15)
-      setLog(lg || [])
-      if (c && c.length > 0) {
-        const fs: Record<string, { aantal: string; dieet: string }> = { vrijdag: { aantal: '0', dieet: '' }, zaterdag: { aantal: '0', dieet: '' }, zondag: { aantal: '0', dieet: '' } }
-        c.forEach((x: Crewcatering) => { fs[x.avond] = { aantal: x.aantal_personen.toString(), dieet: x.dieetwensen || '' } })
-        setCateringForm(fs)
-      }
+      // Geen .single(): iemand kan meerdere bars (partnerrijen) op hetzelfde
+      // e-mailadres hebben, en dan valt dit login-account onder allemaal.
+      const { data: ps } = await supabase.from('partners').select('*').eq('user_id', user.id).order('bedrijfsnaam')
+      if (!ps || ps.length === 0) { setLoading(false); return }
+      setBars(ps)
+      if (ps.length === 1) { await laadVoorPartner(ps[0]); setLoading(false); return }
+      const onthouden = (() => { try { return localStorage.getItem(barSleutel(user.id)) } catch { return null } })()
+      const match = onthouden && ps.find(b => b.id === onthouden)
+      if (match) await laadVoorPartner(match)
       setLoading(false)
     }
     init()
@@ -506,6 +537,25 @@ export default function Dashboard() {
     : []
 
   if (loading) return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: 'var(--sand)', fontSize: '13px', color: 'rgba(1,3,65,0.4)' }}>Laden...</div>
+
+  if (!partner && bars.length > 1) return (
+    <div style={{ padding: '40px 20px', background: 'var(--sand)', minHeight: '100vh' }}>
+      <div style={{ maxWidth: '440px', margin: '0 auto' }}>
+        <div style={S.pageTitle}>Welke bar beheer je?</div>
+        <div style={S.pageDesc}>Dit account hoort bij meerdere aanmeldingen. Kies er een, je kunt hierna altijd wisselen.</div>
+        {bars.map(b => (
+          <button key={b.id} onClick={() => kiesBar(b)} style={{
+            display: 'block', width: '100%', textAlign: 'left', padding: '16px 18px', marginBottom: '10px',
+            background: 'var(--cream)', border: '1px solid rgba(1,3,65,0.12)', cursor: 'pointer',
+          }}>
+            <div style={{ fontSize: '14px', fontWeight: '600', color: 'var(--navy)' }}>{b.bedrijfsnaam}</div>
+            <div style={{ fontSize: '12px', color: 'rgba(1,3,65,0.5)', marginTop: '4px' }}>{PAKKET[b.pakket] || b.pakket} · {b.avond}</div>
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+
   if (!partner) return <div style={{ padding: '40px', background: 'var(--sand)', minHeight: '100vh', fontSize: '14px', color: 'var(--navy)' }}>Geen partneraccount gevonden. Mail naar info@nachtvandewijn.nl</div>
 
   const isFood = partner.type === 'food'
@@ -553,6 +603,11 @@ export default function Dashboard() {
           ))}
         </nav>
         <div style={{ padding: '16px 20px', borderTop: '1px solid rgba(1,3,65,0.08)', display: 'flex', flexDirection: 'column', gap: '10px', alignItems: 'flex-start' }}>
+          {bars.length > 1 && (
+            <button onClick={wisselBar} style={{ fontSize: '11px', color: 'rgba(1,3,65,0.5)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+              Wissel van bar
+            </button>
+          )}
           <button onClick={() => router.push('/wachtwoord')} style={{ fontSize: '11px', color: 'rgba(1,3,65,0.5)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
             Wachtwoord wijzigen
           </button>
