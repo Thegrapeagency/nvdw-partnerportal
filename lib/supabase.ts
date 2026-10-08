@@ -140,9 +140,9 @@ export type MenukaartItem = {
   prijs: number | null
   allergenen: string[]
   volgorde: number
-  // Alleen restaurant: gang 1-3 en welk menu ('standaard' | 'vega' | 'beide' | 'upsell')
+  // Alleen restaurant: gang 1-3 en welk menu ('standaard' | 'vega' | 'beide' | 'aan_tafel')
   gang?: number | null
-  menu?: 'standaard' | 'vega' | 'beide' | 'upsell' | null
+  menu?: 'standaard' | 'vega' | 'beide' | 'aan_tafel' | null
 }
 
 export type Admin = {

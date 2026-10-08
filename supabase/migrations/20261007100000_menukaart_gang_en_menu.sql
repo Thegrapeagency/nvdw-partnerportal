@@ -1,12 +1,12 @@
 -- Restaurantmenu's (Léo-Léo) bestaan uit twee varianten (standaard en vega) van
--- elk 3 gangen, plus een upsell. Tot nu toe leidde de app de gang af uit de
+-- elk 3 gangen, plus items die aan tafel besteld worden (brood, oesters). Tot nu toe leidde de app de gang af uit de
 -- volgorde van de rijen, dat werkt niet meer met twee menu's. Daarom twee
 -- optionele kolommen op menukaart. Foodtrucks laten ze leeg en merken niets.
 --   gang: 1, 2 of 3
---   menu: 'standaard', 'vega', 'beide' (zelfde gerecht in allebei) of 'upsell'
+--   menu: 'standaard', 'vega', 'beide' (zelfde gerecht in allebei) of 'aan_tafel'
 alter table public.menukaart
   add column if not exists gang smallint check (gang between 1 and 3),
-  add column if not exists menu text check (menu in ('standaard', 'vega', 'beide', 'upsell'));
+  add column if not exists menu text check (menu in ('standaard', 'vega', 'beide', 'aan_tafel'));
 
 -- Nieuwe kolommen achteraan, zodat bestaande lezers van de view niet breken.
 create or replace view public.app_menu as
