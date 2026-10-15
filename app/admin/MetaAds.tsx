@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { AS, euro } from './ui'
+import MetaEchteRoas from './MetaEchteRoas'
 
 type Status = {
   geconfigureerd: boolean
@@ -86,14 +87,14 @@ const datumTijd = (s: string | null) =>
 const eurGetal = (n: number | null | undefined) =>
   n == null ? '–' : '€' + Number(n).toFixed(2).replace('.', ',')
 
-type Tabblad = 'voorstellen' | 'overzicht' | 'meting' | 'logboek'
+type Tabblad = 'roas' | 'voorstellen' | 'overzicht' | 'meting' | 'logboek'
 
 export default function MetaAds({ flash }: { flash: (m: string, ms?: number) => void }) {
   const [status, setStatus] = useState<Status | null>(null)
   const [voorstellen, setVoorstellen] = useState<Voorstel[]>([])
   const [snapshots, setSnapshots] = useState<Snapshot[]>([])
   const [logboek, setLogboek] = useState<LogRegel[]>([])
-  const [blad, setBlad] = useState<Tabblad>('voorstellen')
+  const [blad, setBlad] = useState<Tabblad>('roas')
   const [bezig, setBezig] = useState<string | null>(null)
   const [fout, setFout] = useState<string | null>(null)
   const [toonToken, setToonToken] = useState(false)
@@ -320,7 +321,7 @@ export default function MetaAds({ flash }: { flash: (m: string, ms?: number) => 
       )}
 
       <div style={{ display: 'flex', gap: '6px', margin: '18px 0 14px', flexWrap: 'wrap' }}>
-        {(['voorstellen', 'overzicht', 'meting', 'logboek'] as Tabblad[]).map(t => (
+        {(['roas', 'voorstellen', 'overzicht', 'meting', 'logboek'] as Tabblad[]).map(t => (
           <button key={t} onClick={() => setBlad(t)} style={{
             padding: '7px 15px', borderRadius: '999px', fontSize: '13px', fontWeight: 600, cursor: 'pointer',
             fontFamily: 'Inter, sans-serif',
@@ -328,10 +329,12 @@ export default function MetaAds({ flash }: { flash: (m: string, ms?: number) => 
             background: blad === t ? 'var(--navy)' : 'transparent',
             color: blad === t ? 'var(--cream)' : '#777162',
           }}>
-            {t[0].toUpperCase() + t.slice(1)}
+            {t === 'roas' ? 'Echte ROAS' : t[0].toUpperCase() + t.slice(1)}
           </button>
         ))}
       </div>
+
+      {blad === 'roas' && <MetaEchteRoas />}
 
       {blad === 'voorstellen' && (
         <div>
