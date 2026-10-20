@@ -39,24 +39,31 @@ export async function PATCH(req: Request) {
 
   const emailGewijzigd = bestaand.email.toLowerCase() !== email
   let koppelLogin: string | null = null
+  let ontkoppel = false
+  let authHernoemd = false
   if (emailGewijzigd) {
-    // Eén login kan meerdere bars beheren, dus dezelfde e-mail bij een andere
-    // rij van dezelfde user_id is geen conflict. Alleen blokkeren als het
-    // e-mailadres al bij een ANDERE login in gebruik is.
     const { data: dubbel } = await admin.from('partners').select('id,user_id').ilike('email', email).neq('id', partnerId)
     const logins = [...new Set((dubbel || []).map(d => d.user_id).filter(Boolean))] as string[]
-    // Partner zonder eigen login krijgt de bestaande login van dit adres: dan
-    // beheert die login deze partner er gewoon bij.
-    const conflict = bestaand.user_id
-      ? logins.some(id => id !== bestaand.user_id)
-      : logins.length > 1
-    if (conflict) return Response.json({ error: 'Dit e-mailadres staat al bij een andere login.' }, { status: 409 })
-    if (!bestaand.user_id && logins.length === 1) koppelLogin = logins[0]
+    // Staat dit adres al bij precies één login, dan verhuist deze partner naar
+    // die login: die beheert de partner er dan bij. Een eventuele eigen login
+    // van deze partner blijft voor zijn andere partners gewoon bestaan.
+    if (logins.length > 1) return Response.json({ error: 'Dit e-mailadres hoort al bij meer dan één login, dat moet eerst rechtgezet worden.' }, { status: 409 })
+    if (logins.length === 1 && logins[0] !== bestaand.user_id) koppelLogin = logins[0]
   }
 
-  if (emailGewijzigd && bestaand.user_id) {
-    const { error: authError } = await admin.auth.admin.updateUserById(bestaand.user_id, { email, email_confirm: true })
-    if (authError) return Response.json({ error: 'Het inlogadres kon niet worden gewijzigd: ' + authError.message }, { status: 409 })
+  // Alleen het inlogadres zelf aanpassen als de partner zijn eigen login houdt
+  // en die login verder bij geen andere partner hoort.
+  if (emailGewijzigd && bestaand.user_id && !koppelLogin) {
+    const { count } = await admin.from('partners').select('id', { count: 'exact', head: true }).eq('user_id', bestaand.user_id).neq('id', partnerId)
+    if (count) {
+      // Login wordt gedeeld: niet hernoemen, deze partner krijgt een eigen login bij "Stuur inlog".
+      koppelLogin = null
+      ontkoppel = true
+    } else {
+      const { error: authError } = await admin.auth.admin.updateUserById(bestaand.user_id, { email, email_confirm: true })
+      if (authError) return Response.json({ error: 'Het inlogadres kon niet worden gewijzigd: ' + authError.message }, { status: 409 })
+      authHernoemd = true
+    }
   }
 
   const { error: updateError } = await admin.from('partners').update({
@@ -64,10 +71,10 @@ export async function PATCH(req: Request) {
     bedrijfsnaam,
     email,
     telefoon: telefoon || null,
-    ...(koppelLogin ? { user_id: koppelLogin } : {}),
+    ...(koppelLogin ? { user_id: koppelLogin } : ontkoppel ? { user_id: null } : {}),
   }).eq('id', partnerId)
   if (updateError) {
-    if (emailGewijzigd && bestaand.user_id) {
+    if (authHernoemd) {
       await admin.auth.admin.updateUserById(bestaand.user_id, { email: bestaand.email, email_confirm: true })
     }
     return Response.json({ error: 'Opslaan mislukte: ' + updateError.message }, { status: 500 })
