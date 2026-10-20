@@ -235,7 +235,9 @@ export default function Dashboard() {
         if (!omzet) setOmzetStatus('laden')
         const me = await posRpc<PosMe>('me')
         if (me?.role !== 'partner' && me?.role !== 'super') { if (!stop) setOmzetStatus('niet_gekoppeld'); return }
-        const sum = await posRpc<PosSummary>('merchant_sales_summary', { p_merchant_id: null })
+        // Bij meerdere partners op één login: omzet van de gekozen partner, niet een willekeurige.
+        const { data: mid } = await supabase.rpc('partner_merchant_id', { p_partner_id: partner.id })
+        const sum = await posRpc<PosSummary>('merchant_sales_summary', { p_merchant_id: mid || null })
         if (!stop) { setOmzet(sum); setOmzetStatus('ok'); setOmzetTijd(new Date()) }
       } catch {
         if (!stop) setOmzetStatus(omzet ? 'ok' : 'fout')

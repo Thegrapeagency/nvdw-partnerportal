@@ -21,6 +21,20 @@ function genPw(): string {
   return `${w[Math.floor(Math.random() * w.length)]}${Math.floor(1000 + Math.random() * 9000)}!`
 }
 
+function erbijHtml(bedrijf: string, email: string): string {
+  return `<!doctype html><html lang="nl"><body style="margin:0;background:#f0e4c0;font-family:Helvetica,Arial,sans-serif;color:#010341;">
+  <div style="max-width:520px;margin:0 auto;padding:32px 24px;">
+    <div style="background:#fef1d5;border:1px solid rgba(1,3,65,0.1);padding:36px 32px;">
+      <div style="font-size:11px;letter-spacing:3px;text-transform:uppercase;color:#9b3737;margin-bottom:10px;">Partner Portal</div>
+      <p style="font-size:15px;line-height:1.7;margin:0 0 16px;">Hoi,</p>
+      <p style="font-size:15px;line-height:1.7;margin:0 0 20px;">Je beheert in het partnerportal van Nacht van de Wijn 2026 nu ook${bedrijf ? " <strong>" + bedrijf + "</strong>" : " een extra partner"}. Log in met je bestaande gegevens (${email}), je wachtwoord blijft hetzelfde. Na het inloggen kies je welke partner je wilt beheren.</p>
+      <a href="${PORTAL}" style="display:inline-block;background:#010341;color:#fef1d5;text-decoration:none;font-size:12px;font-weight:700;letter-spacing:2px;text-transform:uppercase;padding:14px 28px;">Inloggen</a>
+      <p style="font-size:12px;line-height:1.6;color:rgba(1,3,65,0.5);margin:24px 0 0;">Wachtwoord kwijt? Klik op ‘Wachtwoord vergeten’ op de inlogpagina. Vragen? Mail naar cheers@nachtvandewijn.nl</p>
+    </div>
+    <div style="text-align:center;font-size:11px;color:rgba(1,3,65,0.4);padding:18px 0;">Nacht van de Wijn · 6, 7 &amp; 8 november 2026 · Utrecht</div>
+  </div></body></html>`
+}
+
 function inlogHtml(bedrijf: string, email: string, pw: string): string {
   return `<!doctype html><html lang="nl"><body style="margin:0;background:#f0e4c0;font-family:Helvetica,Arial,sans-serif;color:#010341;">
   <div style="max-width:520px;margin:0 auto;padding:32px 24px;">
@@ -60,13 +74,16 @@ Deno.serve(async (req) => {
     if (pe || !p) return json({ error: "partner niet gevonden" }, 404)
     if (!p.email) return json({ error: "partner heeft geen e-mailadres" }, 400)
 
+    // Heeft dit adres al een login via een andere partner? Dan wachtwoord laten staan.
+    const { data: anderen } = await admin.from("partners").select("user_id").ilike("email", p.email).neq("id", partner_id).not("user_id", "is", null).limit(1)
+    const gedeeld = (anderen ?? []).length > 0
     const pw = genPw()
     // Zorg dat de login bestaat en gekoppeld is (SECURITY DEFINER rpc, draait met admin-rechten van de caller)
     const { data: linkRes, error: le } = await caller.rpc("admin_create_partner_login", { p_partner_id: partner_id, p_temp_password: pw })
     if (le) return json({ error: "login aanmaken mislukte: " + le.message }, 500)
     const userId = (linkRes as { user_id?: string })?.user_id
     // Forceer het wachtwoord naar pw (ook als de login al bestond), zodat de mail klopt
-    if (userId) await admin.auth.admin.updateUserById(userId, { password: pw, email_confirm: true })
+    if (userId && !gedeeld) await admin.auth.admin.updateUserById(userId, { password: pw, email_confirm: true })
 
     const { data: cfgRows } = await admin.from("app_config").select("key,value").in("key", ["RESEND_API_KEY", "EMAIL_FROM"])
     const cfg: Record<string, string> = {}
@@ -81,13 +98,13 @@ Deno.serve(async (req) => {
         from,
         to: [p.email],
         reply_to: "cheers@nachtvandewijn.nl",
-        subject: "Je login voor het partnerportal van Nacht van de Wijn",
-        html: inlogHtml(p.bedrijfsnaam && p.bedrijfsnaam !== p.email ? p.bedrijfsnaam : "", p.email, pw),
+        subject: gedeeld ? "Nieuwe partner in je partnerportal van Nacht van de Wijn" : "Je login voor het partnerportal van Nacht van de Wijn",
+        html: gedeeld ? erbijHtml(p.bedrijfsnaam && p.bedrijfsnaam !== p.email ? p.bedrijfsnaam : "", p.email) : inlogHtml(p.bedrijfsnaam && p.bedrijfsnaam !== p.email ? p.bedrijfsnaam : "", p.email, pw),
       }),
     })
     if (!res.ok) return json({ error: "mail versturen mislukt: " + (await res.text()) }, 502)
 
-    return json({ ok: true, email: p.email })
+    return json({ ok: true, email: p.email, gedeeld })
   } catch (e) {
     return json({ error: String(e) }, 500)
   }

@@ -38,13 +38,20 @@ export async function PATCH(req: Request) {
   if (zoekError || !bestaand) return Response.json({ error: 'Partner niet gevonden.' }, { status: 404 })
 
   const emailGewijzigd = bestaand.email.toLowerCase() !== email
+  let koppelLogin: string | null = null
   if (emailGewijzigd) {
     // Eén login kan meerdere bars beheren, dus dezelfde e-mail bij een andere
     // rij van dezelfde user_id is geen conflict. Alleen blokkeren als het
     // e-mailadres al bij een ANDERE login in gebruik is.
     const { data: dubbel } = await admin.from('partners').select('id,user_id').ilike('email', email).neq('id', partnerId)
-    const conflict = (dubbel || []).some(d => !bestaand.user_id || d.user_id !== bestaand.user_id)
+    const logins = [...new Set((dubbel || []).map(d => d.user_id).filter(Boolean))] as string[]
+    // Partner zonder eigen login krijgt de bestaande login van dit adres: dan
+    // beheert die login deze partner er gewoon bij.
+    const conflict = bestaand.user_id
+      ? logins.some(id => id !== bestaand.user_id)
+      : logins.length > 1
     if (conflict) return Response.json({ error: 'Dit e-mailadres staat al bij een andere login.' }, { status: 409 })
+    if (!bestaand.user_id && logins.length === 1) koppelLogin = logins[0]
   }
 
   if (emailGewijzigd && bestaand.user_id) {
@@ -57,6 +64,7 @@ export async function PATCH(req: Request) {
     bedrijfsnaam,
     email,
     telefoon: telefoon || null,
+    ...(koppelLogin ? { user_id: koppelLogin } : {}),
   }).eq('id', partnerId)
   if (updateError) {
     if (emailGewijzigd && bestaand.user_id) {
@@ -65,5 +73,5 @@ export async function PATCH(req: Request) {
     return Response.json({ error: 'Opslaan mislukte: ' + updateError.message }, { status: 500 })
   }
 
-  return Response.json({ ok: true, email_gewijzigd: emailGewijzigd })
+  return Response.json({ ok: true, email_gewijzigd: emailGewijzigd, gekoppeld_aan_bestaande_login: !!koppelLogin })
 }

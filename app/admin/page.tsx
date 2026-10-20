@@ -472,7 +472,7 @@ export default function AdminPage() {
       body: JSON.stringify({ partner_id: p.id }),
     })
     const j = await res.json().catch(() => ({}))
-    if (res.ok && j.ok) { setPartners(partners.map(x => x.id === p.id ? { ...x, user_id: x.user_id || 'set' } : x)); flash(`Inlogmail met inloggegevens verstuurd naar ${p.email}.`, 8000) }
+    if (res.ok && j.ok) { setPartners(partners.map(x => x.id === p.id ? { ...x, user_id: x.user_id || 'set' } : x)); flash(j.gedeeld ? `${p.email} had al een login. Wachtwoord blijft hetzelfde, mail gestuurd dat ${p.bedrijfsnaam || 'deze partner'} erbij staat.` : `Inlogmail met inloggegevens verstuurd naar ${p.email}.`, 8000) }
     else flash('Versturen mislukt: ' + (j.error || res.status), 8000)
   }
 
@@ -566,8 +566,9 @@ export default function AdminPage() {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token || ''}` },
         body: JSON.stringify({ partner_id: p.id, naam: compleet.naam, bedrijfsnaam: compleet.bedrijfsnaam, email: compleet.email, telefoon: compleet.telefoon }),
       })
-      const j = await res.json().catch(() => ({})) as { error?: string }
+      const j = await res.json().catch(() => ({})) as { error?: string; gekoppeld_aan_bestaande_login?: boolean }
       if (!res.ok) error = new Error(j.error || 'Contactgegevens opslaan mislukte.')
+      if (j.gekoppeld_aan_bestaande_login) flash(`${compleet.email} beheert ${compleet.bedrijfsnaam} nu erbij, met dezelfde login.`, 8000)
       if (!error) {
         const overigePatch = Object.fromEntries(Object.entries(patch).filter(([k]) => !['naam', 'bedrijfsnaam', 'email', 'telefoon'].includes(k)))
         if (Object.keys(overigePatch).length) {
@@ -583,7 +584,8 @@ export default function AdminPage() {
     if (error) { flash('Opslaan mislukt: ' + error.message, 8000); return }
     setPartners(partners.map(x => x.id === p.id ? { ...x, ...patch } : x))
     setPartnerDraft(d => { const nd = { ...d }; delete nd[p.id]; return nd })
-    flash('Wijzigingen opgeslagen')
+    if (!(contactGewijzigd && patch.email)) flash('Wijzigingen opgeslagen')
+    await loadAll()
   }
   const deletePartner = async (p: Partner) => {
     // Eerst tellen wat er aan deze partner hangt. Dat verdwijnt namelijk mee,
