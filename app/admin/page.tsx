@@ -1941,8 +1941,8 @@ export default function AdminPage() {
                     {(perPartner.get(naam) || []).map(w => (
                       <div key={w.id} style={{ border: '1px solid #eee', borderRadius: '6px', overflow: 'hidden' }}>
                         {w.foto_url
-                          ? <img src={w.foto_url} alt={w.naam} style={{ width: '100%', height: '140px', objectFit: 'cover', display: 'block' }} />
-                          : <div style={{ width: '100%', height: '140px', background: '#f7f4ec', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', color: '#bbb' }}>Geen foto</div>}
+                          ? <img src={w.foto_url} alt={w.naam} style={{ width: '100%', height: '180px', objectFit: 'contain', padding: '8px', boxSizing: 'border-box', background: '#fff', display: 'block' }} />
+                          : <div style={{ width: '100%', height: '180px', background: '#f7f4ec', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', color: '#bbb' }}>Geen foto</div>}
                         <div style={{ padding: '10px 12px' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                             {(w as any).kleur_type && <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: KLEUR[(w as any).kleur_type]?.c || '#ccc', border: '1px solid rgba(0,0,0,0.1)', flexShrink: 0 }} />}

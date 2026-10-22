@@ -1249,9 +1249,9 @@ export default function Dashboard() {
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 0', gap: '14px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flex: 1, minWidth: 0 }}>
                       {w.foto_url ? (
-                        <img src={w.foto_url} alt={w.naam} style={{ width: '48px', height: '48px', objectFit: 'cover', borderRadius: '8px', flexShrink: 0 }} />
+                        <img src={w.foto_url} alt={w.naam} style={{ width: '48px', height: '64px', objectFit: 'contain', padding: '3px', boxSizing: 'border-box', background: '#fff', border: '1px solid rgba(1,3,65,0.08)', borderRadius: '8px', flexShrink: 0 }} />
                       ) : (
-                        <div style={{ width: '48px', height: '48px', borderRadius: '8px', background: 'rgba(1,3,65,0.06)', flexShrink: 0 }} />
+                        <div style={{ width: '48px', height: '64px', borderRadius: '8px', background: 'rgba(1,3,65,0.06)', flexShrink: 0 }} />
                       )}
                       <div style={{ minWidth: 0 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
