@@ -86,11 +86,14 @@ export default function Dashboard() {
   const [wijnEditBezig, setWijnEditBezig] = useState(false)
   // Zelfde 4 waarden als de bezoekers-app (src/lib/types.ts Kleur), die
   // gebruikt dit veld voor de kleurstip, filter en smaakmatching.
-  const KLEUR_OPTIES: { v: 'rood' | 'wit' | 'rose' | 'bubbels'; l: string; c: string }[] = [
+  const KLEUR_OPTIES: { v: 'rood' | 'wit' | 'rose' | 'oranje' | 'bubbels' | 'versterkt' | 'alcoholvrij'; l: string; c: string }[] = [
     { v: 'rood', l: 'Rode wijn', c: '#9B3737' },
     { v: 'wit', l: 'Witte wijn', c: '#E8EBD6' },
     { v: 'rose', l: 'Rosé', c: '#E3A6A0' },
+    { v: 'oranje', l: 'Oranje wijn', c: '#D98A2B' },
     { v: 'bubbels', l: 'Mousserend', c: '#BFD3D6' },
+    { v: 'versterkt', l: 'Versterkte wijn', c: '#7A3B5E' },
+    { v: 'alcoholvrij', l: 'Alcoholvrij', c: '#8FB59A' },
   ]
   const kleurLabel = (k: string | null) => KLEUR_OPTIES.find(o => o.v === k)?.l || ''
   const kleurDot = (k: string | null) => (

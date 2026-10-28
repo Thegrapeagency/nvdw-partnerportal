@@ -1928,7 +1928,8 @@ export default function AdminPage() {
           // Zelfde 4 waarden als de bezoekers-app (src/lib/types.ts Kleur).
           const KLEUR: Record<string, { l: string; c: string }> = {
             rood: { l: 'Rode wijn', c: '#9B3737' }, wit: { l: 'Witte wijn', c: '#E8EBD6' },
-            rose: { l: 'Rosé', c: '#E3A6A0' }, bubbels: { l: 'Mousserend', c: '#BFD3D6' },
+            rose: { l: 'Rosé', c: '#E3A6A0' }, oranje: { l: 'Oranje wijn', c: '#D98A2B' }, bubbels: { l: 'Mousserend', c: '#BFD3D6' },
+            versterkt: { l: 'Versterkte wijn', c: '#7A3B5E' }, alcoholvrij: { l: 'Alcoholvrij', c: '#8FB59A' },
           }
           const zoek = wijnenZoek.trim().toLowerCase()
           const treft = (w: typeof wijnen[number]) => !zoek || [w.naam, w.producent, w.regio, w.land, w.druif, w.partners?.bedrijfsnaam]

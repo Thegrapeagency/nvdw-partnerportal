@@ -221,7 +221,7 @@ export type Wijn = {
   foto_url: string | null
   smaak_assen: Record<string, number> | null
   // Kleurtype voor de bezoekers-app (filter, kleurstip, smaakmatching).
-  kleur_type: 'rood' | 'wit' | 'rose' | 'bubbels' | null
+  kleur_type: 'rood' | 'wit' | 'rose' | 'oranje' | 'bubbels' | 'versterkt' | 'alcoholvrij' | null
 }
 
 export type Crewcatering = {
