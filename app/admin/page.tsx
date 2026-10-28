@@ -22,7 +22,7 @@ import Huisstijl from './Huisstijl'
 import Nieuwsbrief from './Nieuwsbrief'
 import Todo from './Todo'
 import Overleg from './Overleg'
-import BezoekerVragen from './BezoekerVragen'
+import BezoekerVragen, { vraagDatum } from './BezoekerVragen'
 import AppBeheer from './AppBeheer'
 import Druivenpeiling from './Druivenpeiling'
 
@@ -645,6 +645,15 @@ export default function AdminPage() {
   }
 
   // ---- Vragen ----
+  // Op beantwoord zetten zonder antwoord in de portal (al per mail/telefoon geregeld)
+  const markeerVraag = async (vraagId: string) => {
+    const antwoord_datum = new Date().toISOString()
+    const { error } = await supabase.from('partner_vragen').update({ status: 'beantwoord', antwoord_datum }).eq('id', vraagId)
+    if (error) { flash('Opslaan mislukte: ' + error.message); return }
+    setVragen(vragen.map(v => v.id === vraagId ? { ...v, status: 'beantwoord', antwoord_datum } : v))
+    flash('Op beantwoord gezet')
+  }
+
   const handleAntwoord = async (vraagId: string) => {
     const antwoord = antwoordMap[vraagId]
     if (!antwoord) return
@@ -2418,16 +2427,23 @@ export default function AdminPage() {
               <div key={v.id} style={{ ...S.card, borderLeft: v.status === 'open' ? '3px solid var(--bordeaux)' : '3px solid #ccc' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
                   <div style={{ fontWeight: '700', fontSize: '14px' }}>{v.onderwerp}</div>
-                  <span style={{ fontSize: '10px', fontWeight: '700', color: v.status === 'open' ? 'var(--bordeaux)' : '#999', textTransform: 'uppercase', letterSpacing: '1px' }}>{v.status}</span>
+                  <span style={{ fontSize: '11px', color: '#999' }}>
+                    {vraagDatum(v.created_at)}
+                    <span style={{ fontSize: '10px', fontWeight: '700', color: v.status === 'open' ? 'var(--bordeaux)' : '#999', textTransform: 'uppercase', letterSpacing: '1px', marginLeft: '10px' }}>{v.status}</span>
+                  </span>
                 </div>
                 <div style={{ fontSize: '13px', color: '#555', marginBottom: '12px' }}>{v.bericht}</div>
                 {v.status === 'open' && !alleenLezenPartners && (
                   <div>
                     <textarea style={{ ...S.input, height: '80px', resize: 'vertical' }} value={antwoordMap[v.id] || ''} onChange={e => setAntwoordMap({ ...antwoordMap, [v.id]: e.target.value })} placeholder="Typ je antwoord..." />
-                    <button style={S.btn} onClick={() => handleAntwoord(v.id)}>Antwoord opslaan</button>
+                    <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+                      <button style={S.btn} onClick={() => handleAntwoord(v.id)}>Antwoord opslaan</button>
+                      <button style={{ ...S.btnSm, marginTop: '16px' }} onClick={() => markeerVraag(v.id)}>Markeer als beantwoord</button>
+                    </div>
                   </div>
                 )}
                 {v.antwoord && <div style={{ background: '#f0f8f0', padding: '10px', borderRadius: '2px', fontSize: '13px', color: '#2e7d32' }}><strong>Antwoord:</strong> {v.antwoord}</div>}
+                {v.status === 'beantwoord' && !v.antwoord && <div style={{ fontSize: '12px', color: '#2e7d32' }}>Afgehandeld buiten de portal{v.antwoord_datum ? ' · ' + vraagDatum(v.antwoord_datum) : ''}</div>}
               </div>
             ))}
             {vragen.length === 0 && <p style={{ color: '#999', fontSize: '14px' }}>Geen vragen.</p>}

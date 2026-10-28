@@ -8,7 +8,13 @@ import { AS } from './ui'
 type Vraag = {
   id: string; naam: string | null; email: string | null; categorie: string | null
   onderwerp: string; bericht: string; status: 'open' | 'beantwoord'
-  antwoord: string | null; created_at: string
+  antwoord: string | null; antwoord_datum: string | null; created_at: string
+}
+
+// Datum + tijd in NL-notatie, bv. 'di 27 okt, 14:05'
+export function vraagDatum(iso: string | null | undefined): string {
+  if (!iso) return ''
+  return new Date(iso).toLocaleString('nl-NL', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Amsterdam' })
 }
 
 const CATEGORIE_LABEL: Record<string, string> = { tickets: 'Tickets', programma: 'Programma', praktisch: 'Praktisch', overig: 'Overig' }
@@ -32,6 +38,16 @@ export default function BezoekerVragen({ flash, zonderKop }: { flash: (m: string
     const { error } = await supabase.from('bezoeker_vragen').update({ antwoord, status: 'beantwoord', antwoord_datum: new Date().toISOString() }).eq('id', id)
     if (error) { flash('Opslaan mislukte: ' + error.message, 7000); return }
     flash('Antwoord opgeslagen.')
+    await laad()
+  }
+
+  // Afhandelen zonder antwoord in de portal (bv. al per mail of telefoon beantwoord)
+  const markeer = async (id: string, status: 'open' | 'beantwoord') => {
+    const { error } = await supabase.from('bezoeker_vragen').update(
+      status === 'beantwoord' ? { status, antwoord_datum: new Date().toISOString() } : { status, antwoord_datum: null }
+    ).eq('id', id)
+    if (error) { flash('Opslaan mislukte: ' + error.message, 7000); return }
+    flash(status === 'beantwoord' ? 'Op beantwoord gezet.' : 'Weer op open gezet.')
     await laad()
   }
 
@@ -70,11 +86,17 @@ export default function BezoekerVragen({ flash, zonderKop }: { flash: (m: string
         <div key={v.id} style={{ ...AS.card, borderLeft: '3px solid var(--bordeaux)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px', flexWrap: 'wrap', gap: '6px' }}>
             <div style={{ fontWeight: 700, fontSize: '13px' }}>{v.email || 'Onbekend e-mailadres'}</div>
-            {v.categorie && <span style={{ fontSize: '10px', fontWeight: 700, color: '#999', textTransform: 'uppercase', letterSpacing: '1px' }}>{CATEGORIE_LABEL[v.categorie] || v.categorie}</span>}
+            <span style={{ fontSize: '11px', color: '#999' }}>
+              {vraagDatum(v.created_at)}
+              {v.categorie && <span style={{ fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px', fontSize: '10px', marginLeft: '10px' }}>{CATEGORIE_LABEL[v.categorie] || v.categorie}</span>}
+            </span>
           </div>
           <div style={{ fontSize: '13px', color: '#555', marginBottom: '12px' }}>{v.bericht}</div>
           <textarea style={{ ...AS.input, height: '70px', resize: 'vertical' }} value={antwoordMap[v.id] || ''} onChange={e => setAntwoordMap({ ...antwoordMap, [v.id]: e.target.value })} placeholder="Typ je antwoord..." />
-          <button style={AS.btn} onClick={() => beantwoord(v.id)}>Antwoord opslaan</button>
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+            <button style={AS.btn} onClick={() => beantwoord(v.id)}>Antwoord opslaan</button>
+            <button style={{ ...AS.btnSm, marginTop: '16px' }} onClick={() => markeer(v.id, 'beantwoord')}>Markeer als beantwoord</button>
+          </div>
         </div>
       ))}
 
@@ -83,9 +105,18 @@ export default function BezoekerVragen({ flash, zonderKop }: { flash: (m: string
           <div style={{ ...AS.cardTitle, marginTop: '24px' }}>Beantwoord ({beantwoordVragen.length})</div>
           {beantwoordVragen.map(v => (
             <div key={v.id} style={{ ...AS.card, borderLeft: '3px solid #ccc' }}>
-              <div style={{ fontWeight: 700, fontSize: '13px', marginBottom: '6px' }}>{v.email || 'Onbekend e-mailadres'}</div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px', flexWrap: 'wrap', gap: '6px' }}>
+                <div style={{ fontWeight: 700, fontSize: '13px' }}>{v.email || 'Onbekend e-mailadres'}</div>
+                <span style={{ fontSize: '11px', color: '#999' }}>{vraagDatum(v.created_at)}</span>
+              </div>
               <div style={{ fontSize: '13px', color: '#555', marginBottom: '10px' }}>{v.bericht}</div>
-              <div style={{ background: '#f0f8f0', padding: '10px', borderRadius: '2px', fontSize: '13px', color: '#2e7d32' }}><strong>Antwoord:</strong> {v.antwoord}</div>
+              {v.antwoord
+                ? <div style={{ background: '#f0f8f0', padding: '10px', borderRadius: '2px', fontSize: '13px', color: '#2e7d32' }}><strong>Antwoord:</strong> {v.antwoord}</div>
+                : <div style={{ fontSize: '12px', color: '#2e7d32' }}>Afgehandeld buiten de portal</div>}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '8px', flexWrap: 'wrap', gap: '6px' }}>
+                <span style={{ fontSize: '11px', color: '#999' }}>{v.antwoord_datum ? 'Afgehandeld ' + vraagDatum(v.antwoord_datum) : ''}</span>
+                {!v.antwoord && <button style={AS.btnSm} onClick={() => markeer(v.id, 'open')}>Zet terug op open</button>}
+              </div>
             </div>
           ))}
         </>
