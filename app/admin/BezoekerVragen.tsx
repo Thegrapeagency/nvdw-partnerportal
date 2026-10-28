@@ -4,11 +4,13 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { AS } from './ui'
+import { mailAntwoord } from '@/lib/vraagMail'
 
 type Vraag = {
   id: string; naam: string | null; email: string | null; categorie: string | null
   onderwerp: string; bericht: string; status: 'open' | 'beantwoord'
   antwoord: string | null; antwoord_datum: string | null; created_at: string
+  antwoord_gemaild_at: string | null; antwoord_mail_status: string | null
 }
 
 // Datum + tijd in NL-notatie, bv. 'di 27 okt, 14:05'
@@ -37,7 +39,8 @@ export default function BezoekerVragen({ flash, zonderKop }: { flash: (m: string
     if (!antwoord) { flash('Vul een antwoord in.', 5000); return }
     const { error } = await supabase.from('bezoeker_vragen').update({ antwoord, status: 'beantwoord', antwoord_datum: new Date().toISOString() }).eq('id', id)
     if (error) { flash('Opslaan mislukte: ' + error.message, 7000); return }
-    flash('Antwoord opgeslagen.')
+    const m = await mailAntwoord('bezoeker', id)
+    flash(m.ok ? 'Antwoord opgeslagen en ' + m.melding.charAt(0).toLowerCase() + m.melding.slice(1) : m.melding, m.ok ? 4000 : 9000)
     await laad()
   }
 
@@ -116,6 +119,9 @@ export default function BezoekerVragen({ flash, zonderKop }: { flash: (m: string
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '8px', flexWrap: 'wrap', gap: '6px' }}>
                 <span style={{ fontSize: '11px', color: '#999' }}>{v.antwoord_datum ? 'Afgehandeld ' + vraagDatum(v.antwoord_datum) : ''}</span>
                 {!v.antwoord && <button style={AS.btnSm} onClick={() => markeer(v.id, 'open')}>Zet terug op open</button>}
+                {v.antwoord && (v.antwoord_gemaild_at
+                  ? <span style={{ fontSize: '11px', color: '#2e7d32' }}>Gemaild {vraagDatum(v.antwoord_gemaild_at)}</span>
+                  : <button style={AS.btnSm} onClick={async () => { const m = await mailAntwoord('bezoeker', v.id); flash(m.melding, m.ok ? 4000 : 9000); await laad() }}>Nog niet gemaild, mail nu</button>)}
               </div>
             </div>
           ))}

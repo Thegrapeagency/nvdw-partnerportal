@@ -249,6 +249,8 @@ export type PartnerVraag = {
   status: string
   antwoord: string | null
   antwoord_datum: string | null
+  antwoord_gemaild_at?: string | null
+  antwoord_mail_status?: string | null
   created_at: string
 }
 

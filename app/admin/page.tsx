@@ -23,6 +23,7 @@ import Nieuwsbrief from './Nieuwsbrief'
 import Todo from './Todo'
 import Overleg from './Overleg'
 import BezoekerVragen, { vraagDatum } from './BezoekerVragen'
+import { mailAntwoord } from '@/lib/vraagMail'
 import AppBeheer from './AppBeheer'
 import Druivenpeiling from './Druivenpeiling'
 
@@ -658,7 +659,10 @@ export default function AdminPage() {
     const antwoord = antwoordMap[vraagId]
     if (!antwoord) return
     const { error } = await supabase.from('partner_vragen').update({ antwoord, status: 'beantwoord', antwoord_datum: new Date().toISOString() }).eq('id', vraagId)
-    if (!error) { setVragen(vragen.map(v => v.id === vraagId ? { ...v, antwoord, status: 'beantwoord' } : v)); flash('Antwoord opgeslagen') }
+    if (error) { flash('Opslaan mislukte: ' + error.message); return }
+    const m = await mailAntwoord('partner', vraagId)
+    setVragen(vragen.map(v => v.id === vraagId ? { ...v, antwoord, status: 'beantwoord', antwoord_gemaild_at: m.ok ? new Date().toISOString() : null } : v))
+    flash(m.ok ? 'Antwoord opgeslagen en ' + m.melding.charAt(0).toLowerCase() + m.melding.slice(1) : m.melding, m.ok ? 4000 : 9000)
   }
 
   // ---- Producten ----
@@ -2443,6 +2447,9 @@ export default function AdminPage() {
                   </div>
                 )}
                 {v.antwoord && <div style={{ background: '#f0f8f0', padding: '10px', borderRadius: '2px', fontSize: '13px', color: '#2e7d32' }}><strong>Antwoord:</strong> {v.antwoord}</div>}
+                {v.antwoord && (v.antwoord_gemaild_at
+                  ? <div style={{ fontSize: '11px', color: '#2e7d32', marginTop: '6px' }}>Gemaild {vraagDatum(v.antwoord_gemaild_at)}</div>
+                  : !alleenLezenPartners && <button style={{ ...S.btnSm, marginTop: '8px' }} onClick={async () => { const m = await mailAntwoord('partner', v.id); if (m.ok) setVragen(vragen.map(x => x.id === v.id ? { ...x, antwoord_gemaild_at: new Date().toISOString() } : x)); flash(m.melding, m.ok ? 4000 : 9000) }}>Nog niet gemaild, mail nu</button>)}
                 {v.status === 'beantwoord' && !v.antwoord && <div style={{ fontSize: '12px', color: '#2e7d32' }}>Afgehandeld buiten de portal{v.antwoord_datum ? ' · ' + vraagDatum(v.antwoord_datum) : ''}</div>}
               </div>
             ))}
