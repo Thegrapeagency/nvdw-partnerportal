@@ -130,6 +130,7 @@ export default function Dashboard() {
     buyer_name: string
     buyer_email: string
     created_at: string
+    ticket_link?: string
     order_items?: { quantity: number; ticket_type_id: string; ticket_types?: { name_nl?: string } | null }[]
   }
   const GAST_DAGEN = [
@@ -249,7 +250,7 @@ export default function Dashboard() {
 
   // Laad gasttickets zodra de tab geopend wordt (en partner geladen is)
   useEffect(() => {
-    if (tab === 'gasttickets' && partner && (partner.gratis_tickets || 0) > 0 && !gastLoaded) {
+    if (partner && !gastLoaded && ((tab === 'gasttickets' && (partner.gratis_tickets || 0) > 0) || tab === 'crew')) {
       laadGasttickets()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -460,7 +461,7 @@ export default function Dashboard() {
         body: JSON.stringify({ type_id: 'crew', qty: 1, guest_name: naam, guest_email: email, partner_id: partner?.id }),
       })
       const j = await res.json().catch(() => ({}))
-      if (res.ok && j.ok) { flash(`Crewlid toegevoegd. Crewticket verstuurd naar ${email}.`); return }
+      if (res.ok && j.ok) { flash(`Crewlid toegevoegd. Crewticket verstuurd naar ${email}.`); laadGasttickets(); return }
       if (j.error === 'quota_exceeded') { flash('Crewlid toegevoegd, maar je crew-ticketquotum is op. Neem contact op voor meer crewtickets.'); return }
       flash('Crewlid toegevoegd. Crewticket kon niet worden verstuurd.')
     } catch {
@@ -1028,8 +1029,9 @@ export default function Dashboard() {
                           <div style={{ fontSize: '12px', color: 'rgba(1,3,65,0.4)', marginTop: '2px' }}>{g.buyer_email}</div>
                           {dagen && <div style={{ fontSize: '12px', color: 'var(--bordeaux)', marginTop: '2px' }}>{dagen}</div>}
                         </div>
-                        <span style={{ fontSize: '11px', color: 'rgba(1,3,65,0.35)', whiteSpace: 'nowrap', marginLeft: '12px' }}>
+                        <span style={{ fontSize: '11px', color: 'rgba(1,3,65,0.35)', whiteSpace: 'nowrap', marginLeft: '12px', textAlign: 'right' }}>
                           {g.created_at ? new Date(g.created_at).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' }) : ''}
+                          {g.ticket_link && <><br /><a href={g.ticket_link} target="_blank" rel="noreferrer" style={{ color: 'var(--bordeaux)', textDecoration: 'underline' }}>Ticket</a></>}
                         </span>
                       </div>
                     )
@@ -1531,7 +1533,7 @@ export default function Dashboard() {
         {/* CREW */}
         {tab === 'crew' && <>
           <div style={S.pageTitle}>Crew</div>
-          <div style={S.pageDesc}>Meld hier je personeel aan. Met een e-mailadres ontvangt elk crewlid automatisch een gratis crewticket (alle dagen). Vul ook crewcatering en allergieën in.</div>
+          <div style={S.pageDesc}>Meld hier je personeel aan. Met een e-mailadres ontvangt elk crewlid automatisch een gratis crewticket (alle dagen), dat je hieronder ook kunt openen en downloaden. Vul ook crewcatering en allergieën in.</div>
           <div style={{ borderTop: '1px solid rgba(1,3,65,0.1)', paddingTop: '28px' }}>
             {crew.length > 0 && <>
               <div style={S.sectionTitle}>{crew.length} {crew.length === 1 ? 'crewlid' : 'crewleden'}</div>
@@ -1544,7 +1546,13 @@ export default function Dashboard() {
                     </div>
                     {c.dieet && <div style={{ fontSize: '12px', color: 'var(--bordeaux)', marginTop: '2px' }}>Dieet/allergie: {c.dieet}</div>}
                   </div>
-                  <button onClick={() => deleteCrew(c.id)} style={S.btnOutline}>Verwijder</button>
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexShrink: 0 }}>
+                    {(() => {
+                      const t = gastIssued.find(g => (g.buyer_email || '').toLowerCase() === (c.email || '').trim().toLowerCase() && (g.buyer_name || '').trim().toLowerCase() === (c.naam || '').trim().toLowerCase() && g.order_items?.some(it => it.ticket_type_id === 'crew'))
+                      return t?.ticket_link ? <a href={t.ticket_link} target="_blank" rel="noreferrer" style={{ ...S.btnOutline, textDecoration: 'none' }}>Ticket</a> : null
+                    })()}
+                    <button onClick={() => deleteCrew(c.id)} style={S.btnOutline}>Verwijder</button>
+                  </div>
                 </div>
               ))}
             </>}
