@@ -5,6 +5,14 @@ import type { PriceFloor, Partner, Wijn, Crewcatering, FAQ, PartnerVraag, Produc
 import { ALLERGENEN, LOG_TABEL_LABEL, LOG_ACTIE_LABEL } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 
+// Controleert een IBAN met de standaard mod-97 controle (geen bankopvraging).
+const ibanGeldig = (iban: string) => {
+  if (!/^[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}$/.test(iban)) return false
+  const omgezet = (iban.slice(4) + iban.slice(0, 4)).replace(/[A-Z]/g, c => String(c.charCodeAt(0) - 55))
+  let rest = 0
+  for (const d of omgezet) rest = (rest * 10 + Number(d)) % 97
+  return rest === 1
+}
 const FAQ_TITEL: Record<string, string> = { bar: 'Je bar & team', wijn: 'Wijn & prijzen', afrekening: 'Afrekening' }
 
 const PAKKET: Record<string, string> = {
@@ -1058,6 +1066,25 @@ export default function Dashboard() {
             <label style={S.label}>E-mailadres (inlog)</label>
             <input style={{ ...S.input, opacity: 0.6 }} value={partner.email} disabled />
             <p style={{ fontSize: '12px', color: 'rgba(1,3,65,0.4)', marginTop: '8px' }}>Je e-mailadres is je inlognaam en kan niet hier gewijzigd worden. Neem contact op als dit moet veranderen.</p>
+            <div style={{ ...S.sectionTitle, marginTop: '32px' }}>Uitbetaling</div>
+            <p style={{ fontSize: '12px', color: 'rgba(1,3,65,0.5)', lineHeight: 1.6, marginBottom: '4px' }}>Na het festival betalen we je omzet, na aftrek van de afdracht, uit op dit rekeningnummer.</p>
+            <label style={S.label}>Naam rekeninghouder</label>
+            <input style={S.input} defaultValue={partner.iban_tenaamstelling || ''} placeholder="Zoals op je bankpas of rekening" onBlur={async e => {
+              const v = e.target.value.trim()
+              if (v === (partner.iban_tenaamstelling || '')) return
+              const { error } = await supabase.from('partners').update({ iban_tenaamstelling: v || null } as any).eq('id', partner.id)
+              if (error) { flash('Opslaan mislukt: ' + error.message); return }
+              setPartner({ ...partner, iban_tenaamstelling: v || null }); flash('Opgeslagen')
+            }} />
+            <label style={S.label}>IBAN</label>
+            <input style={S.input} defaultValue={partner.iban || ''} placeholder="NL00 BANK 0000 0000 00" onBlur={async e => {
+              const v = e.target.value.replace(/\s+/g, '').toUpperCase()
+              if (v === (partner.iban || '')) return
+              if (v && !ibanGeldig(v)) { flash('Dit IBAN klopt niet. Controleer de cijfers en letters.'); return }
+              const { error } = await supabase.from('partners').update({ iban: v || null } as any).eq('id', partner.id)
+              if (error) { flash('Opslaan mislukt: ' + error.message); return }
+              setPartner({ ...partner, iban: v || null }); flash('Opgeslagen')
+            }} />
           </div>
         </>}
 

@@ -416,12 +416,13 @@ export default function AdminPage() {
   }
 
   const exportSettlementCsv = () => {
-    const kop = 'Partner;Omzet;Terugbetaald;Netto;Afdracht %;Afdracht;Uit te betalen;Verkopen'
+    const kop = 'Partner;Omzet;Terugbetaald;Netto;Afdracht %;Afdracht;Uit te betalen;Verkopen;IBAN;Tenaamstelling'
     const eu = (c: number) => (c / 100).toFixed(2).replace('.', ',')
     const regels = settlement.map(r => {
       const netto = r.omzet_cents - r.refunded_cents
       const afdracht = Math.round(netto * r.afdracht_percentage / 100)
-      return [r.partner_naam, eu(r.omzet_cents), eu(r.refunded_cents), eu(netto), r.afdracht_percentage, eu(afdracht), eu(netto - afdracht), r.order_count].join(';')
+      const pr = partners.find(x => x.id === r.partner_id)
+      return [r.partner_naam, eu(r.omzet_cents), eu(r.refunded_cents), eu(netto), r.afdracht_percentage, eu(afdracht), eu(netto - afdracht), r.order_count, pr?.iban || '', pr?.iban_tenaamstelling || ''].join(';')
     })
     const blob = new Blob(['﻿' + [kop, ...regels].join('\r\n')], { type: 'text/csv;charset=utf-8' })
     const a = document.createElement('a')
@@ -1305,7 +1306,7 @@ export default function AdminPage() {
                       const afdracht = Math.round(netto * r.afdracht_percentage / 100)
                       return (
                         <tr key={r.merchant_id}>
-                          <td style={S.td}><strong>{r.partner_naam}</strong><div style={{ fontSize: '11px', color: '#999' }}>{r.order_count} verkopen</div></td>
+                          <td style={S.td}><strong>{r.partner_naam}</strong><div style={{ fontSize: '11px', color: '#999' }}>{r.order_count} verkopen</div>{(() => { const pr = partners.find(x => x.id === r.partner_id); return pr?.iban ? <div style={{ fontSize: '11px', color: '#999' }}>{pr.iban}</div> : <div style={{ fontSize: '11px', color: '#b3362f' }}>IBAN ontbreekt</div> })()}</td>
                           <td style={S.td}>{eu(r.omzet_cents)}</td>
                           <td style={S.td}>{r.refunded_cents > 0 ? eu(r.refunded_cents) : '—'}</td>
                           <td style={S.td}>{eu(netto)}</td>

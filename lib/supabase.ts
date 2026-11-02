@@ -96,6 +96,8 @@ export type Partner = {
   afdracht_percentage: number
   notities: string | null
   kortingscode: string | null
+  iban?: string | null
+  iban_tenaamstelling?: string | null
   contract_ondertekend: boolean | null
   contract_ondertekend_datum: string | null
   contract_ondertekenaar: string | null
