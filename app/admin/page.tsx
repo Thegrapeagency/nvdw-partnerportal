@@ -26,6 +26,7 @@ import BezoekerVragen, { vraagDatum } from './BezoekerVragen'
 import { mailAntwoord } from '@/lib/vraagMail'
 import AppBeheer from './AppBeheer'
 import Druivenpeiling from './Druivenpeiling'
+import Water from './Water'
 
 const PAKKET_LABELS: Record<string, string> = {
   branded_bar: 'Branded Bar',
@@ -414,12 +415,12 @@ export default function AdminPage() {
   }
 
   const exportSettlementCsv = () => {
-    const kop = 'Partner;Omzet;Terugbetaald;Netto;Afdracht %;Afdracht;Uit te betalen;Verkopen'
+    const kop = 'Partner;Omzet;Terugbetaald;Netto;Afdracht %;Afdracht;Uit te betalen;Verkopen;Water voor NvdW (niet in omzet)'
     const eu = (c: number) => (c / 100).toFixed(2).replace('.', ',')
     const regels = settlement.map(r => {
       const netto = r.omzet_cents - r.refunded_cents
       const afdracht = Math.round(netto * r.afdracht_percentage / 100)
-      return [r.partner_naam, eu(r.omzet_cents), eu(r.refunded_cents), eu(netto), r.afdracht_percentage, eu(afdracht), eu(netto - afdracht), r.order_count].join(';')
+      return [r.partner_naam, eu(r.omzet_cents), eu(r.refunded_cents), eu(netto), r.afdracht_percentage, eu(afdracht), eu(netto - afdracht), r.order_count, eu((r.water_cents || 0) - (r.water_refunded_cents || 0))].join(';')
     })
     const blob = new Blob(['﻿' + [kop, ...regels].join('\r\n')], { type: 'text/csv;charset=utf-8' })
     const a = document.createElement('a')
@@ -998,6 +999,7 @@ export default function AdminPage() {
         { id: 'partnerinfo', label: 'Info & documenten' },
         { id: 'vragen', label: `Vragen${openVragen.length > 0 ? ` (${openVragen.length})` : ''}` },
         { id: 'kassa', label: 'Kassa & omzet' },
+        { id: 'water', label: 'Water' },
       ]
     },
     {
@@ -1212,6 +1214,7 @@ export default function AdminPage() {
           const kandidaten = partners.filter(p => p.type === 'wijn' || p.type === 'food')
           const totaal = settlement.reduce((s, r) => s + (r.omzet_cents - r.refunded_cents), 0)
           const totaalAfdracht = settlement.reduce((s, r) => s + Math.round((r.omzet_cents - r.refunded_cents) * r.afdracht_percentage / 100), 0)
+          const totaalWater = settlement.reduce((s, r) => s + (r.water_cents || 0) - (r.water_refunded_cents || 0), 0)
           return <>
             <div style={S.title}>Kassa & omzet</div>
             <div style={S.sub}>Koppel partners aan het kassasysteem, stel minimumprijzen in en zie wat elke partner krijgt uitbetaald.</div>
@@ -1292,6 +1295,7 @@ export default function AdminPage() {
                   <thead><tr>
                     <th style={S.th}>Partner</th><th style={S.th}>Omzet</th><th style={S.th}>Terugbetaald</th>
                     <th style={S.th}>Netto</th><th style={S.th}>Afdracht</th><th style={S.th}>Uit te betalen</th>
+                    <th style={S.th}>Water (voor NvdW)</th>
                   </tr></thead>
                   <tbody>
                     {settlement.map(r => {
@@ -1305,6 +1309,7 @@ export default function AdminPage() {
                           <td style={S.td}>{eu(netto)}</td>
                           <td style={S.td}>{r.afdracht_percentage}% ({eu(afdracht)})</td>
                           <td style={{ ...S.td, fontWeight: 700 }}>{eu(netto - afdracht)}</td>
+                          <td style={{ ...S.td, color: '#777' }}>{(r.water_cents || 0) - (r.water_refunded_cents || 0) !== 0 ? eu((r.water_cents || 0) - (r.water_refunded_cents || 0)) : '—'}</td>
                         </tr>
                       )
                     })}
@@ -1312,6 +1317,10 @@ export default function AdminPage() {
                 </table>
                 <div style={{ fontSize: '12px', color: '#666', marginTop: '12px' }}>
                   Totaal netto {eu(totaal)} · totale afdracht (voor NvdW) {eu(totaalAfdracht)} · uit te betalen {eu(totaal - totaalAfdracht)}
+                  {totaalWater !== 0 && <> · water voor NvdW {eu(totaalWater)}</>}
+                </div>
+                <div style={{ fontSize: '12px', color: '#999', marginTop: '6px' }}>
+                  Het verkochte water telt niet mee in de omzet en uitbetaling van de partner. Dat is voor 100% van ons. De voorraad staat onder Water.
                 </div>
               </>}
             </div>
@@ -2088,6 +2097,7 @@ export default function AdminPage() {
         {activeTab === 'crewrooster' && <CrewRooster flash={flash} />}
         {activeTab === 'financieel' && <Financieel flash={flash} />}
         {activeTab === 'leveranciers' && <Leveranciers flash={flash} />}
+        {activeTab === 'water' && <Water flash={flash} />}
 
         {/* INFO & DOCUMENTEN — faq/spelregels, teksten/deadlines en documenten in één tab */}
         {activeTab === 'partnerinfo' && (
