@@ -81,6 +81,8 @@ export type SettlementRow = {
 export type Partner = {
   id: string
   user_id: string | null
+  // E-mail van de admin die deze bar zelf runt (snelle wissel vanuit de admin).
+  beheerd_door?: string | null
   naam: string
   bedrijfsnaam: string
   email: string
@@ -96,6 +98,8 @@ export type Partner = {
   afdracht_percentage: number
   notities: string | null
   kortingscode: string | null
+  iban?: string | null
+  iban_tenaamstelling?: string | null
   contract_ondertekend: boolean | null
   contract_ondertekend_datum: string | null
   contract_ondertekenaar: string | null

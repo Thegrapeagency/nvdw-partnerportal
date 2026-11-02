@@ -214,6 +214,8 @@ export default function AdminPage() {
   // Schrijftoegang tot het partners-gebied (partners, producten, crew,
   // partnerinfo, vragen). Alleen-lezen betekent: wel zien, niet wijzigen.
   const magPartnersSchrijven = heeftGebied(mijnRechten, 'partners')
+  // Bars die je zelf runt (partners.beheerd_door): daarheen zonder opnieuw in te loggen.
+  const heeftEigenBars = !!mijnEmail && partners.some(p => (p.beheerd_door || '').toLowerCase() === mijnEmail.toLowerCase())
   const alleenLezenPartners = isAlleenLezen(mijnRechten, mijnRechtenLezen, 'partners')
   const [docUpload, setDocUpload] = useState({ naam: '', categorie: 'draaiboek', file: null as File | null })
   const [uploading, setUploading] = useState(false)
@@ -415,12 +417,13 @@ export default function AdminPage() {
   }
 
   const exportSettlementCsv = () => {
-    const kop = 'Partner;Omzet;Terugbetaald;Netto;Afdracht %;Afdracht;Uit te betalen;Verkopen;Water voor NvdW (niet in omzet)'
+    const kop = 'Partner;Omzet;Terugbetaald;Netto;Afdracht %;Afdracht;Uit te betalen;Verkopen;Water voor NvdW (niet in omzet);IBAN;Tenaamstelling'
     const eu = (c: number) => (c / 100).toFixed(2).replace('.', ',')
     const regels = settlement.map(r => {
       const netto = r.omzet_cents - r.refunded_cents
       const afdracht = Math.round(netto * r.afdracht_percentage / 100)
-      return [r.partner_naam, eu(r.omzet_cents), eu(r.refunded_cents), eu(netto), r.afdracht_percentage, eu(afdracht), eu(netto - afdracht), r.order_count, eu((r.water_cents || 0) - (r.water_refunded_cents || 0))].join(';')
+      const pr = partners.find(x => x.id === r.partner_id)
+      return [r.partner_naam, eu(r.omzet_cents), eu(r.refunded_cents), eu(netto), r.afdracht_percentage, eu(afdracht), eu(netto - afdracht), r.order_count, eu((r.water_cents || 0) - (r.water_refunded_cents || 0)), pr?.iban || '', pr?.iban_tenaamstelling || ''].join(';')
     })
     const blob = new Blob(['﻿' + [kop, ...regels].join('\r\n')], { type: 'text/csv;charset=utf-8' })
     const a = document.createElement('a')
@@ -1066,6 +1069,10 @@ export default function AdminPage() {
         </nav>
         <div style={{ padding: '16px 20px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
           <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.7)', fontWeight: '600', marginBottom: '8px' }}>{mijnNaam}</div>
+          {heeftEigenBars && (
+            <button onClick={() => router.push('/dashboard')}
+              style={{ display: 'block', fontSize: '11px', color: 'var(--gold)', fontWeight: '600', background: 'none', border: 'none', cursor: 'pointer', padding: 0, marginBottom: '8px' }}>Naar mijn bars</button>
+          )}
           <button onClick={() => router.push('/wachtwoord')}
             style={{ display: 'block', fontSize: '11px', color: 'rgba(255,255,255,0.55)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, marginBottom: '8px' }}>Wachtwoord wijzigen</button>
           <button onClick={async () => { await supabase.auth.signOut(); router.push('/') }}
@@ -1303,7 +1310,7 @@ export default function AdminPage() {
                       const afdracht = Math.round(netto * r.afdracht_percentage / 100)
                       return (
                         <tr key={r.merchant_id}>
-                          <td style={S.td}><strong>{r.partner_naam}</strong><div style={{ fontSize: '11px', color: '#999' }}>{r.order_count} verkopen</div></td>
+                          <td style={S.td}><strong>{r.partner_naam}</strong><div style={{ fontSize: '11px', color: '#999' }}>{r.order_count} verkopen</div>{(() => { const pr = partners.find(x => x.id === r.partner_id); return pr?.iban ? <div style={{ fontSize: '11px', color: '#999' }}>{pr.iban}</div> : <div style={{ fontSize: '11px', color: '#b3362f' }}>IBAN ontbreekt</div> })()}</td>
                           <td style={S.td}>{eu(r.omzet_cents)}</td>
                           <td style={S.td}>{r.refunded_cents > 0 ? eu(r.refunded_cents) : '—'}</td>
                           <td style={S.td}>{eu(netto)}</td>
@@ -1606,6 +1613,7 @@ export default function AdminPage() {
                 <button style={S.btnSm} onClick={() => { if (dirty && !confirm('Niet-opgeslagen wijzigingen weggooien?')) return; setSelectedId(null); setPartnerDocs([]); setPartnerDraft(d => { const nd = { ...d }; delete nd[sp.id]; return nd }) }}>← Terug naar overzicht</button>
                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                   {dirty && <span style={{ fontSize: '12px', color: 'var(--bordeaux)', fontWeight: 600 }}>Niet-opgeslagen wijzigingen</span>}
+                  <button style={S.btnSm} onClick={() => router.push(`/dashboard?partner=${sp.id}`)}>Open als partner</button>
                   {magPartnersSchrijven && <button style={{ ...S.btn, marginTop: 0, opacity: dirty && !partnerSaving ? 1 : 0.5 }} disabled={!dirty || partnerSaving} onClick={() => savePartnerDraft(sp)}>{partnerSaving ? 'Opslaan...' : 'Opslaan'}</button>}
                   {magPartnersSchrijven && <button style={{ ...S.btnSm, color: 'var(--bordeaux)' }} onClick={() => deletePartner(sp)}>Partner verwijderen</button>}
                 </div>
