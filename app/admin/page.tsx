@@ -213,6 +213,8 @@ export default function AdminPage() {
   // Schrijftoegang tot het partners-gebied (partners, producten, crew,
   // partnerinfo, vragen). Alleen-lezen betekent: wel zien, niet wijzigen.
   const magPartnersSchrijven = heeftGebied(mijnRechten, 'partners')
+  // Bars die je zelf runt (partners.beheerd_door): daarheen zonder opnieuw in te loggen.
+  const heeftEigenBars = !!mijnEmail && partners.some(p => (p.beheerd_door || '').toLowerCase() === mijnEmail.toLowerCase())
   const alleenLezenPartners = isAlleenLezen(mijnRechten, mijnRechtenLezen, 'partners')
   const [docUpload, setDocUpload] = useState({ naam: '', categorie: 'draaiboek', file: null as File | null })
   const [uploading, setUploading] = useState(false)
@@ -1064,6 +1066,10 @@ export default function AdminPage() {
         </nav>
         <div style={{ padding: '16px 20px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
           <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.7)', fontWeight: '600', marginBottom: '8px' }}>{mijnNaam}</div>
+          {heeftEigenBars && (
+            <button onClick={() => router.push('/dashboard')}
+              style={{ display: 'block', fontSize: '11px', color: 'var(--gold)', fontWeight: '600', background: 'none', border: 'none', cursor: 'pointer', padding: 0, marginBottom: '8px' }}>Naar mijn bars</button>
+          )}
           <button onClick={() => router.push('/wachtwoord')}
             style={{ display: 'block', fontSize: '11px', color: 'rgba(255,255,255,0.55)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, marginBottom: '8px' }}>Wachtwoord wijzigen</button>
           <button onClick={async () => { await supabase.auth.signOut(); router.push('/') }}
@@ -1597,6 +1603,7 @@ export default function AdminPage() {
                 <button style={S.btnSm} onClick={() => { if (dirty && !confirm('Niet-opgeslagen wijzigingen weggooien?')) return; setSelectedId(null); setPartnerDocs([]); setPartnerDraft(d => { const nd = { ...d }; delete nd[sp.id]; return nd }) }}>← Terug naar overzicht</button>
                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                   {dirty && <span style={{ fontSize: '12px', color: 'var(--bordeaux)', fontWeight: 600 }}>Niet-opgeslagen wijzigingen</span>}
+                  <button style={S.btnSm} onClick={() => router.push(`/dashboard?partner=${sp.id}`)}>Open als partner</button>
                   {magPartnersSchrijven && <button style={{ ...S.btn, marginTop: 0, opacity: dirty && !partnerSaving ? 1 : 0.5 }} disabled={!dirty || partnerSaving} onClick={() => savePartnerDraft(sp)}>{partnerSaving ? 'Opslaan...' : 'Opslaan'}</button>}
                   {magPartnersSchrijven && <button style={{ ...S.btnSm, color: 'var(--bordeaux)' }} onClick={() => deletePartner(sp)}>Partner verwijderen</button>}
                 </div>
