@@ -74,6 +74,8 @@ export type PriceFloor = { key: string; label: string; min_cents: number; active
 export type SettlementRow = {
   merchant_id: string; merchant: string; partner_id: string; partner_naam: string
   afdracht_percentage: number; omzet_cents: number; refunded_cents: number; order_count: number
+  // Water is omzet van de organisatie: zit niet in omzet_cents, staat hier apart.
+  water_cents?: number; water_refunded_cents?: number
 }
 
 export type Partner = {

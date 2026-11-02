@@ -67,6 +67,7 @@ type HorecaBar = {
   netto_ex_btw_cents: number
   zonder_regels_cents: number
   nvdw_ex_btw_cents: number
+  water_ex_btw_cents?: number
 }
 type ImportRij = {
   geldig: boolean
@@ -1614,7 +1615,7 @@ export default function Financieel({ flash }: { flash: (m: string, ms?: number) 
                 <td style={{ ...AS.td, paddingLeft: '32px', fontSize: '12px', color: '#666' }}>
                   {b.merchant}
                   <span style={{ color: '#999' }}>
-                    {' '}· {b.eigen_bar ? 'eigen bar, NvdW houdt alles' : `partnerbar, ${b.nvdw_pct}% afdracht`}
+                    {' '}· {b.eigen_bar ? 'eigen bar, NvdW houdt alles' : `partnerbar, ${b.nvdw_pct}% afdracht${Number(b.water_ex_btw_cents) ? ' + water 100%' : ''}`}
                     {' '}· bruto {euro(Number(b.netto_bruto_cents))}
                   </span>
                   {Number(b.zonder_regels_cents) !== 0 && (
@@ -1632,7 +1633,7 @@ export default function Financieel({ flash }: { flash: (m: string, ms?: number) 
               <td style={{ ...AS.td, fontWeight: 600 }}>
                 NvdW-deel horeca ex btw{bronLabel('live uit kassa')}
                 <div style={{ fontSize: '11px', color: '#999', fontWeight: 400 }}>
-                  Afdracht over de partnerbars plus de volledige omzet van de eigen bars. Btw per regel eruit: drank 21%, eten 9%.
+                  Afdracht over de partnerbars plus de volledige omzet van de eigen bars en al het verkochte water (ook bij partners). Btw per regel eruit: drank 21%, eten 9%.
                 </div>
               </td>
               <td style={{ ...AS.td, textAlign: 'right', fontWeight: 700, whiteSpace: 'nowrap', color: GROEN }}>
