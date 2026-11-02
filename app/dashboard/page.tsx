@@ -1325,8 +1325,8 @@ export default function Dashboard() {
                 const ingevuld = Object.keys(w.smaak_assen ?? {}).length
                 return (
                 <div key={w.id} style={{ borderBottom: '1px solid rgba(1,3,65,0.07)' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 0', gap: '14px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', padding: '14px 0', gap: '12px 14px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flex: '1 1 300px', minWidth: 0 }}>
                       {w.foto_url ? (
                         <img src={w.foto_url} alt={w.naam} style={{ width: '48px', height: '64px', objectFit: 'contain', padding: '3px', boxSizing: 'border-box', background: '#fff', border: '1px solid rgba(1,3,65,0.08)', borderRadius: '8px', flexShrink: 0 }} />
                       ) : (
@@ -1345,7 +1345,7 @@ export default function Dashboard() {
                         </div>
                       </div>
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px' }}>
                       <button onClick={() => (wijnEditOpen === w.id ? setWijnEditOpen(null) : openWijnEdit(w))} style={{ ...S.btnOutline, ...(!w.kleur_type ? { borderColor: 'var(--gold, #feb72a)', color: '#8a5e16' } : {}) }}>
                         {wijnEditOpen === w.id ? 'Bewerken sluiten' : 'Bewerken'}
                       </button>
