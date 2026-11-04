@@ -27,6 +27,7 @@ import BezoekerVragen, { vraagDatum } from './BezoekerVragen'
 import { mailAntwoord } from '@/lib/vraagMail'
 import AppBeheer from './AppBeheer'
 import Druivenpeiling from './Druivenpeiling'
+import Water from './Water'
 
 const PAKKET_LABELS: Record<string, string> = {
   branded_bar: 'Branded Bar',
@@ -214,6 +215,8 @@ export default function AdminPage() {
   // Schrijftoegang tot het partners-gebied (partners, producten, crew,
   // partnerinfo, vragen). Alleen-lezen betekent: wel zien, niet wijzigen.
   const magPartnersSchrijven = heeftGebied(mijnRechten, 'partners')
+  // Bars die je zelf runt (partners.beheerd_door): daarheen zonder opnieuw in te loggen.
+  const heeftEigenBars = !!mijnEmail && partners.some(p => (p.beheerd_door || '').toLowerCase() === mijnEmail.toLowerCase())
   const alleenLezenPartners = isAlleenLezen(mijnRechten, mijnRechtenLezen, 'partners')
   const [docUpload, setDocUpload] = useState({ naam: '', categorie: 'draaiboek', file: null as File | null })
   const [uploading, setUploading] = useState(false)
@@ -415,12 +418,13 @@ export default function AdminPage() {
   }
 
   const exportSettlementCsv = () => {
-    const kop = 'Partner;Omzet;Terugbetaald;Netto;Afdracht %;Afdracht;Uit te betalen;Verkopen'
+    const kop = 'Partner;Omzet;Terugbetaald;Netto;Afdracht %;Afdracht;Uit te betalen;Verkopen;Water voor NvdW (niet in omzet);IBAN;Tenaamstelling'
     const eu = (c: number) => (c / 100).toFixed(2).replace('.', ',')
     const regels = settlement.map(r => {
       const netto = r.omzet_cents - r.refunded_cents
       const afdracht = Math.round(netto * r.afdracht_percentage / 100)
-      return [r.partner_naam, eu(r.omzet_cents), eu(r.refunded_cents), eu(netto), r.afdracht_percentage, eu(afdracht), eu(netto - afdracht), r.order_count].join(';')
+      const pr = partners.find(x => x.id === r.partner_id)
+      return [r.partner_naam, eu(r.omzet_cents), eu(r.refunded_cents), eu(netto), r.afdracht_percentage, eu(afdracht), eu(netto - afdracht), r.order_count, eu((r.water_cents || 0) - (r.water_refunded_cents || 0)), pr?.iban || '', pr?.iban_tenaamstelling || ''].join(';')
     })
     const blob = new Blob(['﻿' + [kop, ...regels].join('\r\n')], { type: 'text/csv;charset=utf-8' })
     const a = document.createElement('a')
@@ -1000,6 +1004,7 @@ export default function AdminPage() {
         { id: 'partnerinfo', label: 'Info & documenten' },
         { id: 'vragen', label: `Vragen${openVragen.length > 0 ? ` (${openVragen.length})` : ''}` },
         { id: 'kassa', label: 'Kassa & omzet' },
+        { id: 'water', label: 'Water' },
       ]
     },
     {
@@ -1066,6 +1071,10 @@ export default function AdminPage() {
         </nav>
         <div style={{ padding: '16px 20px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
           <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.7)', fontWeight: '600', marginBottom: '8px' }}>{mijnNaam}</div>
+          {heeftEigenBars && (
+            <button onClick={() => router.push('/dashboard')}
+              style={{ display: 'block', fontSize: '11px', color: 'var(--gold)', fontWeight: '600', background: 'none', border: 'none', cursor: 'pointer', padding: 0, marginBottom: '8px' }}>Naar mijn bars</button>
+          )}
           <button onClick={() => router.push('/wachtwoord')}
             style={{ display: 'block', fontSize: '11px', color: 'rgba(255,255,255,0.55)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, marginBottom: '8px' }}>Wachtwoord wijzigen</button>
           <button onClick={async () => { await supabase.auth.signOut(); router.push('/') }}
@@ -1214,6 +1223,7 @@ export default function AdminPage() {
           const kandidaten = partners.filter(p => p.type === 'wijn' || p.type === 'food')
           const totaal = settlement.reduce((s, r) => s + (r.omzet_cents - r.refunded_cents), 0)
           const totaalAfdracht = settlement.reduce((s, r) => s + Math.round((r.omzet_cents - r.refunded_cents) * r.afdracht_percentage / 100), 0)
+          const totaalWater = settlement.reduce((s, r) => s + (r.water_cents || 0) - (r.water_refunded_cents || 0), 0)
           return <>
             <div style={S.title}>Kassa & omzet</div>
             <div style={S.sub}>Koppel partners aan het kassasysteem, stel minimumprijzen in en zie wat elke partner krijgt uitbetaald.</div>
@@ -1294,6 +1304,7 @@ export default function AdminPage() {
                   <thead><tr>
                     <th style={S.th}>Partner</th><th style={S.th}>Omzet</th><th style={S.th}>Terugbetaald</th>
                     <th style={S.th}>Netto</th><th style={S.th}>Afdracht</th><th style={S.th}>Uit te betalen</th>
+                    <th style={S.th}>Water (voor NvdW)</th>
                   </tr></thead>
                   <tbody>
                     {settlement.map(r => {
@@ -1301,12 +1312,13 @@ export default function AdminPage() {
                       const afdracht = Math.round(netto * r.afdracht_percentage / 100)
                       return (
                         <tr key={r.merchant_id}>
-                          <td style={S.td}><strong>{r.partner_naam}</strong><div style={{ fontSize: '11px', color: '#999' }}>{r.order_count} verkopen</div></td>
+                          <td style={S.td}><strong>{r.partner_naam}</strong><div style={{ fontSize: '11px', color: '#999' }}>{r.order_count} verkopen</div>{(() => { const pr = partners.find(x => x.id === r.partner_id); return pr?.iban ? <div style={{ fontSize: '11px', color: '#999' }}>{pr.iban}</div> : <div style={{ fontSize: '11px', color: '#b3362f' }}>IBAN ontbreekt</div> })()}</td>
                           <td style={S.td}>{eu(r.omzet_cents)}</td>
                           <td style={S.td}>{r.refunded_cents > 0 ? eu(r.refunded_cents) : '—'}</td>
                           <td style={S.td}>{eu(netto)}</td>
                           <td style={S.td}>{r.afdracht_percentage}% ({eu(afdracht)})</td>
                           <td style={{ ...S.td, fontWeight: 700 }}>{eu(netto - afdracht)}</td>
+                          <td style={{ ...S.td, color: '#777' }}>{(r.water_cents || 0) - (r.water_refunded_cents || 0) !== 0 ? eu((r.water_cents || 0) - (r.water_refunded_cents || 0)) : '—'}</td>
                         </tr>
                       )
                     })}
@@ -1314,6 +1326,10 @@ export default function AdminPage() {
                 </table>
                 <div style={{ fontSize: '12px', color: '#666', marginTop: '12px' }}>
                   Totaal netto {eu(totaal)} · totale afdracht (voor NvdW) {eu(totaalAfdracht)} · uit te betalen {eu(totaal - totaalAfdracht)}
+                  {totaalWater !== 0 && <> · water voor NvdW {eu(totaalWater)}</>}
+                </div>
+                <div style={{ fontSize: '12px', color: '#999', marginTop: '6px' }}>
+                  Het verkochte water telt niet mee in de omzet en uitbetaling van de partner. Dat is voor 100% van ons. De voorraad staat onder Water.
                 </div>
               </>}
             </div>
@@ -1599,6 +1615,7 @@ export default function AdminPage() {
                 <button style={S.btnSm} onClick={() => { if (dirty && !confirm('Niet-opgeslagen wijzigingen weggooien?')) return; setSelectedId(null); setPartnerDocs([]); setPartnerDraft(d => { const nd = { ...d }; delete nd[sp.id]; return nd }) }}>← Terug naar overzicht</button>
                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                   {dirty && <span style={{ fontSize: '12px', color: 'var(--bordeaux)', fontWeight: 600 }}>Niet-opgeslagen wijzigingen</span>}
+                  <button style={S.btnSm} onClick={() => router.push(`/dashboard?partner=${sp.id}`)}>Open als partner</button>
                   {magPartnersSchrijven && <button style={{ ...S.btn, marginTop: 0, opacity: dirty && !partnerSaving ? 1 : 0.5 }} disabled={!dirty || partnerSaving} onClick={() => savePartnerDraft(sp)}>{partnerSaving ? 'Opslaan...' : 'Opslaan'}</button>}
                   {magPartnersSchrijven && <button style={{ ...S.btnSm, color: 'var(--bordeaux)' }} onClick={() => deletePartner(sp)}>Partner verwijderen</button>}
                 </div>
@@ -2091,6 +2108,7 @@ export default function AdminPage() {
         {activeTab === 'financieel' && <Financieel flash={flash} />}
         {activeTab === 'leveranciers' && <Leveranciers flash={flash} />}
         {activeTab === 'tellijsten' && <Tellijsten flash={flash} />}
+        {activeTab === 'water' && <Water flash={flash} />}
 
         {/* INFO & DOCUMENTEN — faq/spelregels, teksten/deadlines en documenten in één tab */}
         {activeTab === 'partnerinfo' && (

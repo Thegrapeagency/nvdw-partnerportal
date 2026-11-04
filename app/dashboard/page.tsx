@@ -5,6 +5,14 @@ import type { PriceFloor, Partner, Wijn, Crewcatering, FAQ, PartnerVraag, Produc
 import { ALLERGENEN, LOG_TABEL_LABEL, LOG_ACTIE_LABEL } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 
+// Controleert een IBAN met de standaard mod-97 controle (geen bankopvraging).
+const ibanGeldig = (iban: string) => {
+  if (!/^[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}$/.test(iban)) return false
+  const omgezet = (iban.slice(4) + iban.slice(0, 4)).replace(/[A-Z]/g, c => String(c.charCodeAt(0) - 55))
+  let rest = 0
+  for (const d of omgezet) rest = (rest * 10 + Number(d)) % 97
+  return rest === 1
+}
 const FAQ_TITEL: Record<string, string> = { bar: 'Je bar & team', wijn: 'Wijn & prijzen', afrekening: 'Afrekening' }
 
 const PAKKET: Record<string, string> = {
@@ -63,6 +71,8 @@ export default function Dashboard() {
   // Alle bars/standplaatsen die onder dit login vallen. Meestal 1, maar
   // iemand kan meerdere partnerrijen op hetzelfde e-mailadres hebben.
   const [bars, setBars] = useState<Partner[]>([])
+  // Admin die een bar opent vanuit de admin (eigen bars of via 'Open als partner').
+  const [adminModus, setAdminModus] = useState(false)
   const [loading, setLoading] = useState(true)
   const [wijnen, setWijnen] = useState<Wijn[]>([])
   const [catering, setCatering] = useState<Crewcatering[]>([])
@@ -128,6 +138,7 @@ export default function Dashboard() {
     buyer_name: string
     buyer_email: string
     created_at: string
+    ticket_link?: string
     order_items?: { quantity: number; ticket_type_id: string; ticket_types?: { name_nl?: string } | null }[]
   }
   const GAST_DAGEN = [
@@ -168,7 +179,9 @@ export default function Dashboard() {
       supabase.from('partner_vragen').select('*').eq('partner_id', p.id).order('created_at', { ascending: false }),
       supabase.from('producten_catalogus').select('*').eq('actief', true).order('volgorde'),
       supabase.from('portal_teksten').select('*'),
-      supabase.from('documenten').select('*').order('created_at', { ascending: false }),
+      // Algemene documenten plus die van deze bar. Expliciet filteren: een admin
+      // ziet via RLS ook de documenten van alle andere partners.
+      supabase.from('documenten').select('*').or(`partner_id.is.null,partner_id.eq.${p.id}`).order('created_at', { ascending: false }),
       supabase.from('extra_bestellingen').select('id, product, aantal, prijs_per_stuk, status, created_at').eq('partner_id', p.id).order('created_at', { ascending: false }),
     ])
     setWijnen(w || []); setMenu(m || []); setCatering(c || []); setCrew(cr || []); setFaqItems(f || []); setVragen(v || []); setProducten(pr || [])
@@ -176,7 +189,7 @@ export default function Dashboard() {
     const tmap: Record<string, string> = {}
     ;(t as PortalTekst[] || []).forEach(x => { tmap[x.sleutel] = x.waarde })
     setTeksten(tmap); setDocumenten(d || [])
-    const { data: lg } = await supabase.from('activiteit_log').select('*').order('created_at', { ascending: false }).limit(15)
+    const { data: lg } = await supabase.from('activiteit_log').select('*').eq('partner_id', p.id).order('created_at', { ascending: false }).limit(15)
     setLog(lg || [])
     // Minimumprijzen van het festival: alleen tonen, afdwingen doet de database.
     try { setFloors((await posSelect<PriceFloor>('price_floors?select=key,label,min_cents,active')).filter(f => f.active && f.min_cents > 0)) } catch { setFloors([]) }
@@ -200,7 +213,8 @@ export default function Dashboard() {
   const wisselBar = async () => {
     const { data: { user } } = await supabase.auth.getUser()
     if (user) { try { localStorage.removeItem(barSleutel(user.id)) } catch { /* privénavigatie o.i.d. */ } }
-    window.location.reload()
+    // ?partner= uit de adresbalk halen, anders opent dezelfde bar meteen weer.
+    window.location.href = '/dashboard'
   }
 
   useEffect(() => {
@@ -209,7 +223,28 @@ export default function Dashboard() {
       if (!user) { router.push('/'); return }
       // Geen .single(): iemand kan meerdere bars (partnerrijen) op hetzelfde
       // e-mailadres hebben, en dan valt dit login-account onder allemaal.
-      const { data: ps } = await supabase.from('partners').select('*').eq('user_id', user.id).order('bedrijfsnaam')
+      let { data: ps } = await supabase.from('partners').select('*').eq('user_id', user.id).order('bedrijfsnaam')
+      // Admins zien hier de bars die ze zelf runnen (partners.beheerd_door), en
+      // met ?partner=<id> vanuit de admin elke andere bar. Schrijven mag via RLS.
+      const { data: isAdmin } = await supabase.rpc('is_admin')
+      if (isAdmin) {
+        setAdminModus(true)
+        const { data: eigen } = await supabase.from('partners').select('*').eq('beheerd_door', (user.email || '').toLowerCase()).order('bedrijfsnaam')
+        let lijst: Partner[] = [...(ps || [])]
+        for (const b of eigen || []) if (!lijst.some(x => x.id === b.id)) lijst.push(b)
+        lijst.sort((a, b) => a.bedrijfsnaam.localeCompare(b.bedrijfsnaam))
+        const gevraagd = new URLSearchParams(window.location.search).get('partner')
+        if (gevraagd) {
+          let p = lijst.find(b => b.id === gevraagd)
+          if (!p) {
+            const { data: los } = await supabase.from('partners').select('*').eq('id', gevraagd).maybeSingle()
+            if (los) { p = los; lijst = [los, ...lijst] }
+          }
+          setBars(lijst)
+          if (p) { await laadVoorPartner(p); setLoading(false); return }
+        }
+        ps = lijst
+      }
       if (!ps || ps.length === 0) { setLoading(false); return }
       setBars(ps)
       if (ps.length === 1) { await laadVoorPartner(ps[0]); setLoading(false); return }
@@ -223,7 +258,7 @@ export default function Dashboard() {
 
   // Laad gasttickets zodra de tab geopend wordt (en partner geladen is)
   useEffect(() => {
-    if (tab === 'gasttickets' && partner && (partner.gratis_tickets || 0) > 0 && !gastLoaded) {
+    if (partner && !gastLoaded && ((tab === 'gasttickets' && (partner.gratis_tickets || 0) > 0) || tab === 'crew')) {
       laadGasttickets()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -431,10 +466,10 @@ export default function Dashboard() {
       const res = await fetch(GAST_ENDPOINT, {
         method: 'POST',
         headers: { Authorization: auth, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type_id: 'crew', qty: 1, guest_name: naam, guest_email: email }),
+        body: JSON.stringify({ type_id: 'crew', qty: 1, guest_name: naam, guest_email: email, partner_id: partner?.id }),
       })
       const j = await res.json().catch(() => ({}))
-      if (res.ok && j.ok) { flash(`Crewlid toegevoegd. Crewticket verstuurd naar ${email}.`); return }
+      if (res.ok && j.ok) { flash(`Crewlid toegevoegd. Crewticket verstuurd naar ${email}.`); laadGasttickets(); return }
       if (j.error === 'quota_exceeded') { flash('Crewlid toegevoegd, maar je crew-ticketquotum is op. Neem contact op voor meer crewtickets.'); return }
       flash('Crewlid toegevoegd. Crewticket kon niet worden verstuurd.')
     } catch {
@@ -457,6 +492,7 @@ export default function Dashboard() {
       p_naam: signNaam.trim(),
       p_handtekening: signData,
       p_akkoorden: { gelezen: akkoordGelezen, stageld: akkoordStageld, afdracht: akkoordAfdracht },
+      p_partner_id: partner?.id,
     })
     setSignBezig(false)
     if (error) { setSignFout('Ondertekenen mislukt: ' + error.message); return }
@@ -556,7 +592,7 @@ export default function Dashboard() {
     const auth = await gastAuthHeader()
     if (!auth) { flash('Je sessie is verlopen. Log opnieuw in.'); return }
     try {
-      const res = await fetch(GAST_ENDPOINT, { method: 'GET', headers: { Authorization: auth } })
+      const res = await fetch(`${GAST_ENDPOINT}?partner_id=${partner?.id || ''}`, { method: 'GET', headers: { Authorization: auth } })
       if (res.status === 401) { flash('Je sessie is verlopen. Log opnieuw in.'); return }
       if (!res.ok) { flash('Gasttickets konden niet worden geladen.'); return }
       const json = await res.json()
@@ -584,7 +620,7 @@ export default function Dashboard() {
       const res = await fetch(GAST_ENDPOINT, {
         method: 'POST',
         headers: { Authorization: auth, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type_id: gastForm.type_id, qty, guest_name: naam, guest_email: email }),
+        body: JSON.stringify({ type_id: gastForm.type_id, qty, guest_name: naam, guest_email: email, partner_id: partner?.id }),
       })
       if (res.status === 401) { flash('Je sessie is verlopen. Log opnieuw in.'); return }
       let json: { ok?: boolean; error?: string; used?: number; quota?: number } = {}
@@ -622,7 +658,10 @@ export default function Dashboard() {
     <div style={{ padding: '40px 20px', background: 'var(--sand)', minHeight: '100vh' }}>
       <div style={{ maxWidth: '440px', margin: '0 auto' }}>
         <div style={S.pageTitle}>Welke bar beheer je?</div>
-        <div style={S.pageDesc}>Dit account hoort bij meerdere aanmeldingen. Kies er een, je kunt hierna altijd wisselen.</div>
+        <div style={S.pageDesc}>{adminModus ? 'Dit zijn de bars die je zelf runt. Kies er een, je kunt hierna altijd wisselen.' : 'Dit account hoort bij meerdere aanmeldingen. Kies er een, je kunt hierna altijd wisselen.'}</div>
+        {adminModus && (
+          <button onClick={() => router.push('/admin')} style={{ ...S.btnOutline, marginBottom: '20px' }}>Terug naar admin</button>
+        )}
         {bars.map(b => (
           <button key={b.id} onClick={() => kiesBar(b)} style={{
             display: 'block', width: '100%', textAlign: 'left', padding: '16px 18px', marginBottom: '10px',
@@ -636,7 +675,14 @@ export default function Dashboard() {
     </div>
   )
 
-  if (!partner) return <div style={{ padding: '40px', background: 'var(--sand)', minHeight: '100vh', fontSize: '14px', color: 'var(--navy)' }}>Geen partneraccount gevonden. Mail naar info@nachtvandewijn.nl</div>
+  if (!partner) return (
+    <div style={{ padding: '40px', background: 'var(--sand)', minHeight: '100vh', fontSize: '14px', color: 'var(--navy)' }}>
+      {adminModus ? <>
+        Er staan nog geen bars op jouw naam. Open een partner in de admin met Open als partner.
+        <div><button onClick={() => router.push('/admin')} style={{ ...S.btnOutline, marginTop: '16px' }}>Terug naar admin</button></div>
+      </> : 'Geen partneraccount gevonden. Mail naar info@nachtvandewijn.nl'}
+    </div>
+  )
 
   const isFood = partner.type === 'food'
   const isPersoneel = partner.type === 'personeel'
@@ -683,6 +729,11 @@ export default function Dashboard() {
           ))}
         </nav>
         <div style={{ padding: '16px 20px', borderTop: '1px solid rgba(1,3,65,0.08)', display: 'flex', flexDirection: 'column', gap: '10px', alignItems: 'flex-start' }}>
+          {adminModus && (
+            <button onClick={() => router.push('/admin')} style={{ fontSize: '11px', fontWeight: '600', color: 'var(--bordeaux)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+              Terug naar admin
+            </button>
+          )}
           {bars.length > 1 && (
             <button onClick={wisselBar} style={{ fontSize: '11px', color: 'rgba(1,3,65,0.5)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
               Wissel van bar
@@ -699,6 +750,11 @@ export default function Dashboard() {
 
       {/* Content */}
       <main style={{ flex: 1, padding: '48px 52px', maxWidth: '780px' }}>
+        {adminModus && (
+          <div style={{ fontSize: '12px', color: 'var(--navy)', background: 'var(--cream)', padding: '10px 16px', marginBottom: '24px', border: '1px solid rgba(155,55,55,0.35)' }}>
+            Je bekijkt <b>{partner.bedrijfsnaam}</b> vanuit je admin-account. Wat je hier aanpast, geldt direct voor deze partner.
+          </div>
+        )}
         {msg && <div style={{ fontSize: '13px', color: '#2e7d32', background: '#f0faf0', padding: '10px 16px', marginBottom: '24px', border: '1px solid #c8e6c9' }}>{msg}</div>}
 
         {/* HOME */}
@@ -981,8 +1037,9 @@ export default function Dashboard() {
                           <div style={{ fontSize: '12px', color: 'rgba(1,3,65,0.4)', marginTop: '2px' }}>{g.buyer_email}</div>
                           {dagen && <div style={{ fontSize: '12px', color: 'var(--bordeaux)', marginTop: '2px' }}>{dagen}</div>}
                         </div>
-                        <span style={{ fontSize: '11px', color: 'rgba(1,3,65,0.35)', whiteSpace: 'nowrap', marginLeft: '12px' }}>
+                        <span style={{ fontSize: '11px', color: 'rgba(1,3,65,0.35)', whiteSpace: 'nowrap', marginLeft: '12px', textAlign: 'right' }}>
                           {g.created_at ? new Date(g.created_at).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' }) : ''}
+                          {g.ticket_link && <><br /><a href={g.ticket_link} target="_blank" rel="noreferrer" style={{ color: 'var(--bordeaux)', textDecoration: 'underline' }}>Ticket</a></>}
                         </span>
                       </div>
                     )
@@ -1009,6 +1066,25 @@ export default function Dashboard() {
             <label style={S.label}>E-mailadres (inlog)</label>
             <input style={{ ...S.input, opacity: 0.6 }} value={partner.email} disabled />
             <p style={{ fontSize: '12px', color: 'rgba(1,3,65,0.4)', marginTop: '8px' }}>Je e-mailadres is je inlognaam en kan niet hier gewijzigd worden. Neem contact op als dit moet veranderen.</p>
+            <div style={{ ...S.sectionTitle, marginTop: '32px' }}>Uitbetaling</div>
+            <p style={{ fontSize: '12px', color: 'rgba(1,3,65,0.5)', lineHeight: 1.6, marginBottom: '4px' }}>Na het festival betalen we je omzet, na aftrek van de afdracht, uit op dit rekeningnummer.</p>
+            <label style={S.label}>Naam rekeninghouder</label>
+            <input style={S.input} defaultValue={partner.iban_tenaamstelling || ''} placeholder="Zoals op je bankpas of rekening" onBlur={async e => {
+              const v = e.target.value.trim()
+              if (v === (partner.iban_tenaamstelling || '')) return
+              const { error } = await supabase.from('partners').update({ iban_tenaamstelling: v || null } as any).eq('id', partner.id)
+              if (error) { flash('Opslaan mislukt: ' + error.message); return }
+              setPartner({ ...partner, iban_tenaamstelling: v || null }); flash('Opgeslagen')
+            }} />
+            <label style={S.label}>IBAN</label>
+            <input style={S.input} defaultValue={partner.iban || ''} placeholder="NL00 BANK 0000 0000 00" onBlur={async e => {
+              const v = e.target.value.replace(/\s+/g, '').toUpperCase()
+              if (v === (partner.iban || '')) return
+              if (v && !ibanGeldig(v)) { flash('Dit IBAN klopt niet. Controleer de cijfers en letters.'); return }
+              const { error } = await supabase.from('partners').update({ iban: v || null } as any).eq('id', partner.id)
+              if (error) { flash('Opslaan mislukt: ' + error.message); return }
+              setPartner({ ...partner, iban: v || null }); flash('Opgeslagen')
+            }} />
           </div>
         </>}
 
@@ -1249,8 +1325,8 @@ export default function Dashboard() {
                 const ingevuld = Object.keys(w.smaak_assen ?? {}).length
                 return (
                 <div key={w.id} style={{ borderBottom: '1px solid rgba(1,3,65,0.07)' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 0', gap: '14px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', padding: '14px 0', gap: '12px 14px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flex: '1 1 300px', minWidth: 0 }}>
                       {w.foto_url ? (
                         <img src={w.foto_url} alt={w.naam} style={{ width: '48px', height: '64px', objectFit: 'contain', padding: '3px', boxSizing: 'border-box', background: '#fff', border: '1px solid rgba(1,3,65,0.08)', borderRadius: '8px', flexShrink: 0 }} />
                       ) : (
@@ -1269,7 +1345,7 @@ export default function Dashboard() {
                         </div>
                       </div>
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px' }}>
                       <button onClick={() => (wijnEditOpen === w.id ? setWijnEditOpen(null) : openWijnEdit(w))} style={{ ...S.btnOutline, ...(!w.kleur_type ? { borderColor: 'var(--gold, #feb72a)', color: '#8a5e16' } : {}) }}>
                         {wijnEditOpen === w.id ? 'Bewerken sluiten' : 'Bewerken'}
                       </button>
@@ -1484,7 +1560,7 @@ export default function Dashboard() {
         {/* CREW */}
         {tab === 'crew' && <>
           <div style={S.pageTitle}>Crew</div>
-          <div style={S.pageDesc}>Meld hier je personeel aan. Met een e-mailadres ontvangt elk crewlid automatisch een gratis crewticket (alle dagen). Vul ook crewcatering en allergieën in.</div>
+          <div style={S.pageDesc}>Meld hier je personeel aan. Met een e-mailadres ontvangt elk crewlid automatisch een gratis crewticket (alle dagen), dat je hieronder ook kunt openen en downloaden. Vul ook crewcatering en allergieën in.</div>
           <div style={{ borderTop: '1px solid rgba(1,3,65,0.1)', paddingTop: '28px' }}>
             {crew.length > 0 && <>
               <div style={S.sectionTitle}>{crew.length} {crew.length === 1 ? 'crewlid' : 'crewleden'}</div>
@@ -1497,7 +1573,13 @@ export default function Dashboard() {
                     </div>
                     {c.dieet && <div style={{ fontSize: '12px', color: 'var(--bordeaux)', marginTop: '2px' }}>Dieet/allergie: {c.dieet}</div>}
                   </div>
-                  <button onClick={() => deleteCrew(c.id)} style={S.btnOutline}>Verwijder</button>
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexShrink: 0 }}>
+                    {(() => {
+                      const t = gastIssued.find(g => (g.buyer_email || '').toLowerCase() === (c.email || '').trim().toLowerCase() && (g.buyer_name || '').trim().toLowerCase() === (c.naam || '').trim().toLowerCase() && g.order_items?.some(it => it.ticket_type_id === 'crew'))
+                      return t?.ticket_link ? <a href={t.ticket_link} target="_blank" rel="noreferrer" style={{ ...S.btnOutline, textDecoration: 'none' }}>Ticket</a> : null
+                    })()}
+                    <button onClick={() => deleteCrew(c.id)} style={S.btnOutline}>Verwijder</button>
+                  </div>
                 </div>
               ))}
             </>}

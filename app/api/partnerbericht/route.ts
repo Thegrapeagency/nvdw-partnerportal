@@ -15,16 +15,42 @@ const esc = (value: string) => value
   .replaceAll('"', '&quot;')
   .replaceAll("'", '&#039;')
 
+// Zet de berichttekst om in nette HTML: een regel in hoofdletters wordt een kopje,
+// regels met "- " een opsomming (met vette lead-in voor "Label: tekst"), de rest alinea's.
+function berichtInhoud(tekst: string) {
+  const isKop = (r: string) => /^[A-ZÀ-Ý0-9 ,.:&'\/()-]{3,80}$/.test(r) && /[A-ZÀ-Ý]/.test(r)
+  const regels = (rest: string[]) => {
+    if (!rest.length) return ''
+    if (rest.every(r => r.startsWith('- '))) {
+      const items = rest.map(r => {
+        const t = r.slice(2)
+        const m = t.match(/^([^:]{1,30}):\s(.*)$/)
+        const inhoud = m ? `<strong>${esc(m[1])}:</strong> ${esc(m[2])}` : esc(t)
+        return `<li style="margin:0 0 8px;">${inhoud}</li>`
+      }).join('')
+      return `<ul style="font-size:15px;line-height:1.7;margin:0 0 18px;padding-left:20px;">${items}</ul>`
+    }
+    return `<p style="font-size:15px;line-height:1.7;margin:0 0 18px;">${esc(rest.join('\n')).replaceAll('\n', '<br/>')}</p>`
+  }
+  return tekst.trim().split(/\n\s*\n/).map(blok => {
+    const r = blok.split('\n').map(x => x.trimEnd()).filter(x => x.trim() !== '')
+    if (r.length && isKop(r[0])) {
+      return `<h2 style="font-size:12px;letter-spacing:2px;text-transform:uppercase;color:#9b3737;margin:26px 0 8px;">${esc(r[0])}</h2>${regels(r.slice(1))}`
+    }
+    return regels(r)
+  }).join('')
+}
+
 function berichtHtml(naam: string, bericht: string, link: string) {
   const aanhef = naam.trim() ? `Hoi ${esc(naam.trim())},` : 'Hoi,'
-  const alinea = esc(bericht.trim()).replaceAll('\n', '<br/>')
+  const alinea = berichtInhoud(bericht)
   return `<!doctype html><html lang="nl"><body style="margin:0;background:#f0e4c0;font-family:Helvetica,Arial,sans-serif;color:#010341;">
   <div style="max-width:560px;margin:0 auto;padding:32px 20px;">
     <div style="background:#fef1d5;border:1px solid rgba(1,3,65,0.1);padding:36px 32px;">
       <div style="font-size:11px;letter-spacing:3px;text-transform:uppercase;color:#9b3737;margin-bottom:10px;">Partnerportal</div>
       <h1 style="font-size:25px;line-height:1.15;margin:0 0 22px;color:#010341;text-transform:uppercase;">Nacht van de Wijn 2026</h1>
       <p style="font-size:15px;line-height:1.7;margin:0 0 14px;">${aanhef}</p>
-      <p style="font-size:15px;line-height:1.7;margin:0 0 24px;">${alinea}</p>
+      <div style="margin:0 0 24px;">${alinea}</div>
       <a href="${esc(link)}" style="display:inline-block;background:#010341;color:#fef1d5;text-decoration:none;font-size:12px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;padding:14px 24px;">Open het partnerportal</a>
       <p style="font-size:12px;line-height:1.6;color:rgba(1,3,65,0.5);margin:24px 0 0;">Deze persoonlijke link werkt één keer. Werkt de knop niet meer, vraag dan op de inlogpagina direct een nieuwe link aan.</p>
     </div>

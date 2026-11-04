@@ -46,6 +46,7 @@ export const TAB_GEBIED: Record<string, Gebied> = {
 
   financieel: 'financieel',
   kassa: 'financieel',
+  water: 'partners',
   // Bij financieel omdat hier offertebedragen staan en de koppeling met de
   // begroting. Wie bij de bedragen mag, mag ook bij de leveranciers.
   leveranciers: 'financieel',
