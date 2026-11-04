@@ -11,6 +11,7 @@ import MetaAds from './MetaAds'
 import CrewRooster from './CrewRooster'
 import Financieel from './Financieel'
 import Leveranciers from './Leveranciers'
+import Tellijsten from './Tellijsten'
 import Advertenties from './Advertenties'
 import Push from './Push'
 import Aankondigingen from './Aankondigingen'
@@ -994,6 +995,7 @@ export default function AdminPage() {
       id: 'thema-partners', label: 'Partners', leaves: [
         { id: 'partners', label: 'Partners' },
         { id: 'wijnen', label: 'Wijnen' },
+        { id: 'tellijsten', label: 'Tellijsten' },
         { id: 'producten', label: 'Producten (extra’s)' },
         { id: 'partnerinfo', label: 'Info & documenten' },
         { id: 'vragen', label: `Vragen${openVragen.length > 0 ? ` (${openVragen.length})` : ''}` },
@@ -2088,6 +2090,7 @@ export default function AdminPage() {
         {activeTab === 'crewrooster' && <CrewRooster flash={flash} />}
         {activeTab === 'financieel' && <Financieel flash={flash} />}
         {activeTab === 'leveranciers' && <Leveranciers flash={flash} />}
+        {activeTab === 'tellijsten' && <Tellijsten flash={flash} />}
 
         {/* INFO & DOCUMENTEN — faq/spelregels, teksten/deadlines en documenten in één tab */}
         {activeTab === 'partnerinfo' && (
