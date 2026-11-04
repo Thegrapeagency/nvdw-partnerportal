@@ -290,6 +290,8 @@ export default function Dashboard() {
   const flash = (m: string) => { setMsg(m); setTimeout(() => setMsg(''), 3000) }
   const logout = async () => { await supabase.auth.signOut(); router.push('/') }
   const T = (k: string, fallback = '') => teksten[k] || fallback
+  // Staat hier een melding, dan is Extra bestellen gesloten (leeg = open).
+  const extrasDicht = T('extras_gesloten_tekst').trim()
   useEffect(() => { try { setMededelingWeg(localStorage.getItem('mededeling_weg')) } catch {} }, [])
   const cateringPrijs = parseFloat(T('prijs_catering_pp', '19.50')) || 19.5
 
@@ -1647,7 +1649,15 @@ export default function Dashboard() {
         {/* EXTRAS */}
         {tab === 'extras' && <>
           <div style={S.pageTitle}>Extra bestellen</div>
-          <div style={S.pageDesc}>Alles optioneel, naar wens bij te boeken. Prijzen exclusief btw.</div>
+          <div style={S.pageDesc}>{extrasDicht ? 'Hieronder zie je wat je hebt aangevraagd. Prijzen exclusief btw.' : 'Alles optioneel, naar wens bij te boeken. Prijzen exclusief btw.'}</div>
+
+          {/* Shop dicht: de melding staat in de admin onder Info & documenten, de database blokkeert dan ook wijzigingen */}
+          {extrasDicht && (
+            <div style={{ background: 'var(--card)', border: '1px solid rgba(1,3,65,0.08)', borderLeft: '3px solid var(--gold)', borderRadius: '14px', padding: '16px 20px', marginBottom: '24px' }}>
+              <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--navy)', marginBottom: '6px' }}>Extra bestellen is gesloten</div>
+              <div style={{ fontSize: '13px', color: 'var(--navy)', lineHeight: 1.7, whiteSpace: 'pre-line' }}>{extrasDicht}</div>
+            </div>
+          )}
 
           {mijnBestellingen.length > 0 && (
             <div style={{ background: 'var(--card)', border: '1px solid rgba(1,3,65,0.08)', borderRadius: '14px', padding: '18px 20px', marginBottom: '24px' }}>
@@ -1655,13 +1665,13 @@ export default function Dashboard() {
                 Jouw aanvraag
               </div>
               {mijnBestellingen.map(e => {
-                const open = (e.status || 'aangevraagd') === 'aangevraagd'
+                const open = !extrasDicht && (e.status || 'aangevraagd') === 'aangevraagd'
                 return (
                   <div key={e.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', padding: '10px 0', borderBottom: '1px solid rgba(1,3,65,0.07)', flexWrap: 'wrap' }}>
                     <div style={{ flex: 1, minWidth: '140px' }}>
                       <div style={{ fontSize: '13px', fontWeight: '500', color: 'var(--navy)' }}>{e.product}</div>
                       <div style={{ fontSize: '11px', color: 'rgba(1,3,65,0.4)', marginTop: '2px' }}>
-                        {euroFmt(e.prijs_per_stuk)} per stuk · {open ? 'nog aan te passen' : e.status}
+                        {euroFmt(e.prijs_per_stuk)} per stuk · {open ? 'nog aan te passen' : (e.status || 'aangevraagd')}
                       </div>
                     </div>
                     {open ? (
@@ -1683,14 +1693,14 @@ export default function Dashboard() {
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '14px 0 0', fontSize: '15px', fontWeight: 700, color: 'var(--navy)' }}>
                 <span>Totaal extra&apos;s</span><span>{euroFmt(extrasTotaal)}</span>
               </div>
-              <p style={{ fontSize: '12px', color: 'rgba(1,3,65,0.45)', marginTop: '10px', lineHeight: 1.6 }}>
+              {!extrasDicht && <p style={{ fontSize: '12px', color: 'rgba(1,3,65,0.45)', marginTop: '10px', lineHeight: 1.6 }}>
                 Zolang er &quot;nog aan te passen&quot; staat kun je het aantal wijzigen of het van je lijst halen.
                 Zodra wij de aanvraag bevestigen staat hij vast. Bij Offerte zie je wat je in totaal betaalt.
-              </p>
+              </p>}
             </div>
           )}
 
-          <div style={{ borderTop: '1px solid rgba(1,3,65,0.1)', paddingTop: '24px', display: 'flex', flexDirection: 'column', gap: '1px' }}>
+          {!extrasDicht && <div style={{ borderTop: '1px solid rgba(1,3,65,0.1)', paddingTop: '24px', display: 'flex', flexDirection: 'column', gap: '1px' }}>
             {producten.length === 0 && (
               <p style={{ fontSize: '13px', color: 'rgba(1,3,65,0.45)' }}>Er staan nog geen extra producten klaar. Kom hier later terug.</p>
             )}
@@ -1722,7 +1732,7 @@ export default function Dashboard() {
                 </div>
               )
             })}
-          </div>
+          </div>}
         </>}
 
         {/* DOCUMENTEN */}
