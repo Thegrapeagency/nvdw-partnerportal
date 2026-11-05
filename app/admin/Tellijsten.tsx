@@ -19,10 +19,10 @@ type Telling = {
   created_at: string
 }
 
-const WATER = ['Sea Water plat', 'Sea Water bruis']
+export const WATER = ['Sea Water plat', 'Sea Water bruis']
 
 // Zelfde producten en volgorde als de papieren tellijst.
-const BARS: { id: string; naam: string; producten: string[] }[] = [
+export const BARS: { id: string; naam: string; producten: string[] }[] = [
   { id: 'santa-tresa', naam: 'Delta – Santa Tresa', producten: ['Grillo Spumante', 'Rina Ianca', 'Cerasuolo', 'Insieme Bianco', 'Insieme Orange', 'Siccari Rosso', 'Frappato', 'Grillo Magnum', ...WATER] },
   { id: 'radacini', naam: 'Delta – Radacini', producten: ['Fiori Alba', 'Metier Brut', 'Blanc de Cabernet', 'Fiori Neagra', 'Reserve Chard PG', 'Reserve Cab Mer', 'Vintage Chard', 'Vintage Pinot N', ...WATER] },
   { id: 'misty-cove', naam: 'Delta – Misty Cove', producten: ['Landmark Albariño', 'Landmark Riesling', 'Wild Daisy Pinot', 'Estate Sauv Blanc', 'Landmark Sauv Bl', '1203 Chardonnay', '1203 Pinot Noir', ...WATER] },
@@ -42,7 +42,7 @@ const BARS: { id: string; naam: string; producten: string[] }[] = [
 
 // De voorraadtelling gebruikt dezelfde producten, gegroepeerd per bar. Water
 // staat maar één keer in de lijst, anders tel je het zes keer.
-const VOORRAAD_GROEPEN: { naam: string; producten: string[] }[] = [
+export const VOORRAAD_GROEPEN: { naam: string; producten: string[] }[] = [
   ...BARS.map(b => ({ naam: b.naam, producten: b.producten.filter(p => !WATER.includes(p)) })).filter(g => g.producten.length > 0),
   { naam: 'Water', producten: WATER },
 ]
@@ -68,6 +68,7 @@ export default function Tellijsten({ flash }: { flash: (m: string, ms?: number) 
   const [geladen, setGeladen] = useState(false)
   const [dbKlaar, setDbKlaar] = useState(true)
   const [bezig, setBezig] = useState(false)
+  const [linkToken, setLinkToken] = useState<string | null>(null)
 
   const laad = async () => {
     const { data, error } = await supabase.from('tellijsten').select('*').order('geteld_op', { ascending: false }).order('created_at', { ascending: false })
@@ -83,6 +84,8 @@ export default function Tellijsten({ flash }: { flash: (m: string, ms?: number) 
 
   useEffect(() => {
     laad()
+    // Link zonder inlog voor de bars. Bestaat de tabel nog niet, dan tonen we de kaart gewoon niet.
+    supabase.from('tellijst_link').select('token').limit(1).maybeSingle().then(({ data }) => setLinkToken(data?.token || null))
     // Naam van wie is ingelogd alvast invullen, scheelt typen op de bar.
     ;(async () => {
       const { data: { user } } = await supabase.auth.getUser()
@@ -204,6 +207,20 @@ export default function Tellijsten({ flash }: { flash: (m: string, ms?: number) 
         <div style={{ ...AS.card, borderColor: 'rgba(155,55,55,0.35)' }}>
           <div style={AS.cardTitle}>De tellijsten zijn nog niet klaar in de database</div>
           <div style={{ fontSize: '13px' }}>Een beheerder moet eerst de migratie <code>20261104100000_tellijsten.sql</code> uitvoeren. Daarna werkt dit scherm.</div>
+        </div>
+      )}
+
+      {linkToken && (
+        <div style={AS.card}>
+          <div style={AS.cardTitle}>Link zonder inlog</div>
+          <div style={{ fontSize: '13px', color: '#66604f', marginBottom: '10px' }}>
+            Stuur deze link naar de bars en Sara. Wie hem heeft, kan tellingen opslaan en bekijken, zonder in te loggen.
+          </div>
+          <input readOnly value={`${window.location.origin}/tellen/${linkToken}`} onFocus={e => e.currentTarget.select()}
+            style={{ ...AS.input, fontSize: '13px', fontFamily: 'monospace' }} />
+          <button
+            onClick={() => navigator.clipboard.writeText(`${window.location.origin}/tellen/${linkToken}`).then(() => flash('Link gekopieerd.'), () => flash('Kopiëren lukte niet, selecteer de link zelf.', 5000))}
+            style={AS.btn}>Kopieer link</button>
         </div>
       )}
 
