@@ -21,7 +21,7 @@ type Telling = {
 
 export const WATER = ['Sea Water plat', 'Sea Water bruis']
 
-// Zelfde producten en volgorde als de papieren tellijst.
+// Zelfde producten en volgorde als de papieren tellijst (de eigen bars: Delta, Kaiken en Wijnbeurs).
 export const BARS: { id: string; naam: string; producten: string[] }[] = [
   { id: 'santa-tresa', naam: 'Delta – Santa Tresa', producten: ['Grillo Spumante', 'Rina Ianca', 'Cerasuolo', 'Insieme Bianco', 'Insieme Orange', 'Siccari Rosso', 'Frappato', 'Grillo Magnum', ...WATER] },
   { id: 'radacini', naam: 'Delta – Radacini', producten: ['Fiori Alba', 'Metier Brut', 'Blanc de Cabernet', 'Fiori Neagra', 'Reserve Chard PG', 'Reserve Cab Mer', 'Vintage Chard', 'Vintage Pinot N', ...WATER] },
@@ -29,6 +29,12 @@ export const BARS: { id: string; naam: string; producten: string[] }[] = [
   { id: 'abstinence', naam: 'Delta – Abstinence', producten: ['Abstinence Bloedsinaasappel Negroni', 'Abstinence Kaapse Citruszure', 'Abstinence Citroen Spritz', 'Abstinence Cape Spice Daiquiri'] },
   { id: 'no-low', naam: 'Delta – No/Low', producten: ['Kolonne Null', 'Oddbird', 'Pizzolato Zero Sparkling', 'Fris', ...WATER] },
   { id: 'aotr', naam: 'Delta – Art of the Refill', producten: [...WATER] },
+  {
+    id: 'kaiken', naam: 'Kaiken wines', producten: [
+      'Terroir Torrontes', 'Indómito Cab Fr', 'Disobedience', 'Brut Rosé', 'MAI', 'Divina Chard',
+      'Estate Malbec', 'Estate Sauv Sém', 'Indómito Chard', 'Ultra Cab Sauv', ...WATER,
+    ],
+  },
   {
     id: 'wijnbeurs', naam: 'Wijnbeurs', producten: [
       'Two Rivers Sauv', 'Girard Sancerre', 'Setzer Grüner', 'Meursault Clerc', 'Kanakaris Assyrt.', 'Bosio Chardonnay',
