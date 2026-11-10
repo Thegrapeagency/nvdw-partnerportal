@@ -586,7 +586,7 @@ export default function Plattegrond({ flash, demo }: { flash: (m: string, ms?: n
         // standaard: 60 m breed, daarna kalibreren op een bekende maat
         const w = 60, h = (60 * img.height) / img.width
         setDoc(d => ({ ...d, bg: { src: rd.result as string, x: 0, y: 0, w, h, opacity: 0.5, locked: false } }))
-        flash('Onderlegger geplaatst. Kalibreer nu: trek een lijn over een maat die je kent.', 6000)
+        flash('Plattegrond van de locatie geplaatst. Zet hem nu op schaal: trek een lijn over een maat die je kent.', 6000)
         setTool('calibrate')
       }
       img.src = rd.result as string
@@ -600,7 +600,7 @@ export default function Plattegrond({ flash, demo }: { flash: (m: string, ms?: n
     if (!echt) return
     const f = echt / gemeten
     setDoc(d => d.bg ? ({ ...d, bg: { ...d.bg, x: a[0] - (a[0] - d.bg.x) * f, y: a[1] - (a[1] - d.bg.y) * f, w: d.bg.w * f, h: d.bg.h * f } }) : d)
-    flash('Onderlegger staat op schaal')
+    flash('Plattegrond van de locatie staat op schaal')
   }
 
   // ---- export ----
@@ -771,7 +771,7 @@ export default function Plattegrond({ flash, demo }: { flash: (m: string, ms?: n
       {!huidigId ? (
         <div style={{ ...AS.card, textAlign: 'center', padding: 60 }}>
           <div style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 20, color: 'var(--navy)', marginBottom: 8 }}>Begin met een lege plattegrond</div>
-          <div style={{ fontSize: 13, color: '#8b8574', marginBottom: 4 }}>Zet de oude Illustrator-tekening eronder als onderlegger, kalibreer op één bekende maat en sleep de partners erop.</div>
+          <div style={{ fontSize: 13, color: '#8b8574', marginBottom: 4 }}>Upload de plattegrond van de locatie, zet hem op schaal met één bekende maat en sleep de partners erop.</div>
           <button style={AS.btn} onClick={nieuw}>Nieuwe plattegrond</button>
         </div>
       ) : (
@@ -930,7 +930,7 @@ export default function Plattegrond({ flash, demo }: { flash: (m: string, ms?: n
               </div>
             ) : (
               <div style={{ ...AS.card, margin: 0, padding: '14px 16px' }}>
-                <div style={{ ...AS.cardTitle, marginBottom: 6 }}>Onderlegger</div>
+                <div style={{ ...AS.cardTitle, marginBottom: 6 }}>Upload plattegrond locatie</div>
                 {doc.bg ? <>
                   <label style={{ fontSize: 11, color: '#777162' }}>Doorzichtigheid
                     <input type="range" min={0.05} max={1} step={0.05} value={doc.bg.opacity} onChange={e => setDoc(d => d.bg ? { ...d, bg: { ...d.bg, opacity: parseFloat(e.target.value) } } : d, false)} style={{ width: '100%' }} /></label>
