@@ -47,6 +47,7 @@ const uid = () => Math.random().toString(36).slice(2, 10)
 const r2 = (v: number) => Math.round(v * 100) / 100
 const fmt = (v: number) => r2(v).toLocaleString('nl-NL', { maximumFractionDigits: 2 }) + ' m'
 const leeg: Doc = { objs: [], bg: null }
+const bnaam = (p: { naam: string; bedrijfsnaam: string | null }) => (p.bedrijfsnaam || '').trim() || p.naam
 
 // ---- geometrie ----
 const hoeken = (o: Obj): Pt[] => {
@@ -137,7 +138,7 @@ export default function Plattegrond({ flash, demo }: { flash: (m: string, ms?: n
         supabase.from('partners').select('id,naam,bedrijfsnaam,pakket,type,stand_breedte_m,stand_diepte_m,barlocatie').order('naam'),
         supabase.from('plattegrond_standaardmaten').select('*'),
       ])
-      setPartners((p || []) as PartnerRij[]); setMaten((m || []) as Maat[])
+      setPartners(((p || []) as PartnerRij[]).sort((a, b) => bnaam(a).localeCompare(bnaam(b), 'nl'))); setMaten((m || []) as Maat[])
       const l = await laadLijst()
       let laatst: string | null = null
       try { laatst = localStorage.getItem('nvdw-plattegrond') } catch { }
@@ -644,7 +645,7 @@ export default function Plattegrond({ flash, demo }: { flash: (m: string, ms?: n
   const lijnLengte = (pts: Pt[]) => pts.reduce((s, p, i) => i ? s + Math.hypot(p[0] - pts[i - 1][0], p[1] - pts[i - 1][1]) : 0, 0)
 
   // ---- tekenen ----
-  const lbl = (o: Obj) => o.kind === 'partner' ? (partnerById[o.partnerId!]?.naam || 'Partner (verwijderd)') : (o.label || '')
+  const lbl = (o: Obj) => o.kind === 'partner' ? (partnerById[o.partnerId!] ? bnaam(partnerById[o.partnerId!]) : 'Partner (verwijderd)') : (o.label || '')
   const kleur = (o: Obj) => o.kind === 'partner' ? (o.color || (partnerById[o.partnerId!] ? maatVan(partnerById[o.partnerId!]).kleur : '#999')) : (o.color || '#8b8574')
   const sw = 1 / view.s // 1 schermpixel in meters
 
@@ -978,7 +979,7 @@ export default function Plattegrond({ flash, demo }: { flash: (m: string, ms?: n
                             style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 6px', borderRadius: 7, cursor: op ? 'pointer' : 'grab', background: op ? 'transparent' : '#fbf8f1', marginBottom: 2, border: op ? '1px solid transparent' : '1px dashed #e3dcc9' }}
                             onClick={() => plaatsPartner(p)}>
                             <span style={{ width: 16, height: 16, borderRadius: 5, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, color: '#fff', background: op ? '#2e6b3a' : 'transparent', border: op ? 'none' : '1.5px solid #c9c1ab' }}>{op ? '✓' : ''}</span>
-                            <span style={{ flex: 1, fontSize: 12.5, color: 'var(--navy)', opacity: op ? 0.6 : 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={p.bedrijfsnaam || ''}>{p.naam}</span>
+                            <span style={{ flex: 1, fontSize: 12.5, color: 'var(--navy)', opacity: op ? 0.6 : 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={p.naam}>{bnaam(p)}</span>
                             <span onClick={e => e.stopPropagation()} style={{ fontSize: 10.5, color: mt.eigen ? '#2e6b3a' : '#a39d8c', whiteSpace: 'nowrap' }} title={mt.eigen ? 'Door partner ingevuld' : 'Standaardmaat, nog niet ingevuld door partner'}>
                               <input defaultValue={p.stand_breedte_m ?? ''} placeholder={String(mt.w)} onBlur={e => e.target.value !== String(p.stand_breedte_m ?? '') && slaMaatOp(p, e.target.value, String(p.stand_diepte_m ?? ''))} style={{ width: 28, fontSize: 10.5, border: '1px solid #eee5d2', borderRadius: 4, padding: '0 2px', textAlign: 'right' }} />×<input defaultValue={p.stand_diepte_m ?? ''} placeholder={String(mt.h)} onBlur={e => e.target.value !== String(p.stand_diepte_m ?? '') && slaMaatOp(p, String(p.stand_breedte_m ?? ''), e.target.value)} style={{ width: 28, fontSize: 10.5, border: '1px solid #eee5d2', borderRadius: 4, padding: '0 2px' }} />
                             </span>
