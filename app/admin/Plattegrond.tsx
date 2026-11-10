@@ -578,20 +578,36 @@ export default function Plattegrond({ flash, demo }: { flash: (m: string, ms?: n
   }
 
   // ---- onderlegger ----
-  const kiesOnderlegger = (f: File) => {
-    const rd = new FileReader()
-    rd.onload = () => {
-      const img = new Image()
-      img.onload = () => {
-        // standaard: 60 m breed, daarna kalibreren op een bekende maat
-        const w = 60, h = (60 * img.height) / img.width
-        setDoc(d => ({ ...d, bg: { src: rd.result as string, x: 0, y: 0, w, h, opacity: 0.5, locked: false } }))
-        flash('Plattegrond van de locatie geplaatst. Zet hem nu op schaal: trek een lijn over een maat die je kent.', 6000)
-        setTool('calibrate')
-      }
-      img.src = rd.result as string
+  // PDF: eerste pagina scherp renderen naar PNG (lange zijde ~4000 px)
+  const pdfNaarAfbeelding = async (f: File): Promise<string> => {
+    const pdfjs = await import('pdfjs-dist')
+    pdfjs.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url).toString()
+    const pdf = await pdfjs.getDocument({ data: await f.arrayBuffer() }).promise
+    const pagina = await pdf.getPage(1)
+    const basis = pagina.getViewport({ scale: 1 })
+    const vp = pagina.getViewport({ scale: 4000 / Math.max(basis.width, basis.height) })
+    const c = document.createElement('canvas'); c.width = vp.width; c.height = vp.height
+    const ctx = c.getContext('2d')!; ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height)
+    await pagina.render({ canvasContext: ctx, viewport: vp }).promise
+    if (pdf.numPages > 1) flash(`PDF heeft ${pdf.numPages} pagina's, de eerste is gebruikt`)
+    return c.toDataURL('image/jpeg', 0.85)
+  }
+  const kiesOnderlegger = async (f: File) => {
+    let src: string
+    try {
+      src = f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf')
+        ? await pdfNaarAfbeelding(f)
+        : await new Promise<string>((ok, nee) => { const rd = new FileReader(); rd.onload = () => ok(rd.result as string); rd.onerror = nee; rd.readAsDataURL(f) })
+    } catch (e) { flash('Kon bestand niet lezen: ' + (e as Error).message); return }
+    const img = new Image()
+    img.onload = () => {
+      // standaard: 60 m breed, daarna op schaal zetten met een bekende maat
+      const w = 60, h = (60 * img.height) / img.width
+      setDoc(d => ({ ...d, bg: { src, x: 0, y: 0, w, h, opacity: 0.5, locked: false } }))
+      flash('Plattegrond van de locatie geplaatst. Zet hem nu op schaal: trek een lijn over een maat die je kent.', 6000)
+      setTool('calibrate')
     }
-    rd.readAsDataURL(f)
+    img.src = src
   }
   const kalibreer = (a: Pt, b: Pt) => {
     const gemeten = Math.hypot(b[0] - a[0], b[1] - a[1])
@@ -804,7 +820,7 @@ export default function Plattegrond({ flash, demo }: { flash: (m: string, ms?: n
                 const pid = e.dataTransfer.getData('partner'), vk = e.dataTransfer.getData('voorziening')
                 if (pid && partnerById[pid]) plaatsPartner(partnerById[pid], p)
                 else if (vk) { const v = VOORZIENINGEN.find(x => x.key === vk); if (v) plaatsVoorziening(v, p) }
-                else if (e.dataTransfer.files[0]?.type.startsWith('image/')) kiesOnderlegger(e.dataTransfer.files[0])
+                else if (e.dataTransfer.files[0] && (e.dataTransfer.files[0].type.startsWith('image/') || e.dataTransfer.files[0].type === 'application/pdf')) kiesOnderlegger(e.dataTransfer.files[0])
               }}>
               <defs>
                 <pattern id="r-klein" width={rasterStap * view.s} height={rasterStap * view.s} patternUnits="userSpaceOnUse" x={-view.x * view.s} y={-view.y * view.s}>
@@ -941,9 +957,9 @@ export default function Plattegrond({ flash, demo }: { flash: (m: string, ms?: n
                   </div>
                   <div style={{ fontSize: 11, color: '#8b8574', marginTop: 6 }}>{fmt(doc.bg.w)} × {fmt(doc.bg.h)}</div>
                 </> : <>
-                  <div style={{ fontSize: 12, color: '#8b8574', marginBottom: 6 }}>Exporteer de huidige tekening uit Illustrator als PNG of JPG en zet hem eronder om over te trekken.</div>
+                  <div style={{ fontSize: 12, color: '#8b8574', marginBottom: 6 }}>PDF, PNG of JPG van de locatie. Hij komt onder je tekening te liggen, zodat je kunt overtrekken.</div>
                   <label style={{ ...klein, display: 'inline-block', cursor: 'pointer' }}>Afbeelding kiezen
-                    <input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => e.target.files?.[0] && kiesOnderlegger(e.target.files[0])} /></label>
+                    <input type="file" accept="image/*,application/pdf,.pdf" style={{ display: 'none' }} onChange={e => e.target.files?.[0] && kiesOnderlegger(e.target.files[0])} /></label>
                 </>}
                 <div style={{ fontSize: 10.5, color: '#a39d8c', marginTop: 10, lineHeight: 1.5 }}>
                   Sneltoetsen: V selecteer · R rechthoek · L muur · P vlak · M meet · Q draai · ⌘D kopie · alt-slepen kopie · pijltjes 10 cm (shift 1 m) · [ ] lagen · ⌘0 passend · spatie ingedrukt = schuiven
