@@ -113,6 +113,8 @@ export type Partner = {
   gas_nodig: boolean | null
   water_nodig: boolean | null
   techniek_opmerkingen: string | null
+  stand_breedte_m?: number | null
+  stand_diepte_m?: number | null
   created_at: string
   updated_at: string
 }

@@ -115,7 +115,7 @@ export default function Dashboard() {
   const [mijnBestellingen, setMijnBestellingen] = useState<{ id: string; product: string; aantal: number; prijs_per_stuk: number; status: string; created_at: string }[]>([])
   const [newCrew, setNewCrew] = useState<{ naam: string; functie: string; email: string; dagen: string[]; catering_dagen: string[]; dieet: string }>({ naam: '', functie: '', email: '', dagen: [], catering_dagen: [], dieet: '' })
   const [newGerecht, setNewGerecht] = useState<{ naam: string; omschrijving: string; prijs: string; allergenen: string[] }>({ naam: '', omschrijving: '', prijs: '', allergenen: [] })
-  const [techForm, setTechForm] = useState({ stroom_kw: '', stroom_aansluitingen: '', gas_nodig: false, water_nodig: false, techniek_opmerkingen: '' })
+  const [techForm, setTechForm] = useState({ stand_breedte_m: '', stand_diepte_m: '', stroom_kw: '', stroom_aansluitingen: '', gas_nodig: false, water_nodig: false, techniek_opmerkingen: '' })
   const [newVraag, setNewVraag] = useState({ onderwerp: '', bericht: '' })
   const [signNaam, setSignNaam] = useState('')
   const [signData, setSignData] = useState<string | null>(null)
@@ -167,6 +167,8 @@ export default function Dashboard() {
       stroom_aansluitingen: p.stroom_aansluitingen || '',
       gas_nodig: !!p.gas_nodig, water_nodig: !!p.water_nodig,
       techniek_opmerkingen: p.techniek_opmerkingen || '',
+      stand_breedte_m: p.stand_breedte_m != null ? String(p.stand_breedte_m) : '',
+      stand_diepte_m: p.stand_diepte_m != null ? String(p.stand_diepte_m) : '',
     })
     const [{ data: w }, { data: m }, { data: c }, { data: cr }, { data: f }, { data: v }, { data: pr }, { data: t }, { data: d }, { data: eb }] = await Promise.all([
       supabase.from('wijnlijst').select('*').eq('partner_id', p.id).order('volgorde'),
@@ -433,6 +435,8 @@ export default function Dashboard() {
       stroom_aansluitingen: techForm.stroom_aansluitingen || null,
       gas_nodig: techForm.gas_nodig, water_nodig: techForm.water_nodig,
       techniek_opmerkingen: techForm.techniek_opmerkingen || null,
+      stand_breedte_m: techForm.stand_breedte_m ? parseFloat(techForm.stand_breedte_m.replace(',', '.')) : null,
+      stand_diepte_m: techForm.stand_diepte_m ? parseFloat(techForm.stand_diepte_m.replace(',', '.')) : null,
     }
     await supabase.from('partners').update(patch).eq('id', partner.id)
     setPartner({ ...partner, ...patch })
@@ -765,7 +769,7 @@ export default function Dashboard() {
             { done: !!partner.offerte_akkoord, label: 'Offerte accorderen', sub: 'Ga naar Offerte', go: 'offerte' },
             ...(isFood
               ? [{ done: menu.length > 0, label: 'Menukaart & allergenen invullen', sub: `Deadline ${T('deadline_wijnlijst', '29 oktober 12:00')}`, go: 'menukaart' },
-                 { done: partner.stroom_kw != null, label: 'Technische gegevens doorgeven', sub: 'Stroom, gas en water', go: 'techniek' }]
+                 { done: partner.stroom_kw != null, label: 'Technische gegevens doorgeven', sub: 'Afmetingen, stroom, gas en water', go: 'techniek' }]
               : [{ done: wijnen.length > 0, label: 'Wijnlijst invullen', sub: wijnen.length === 0 ? 'Verplicht, anders geen kassa en geen menukaart' : `Deadline ${T('deadline_wijnlijst', '29 oktober 12:00')}`, go: 'wijnlijst' }]),
             { done: catering.length > 0, label: 'Crewcatering aanvragen', sub: `Deadline ${T('deadline_catering', '31 oktober')}`, go: 'catering' },
           ]
@@ -1533,8 +1537,18 @@ export default function Dashboard() {
         {/* TECHNIEK (food) */}
         {tab === 'techniek' && <>
           <div style={S.pageTitle}>Techniek</div>
-          <div style={S.pageDesc}>Laat ons weten wat je nodig hebt aan stroom, gas en water.</div>
+          <div style={S.pageDesc}>Laat ons weten hoe groot je truck of stand is en wat je nodig hebt aan stroom, gas en water. Met de afmetingen tekenen we je direct op schaal in de plattegrond.</div>
           <div style={{ borderTop: '1px solid rgba(1,3,65,0.1)', paddingTop: '28px' }}>
+            <div style={S.grid2}>
+              <div>
+                <label style={S.label}>Breedte truck/stand in meters (voorkant, waar je serveert)</label>
+                <input style={S.input} inputMode="decimal" value={techForm.stand_breedte_m} onChange={e => setTechForm({ ...techForm, stand_breedte_m: e.target.value })} placeholder="bijv. 6,5" />
+              </div>
+              <div>
+                <label style={S.label}>Diepte in meters (inclusief uitklapluik of dissel)</label>
+                <input style={S.input} inputMode="decimal" value={techForm.stand_diepte_m} onChange={e => setTechForm({ ...techForm, stand_diepte_m: e.target.value })} placeholder="bijv. 2,5" />
+              </div>
+            </div>
             <div style={S.grid2}>
               <div>
                 <label style={S.label}>Stroombehoefte (kW)</label>
@@ -1554,7 +1568,7 @@ export default function Dashboard() {
               </label>
             </div>
             <label style={S.label}>Opmerkingen</label>
-            <textarea style={{ ...S.input, height: '90px', resize: 'vertical' }} value={techForm.techniek_opmerkingen} onChange={e => setTechForm({ ...techForm, techniek_opmerkingen: e.target.value })} placeholder="Afmetingen truck, bijzonderheden, etc." />
+            <textarea style={{ ...S.input, height: '90px', resize: 'vertical' }} value={techForm.techniek_opmerkingen} onChange={e => setTechForm({ ...techForm, techniek_opmerkingen: e.target.value })} placeholder="Bijzonderheden, bijv. waar de luiken zitten" />
             <button style={S.btn} onClick={saveTechniek}>Opslaan</button>
           </div>
         </>}

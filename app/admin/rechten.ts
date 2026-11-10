@@ -22,6 +22,7 @@ export const GEBIEDEN: { id: Gebied; naam: string; uitleg: string }[] = [
 // zijn voor iedereen zichtbaar.
 export const TAB_GEBIED: Record<string, Gebied> = {
   programma: 'programma',
+  plattegrond: 'programma',
 
   // Partners is één scherm (lijst, toevoegen en exports zitten erin);
   // partnerinfo bundelt faq/spelregels, teksten/deadlines en documenten.

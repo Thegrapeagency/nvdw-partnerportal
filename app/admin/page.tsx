@@ -28,6 +28,7 @@ import { mailAntwoord } from '@/lib/vraagMail'
 import AppBeheer from './AppBeheer'
 import Druivenpeiling from './Druivenpeiling'
 import Water from './Water'
+import Plattegrond from './Plattegrond'
 
 const PAKKET_LABELS: Record<string, string> = {
   branded_bar: 'Branded Bar',
@@ -989,6 +990,7 @@ export default function AdminPage() {
     {
       id: 'thema-productie', label: 'Productie', leaves: [
         { id: 'programma', label: 'Programma' },
+        { id: 'plattegrond', label: 'Plattegrond' },
         { id: 'crewrooster', label: 'Crew-rooster' },
         { id: 'draaiboek', label: 'Draaiboek' },
         { id: 'crew', label: 'Crew & catering' },
@@ -2109,6 +2111,7 @@ export default function AdminPage() {
         {activeTab === 'leveranciers' && <Leveranciers flash={flash} />}
         {activeTab === 'tellijsten' && <Tellijsten flash={flash} />}
         {activeTab === 'water' && <Water flash={flash} />}
+        {activeTab === 'plattegrond' && <Plattegrond flash={flash} />}
 
         {/* INFO & DOCUMENTEN — faq/spelregels, teksten/deadlines en documenten in één tab */}
         {activeTab === 'partnerinfo' && (
