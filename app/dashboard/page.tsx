@@ -5,6 +5,14 @@ import type { PriceFloor, Partner, Wijn, Crewcatering, FAQ, PartnerVraag, Produc
 import { ALLERGENEN, LOG_TABEL_LABEL, LOG_ACTIE_LABEL } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 
+// Festivalavonden voor de omzet per product. Een avond loopt door na middernacht,
+// dus de grens ligt om 06:00 Nederlandse tijd.
+const AVONDEN = [
+  { id: 'vrijdag', label: 'Vrijdag', van: '2026-11-06T06:00:00+01:00', tot: '2026-11-07T06:00:00+01:00' },
+  { id: 'zaterdag', label: 'Zaterdag', van: '2026-11-07T06:00:00+01:00', tot: '2026-11-08T06:00:00+01:00' },
+  { id: 'zondag', label: 'Zondag', van: '2026-11-08T06:00:00+01:00', tot: '2026-11-09T06:00:00+01:00' },
+]
+
 // Controleert een IBAN met de standaard mod-97 controle (geen bankopvraging).
 const ibanGeldig = (iban: string) => {
   if (!/^[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}$/.test(iban)) return false
@@ -157,6 +165,9 @@ export default function Dashboard() {
   const [omzet, setOmzet] = useState<PosSummary | null>(null)
   const [omzetStatus, setOmzetStatus] = useState<'idle' | 'laden' | 'ok' | 'niet_gekoppeld' | 'fout'>('idle')
   const [omzetTijd, setOmzetTijd] = useState<Date | null>(null)
+  // Omzet per product (uit het dagrapport van de kassa; water telt daar niet mee)
+  const [perProduct, setPerProduct] = useState<{ name: string; qty: number; gross_cents: number }[] | null>(null)
+  const [productAvond, setProductAvond] = useState<string>('alles')
 
   // Haalt alles op voor één gekozen bar. Losgetrokken van init() zodat we
   // 'm ook opnieuw kunnen draaien als iemand met meerdere bars wisselt.
@@ -277,8 +288,16 @@ export default function Dashboard() {
         if (me?.role !== 'partner' && me?.role !== 'super') { if (!stop) setOmzetStatus('niet_gekoppeld'); return }
         // Bij meerdere partners op één login: omzet van de gekozen partner, niet een willekeurige.
         const { data: mid } = await supabase.rpc('partner_merchant_id', { p_partner_id: partner.id })
-        const sum = await posRpc<PosSummary>('merchant_sales_summary', { p_merchant_id: mid || null })
-        if (!stop) { setOmzet(sum); setOmzetStatus('ok'); setOmzetTijd(new Date()) }
+        const avond = AVONDEN.find(a => a.id === productAvond)
+        const [sum, rapport] = await Promise.all([
+          posRpc<PosSummary>('merchant_sales_summary', { p_merchant_id: mid || null }),
+          posRpc<{ by_product: { name: string; qty: number; gross_cents: number }[] }>('merchant_day_report', {
+            p_merchant_id: mid || null,
+            p_from: avond ? avond.van : '2020-01-01T00:00:00Z',
+            p_to: avond ? avond.tot : new Date(Date.now() + 86400000).toISOString(),
+          }).catch(() => null),
+        ])
+        if (!stop) { setOmzet(sum); setPerProduct(rapport?.by_product ?? null); setOmzetStatus('ok'); setOmzetTijd(new Date()) }
       } catch {
         if (!stop) setOmzetStatus(omzet ? 'ok' : 'fout')
       }
@@ -287,7 +306,7 @@ export default function Dashboard() {
     const iv = setInterval(laad, 15000)
     return () => { stop = true; clearInterval(iv) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, partner])
+  }, [tab, partner, productAvond])
 
   const flash = (m: string) => { setMsg(m); setTimeout(() => setMsg(''), 3000) }
   const logout = async () => { await supabase.auth.signOut(); router.push('/') }
@@ -906,6 +925,71 @@ export default function Dashboard() {
                   Indicatie op basis van de kassaomzet en het afgesproken afdrachtpercentage. De definitieve afrekening volgt na het festival.
                 </div>
               </div>
+
+              {perProduct && (() => {
+                // Kassaregels heten "Wijn (Heel glas)": per wijn samenvoegen, met de verdeling per schenking.
+                const groepen = new Map<string, { naam: string; qty: number; cents: number; delen: { soort: string; qty: number; cents: number }[] }>()
+                for (const p of perProduct) {
+                  const m = p.name.match(/^(.*?)\s*\((half glas|halve glas|heel glas|hele glas|fles)\)\s*$/i)
+                  const naam = (m ? m[1] : p.name).replace(/\s+/g, ' ').trim()
+                  const soort = m ? m[2].toLowerCase().replace('halve', 'half').replace('hele', 'heel') : ''
+                  const g = groepen.get(naam.toLowerCase()) ?? { naam, qty: 0, cents: 0, delen: [] }
+                  g.qty += Number(p.qty) || 0; g.cents += Number(p.gross_cents) || 0
+                  if (soort) g.delen.push({ soort, qty: Number(p.qty) || 0, cents: Number(p.gross_cents) || 0 })
+                  groepen.set(naam.toLowerCase(), g)
+                }
+                const lijst = [...groepen.values()].sort((a, b) => b.cents - a.cents)
+                const totaal = lijst.reduce((t, g) => t + g.cents, 0)
+                const volgorde = ['half glas', 'heel glas', 'fles']
+                const downloadCsv = () => {
+                  const regels = ['Product;Schenking;Aantal;Omzet']
+                  for (const g of lijst) {
+                    if (g.delen.length) for (const d of g.delen) regels.push([g.naam, d.soort, d.qty, (d.cents / 100).toFixed(2).replace('.', ',')].join(';'))
+                    else regels.push([g.naam, '', g.qty, (g.cents / 100).toFixed(2).replace('.', ',')].join(';'))
+                  }
+                  const blob = new Blob(['\ufeff' + regels.join('\r\n')], { type: 'text/csv;charset=utf-8' })
+                  const a = document.createElement('a')
+                  a.href = URL.createObjectURL(blob)
+                  a.download = `omzet-per-product-${productAvond}.csv`
+                  a.click()
+                }
+                return <div style={{ marginBottom: '28px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap', marginBottom: '12px' }}>
+                    <div style={{ ...S.sectionTitle, marginBottom: 0 }}>Omzet per product</div>
+                    {lijst.length > 0 && <button onClick={downloadCsv} style={{ background: 'none', border: '1px solid rgba(1,3,65,0.2)', borderRadius: '8px', padding: '5px 12px', fontSize: '12px', color: 'var(--navy)', cursor: 'pointer' }}>Download CSV</button>}
+                  </div>
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '12px' }}>
+                    {[{ id: 'alles', label: 'Hele festival' }, ...AVONDEN].map(a => (
+                      <button key={a.id} onClick={() => setProductAvond(a.id)} style={{
+                        padding: '6px 12px', borderRadius: '999px', fontSize: '12px', cursor: 'pointer',
+                        border: '1px solid ' + (productAvond === a.id ? 'var(--navy)' : 'rgba(1,3,65,0.15)'),
+                        background: productAvond === a.id ? 'var(--navy)' : 'transparent',
+                        color: productAvond === a.id ? 'var(--cream)' : 'var(--navy)',
+                      }}>{a.label}</button>
+                    ))}
+                  </div>
+                  {lijst.length === 0 && <p style={{ fontSize: '13px', color: 'rgba(1,3,65,0.4)' }}>Geen verkopen in deze periode.</p>}
+                  {lijst.map(g => (
+                    <div key={g.naam} style={{ padding: '10px 0', borderBottom: '1px solid rgba(1,3,65,0.07)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '12px', fontSize: '13px' }}>
+                        <span style={{ color: 'var(--navy)', fontWeight: 600 }}>{g.naam}</span>
+                        <span style={{ fontWeight: 600, color: 'var(--navy)', whiteSpace: 'nowrap' }}>{eu(g.cents)}</span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', fontSize: '12px', color: 'rgba(1,3,65,0.5)', marginTop: '3px' }}>
+                        <span>
+                          {g.delen.length
+                            ? g.delen.sort((a, b) => volgorde.indexOf(a.soort) - volgorde.indexOf(b.soort)).map(d => `${d.qty} × ${d.soort}`).join(' · ')
+                            : `${g.qty} verkocht`}
+                        </span>
+                        <span style={{ whiteSpace: 'nowrap' }}>{totaal > 0 ? Math.round(g.cents / totaal * 100) : 0}%</span>
+                      </div>
+                    </div>
+                  ))}
+                  {lijst.length > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', fontWeight: 700, padding: '10px 0', color: 'var(--navy)' }}>
+                    <span>Totaal</span><span>{eu(totaal)}</span>
+                  </div>}
+                </div>
+              })()}
 
               {omzet.recent.length > 0 && <>
                 <div style={S.sectionTitle}>Laatste verkopen</div>
