@@ -10,84 +10,30 @@
 // materialenbibliotheek met iconen, hekwerk dat zichzelf telt, nummering,
 // automatische legenda, materiaallijst en PDF-export op schaal (A3).
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { supabase } from '@/lib/supabase'
-import { AS } from './ui'
-import { MATERIALEN, MATERIAAL, CATEGORIEEN, OUDE_VOORZIENING, type Materiaal } from './plattegrondMaterialen'
+import type React from 'react'
+import { AS } from './stijl'
+import { MATERIALEN, MATERIAAL, CATEGORIEEN, OUDE_VOORZIENING, isLijn, type Materiaal } from './materialen'
+import type { Pt, Kind, Obj, Laag, Bg, Doc, Meta, PartnerRij, Maat, Adapter } from './types'
+import { STANDAARD_NORMEN } from './types'
+import { r2, fmt, isBlok, hoeken, bbox, overlapt, draaiPunt, lengte, hekStuks, oppervlak, puntInPoly, afstandTotLijn, haaks } from './geo'
+import { kaartTegels, zoekAdres, type Adres } from './kaart'
+import { controleer, OMHULLEND, type Check } from './controle'
+import { maakBlad, kiesSchaal, PAPIER, SCHALEN, type Gebied } from './blad'
 
-type Pt = [number, number]
-type Kind = 'rect' | 'ellipse' | 'line' | 'poly' | 'text' | 'partner' | 'materiaal' | 'hek' | 'legenda' | 'voorziening'
-type Obj = {
-  id: string; kind: Kind
-  x: number; y: number; w: number; h: number; rot: number
-  pts?: Pt[]
-  label?: string
-  color?: string      // vulling (bij lijn: lijnkleur)
-  lijn?: string        // lijnkleur, 'none' = geen
-  lijnDik?: number     // meters
-  streep?: boolean
-  dekking?: number     // 0..1
-  hoek?: number        // hoekradius in meters
-  locked?: boolean; verborgen?: boolean
-  groep?: string; laag?: string
-  nr?: number
-  partnerId?: string; mat?: string; voorziening?: string
-  dik?: number; tekstgrootte?: number
-  toonLabel?: boolean
-}
-type Laag = { id: string; naam: string; zichtbaar: boolean; vast: boolean }
-type Bg = { src: string; x: number; y: number; w: number; h: number; opacity: number; locked: boolean }
-type Doc = { objs: Obj[]; bg?: Bg | null; lagen?: Laag[]; gidsen?: { x: number[]; y: number[] }; nrGrootte?: number }
-type PartnerRij = { id: string; naam: string; bedrijfsnaam: string | null; pakket: string; type: string; stand_breedte_m: number | null; stand_diepte_m: number | null; barlocatie: string | null }
-type Maat = { pakket: string; label: string; breedte_m: number; diepte_m: number; kleur: string }
-type Tool = 'select' | 'direct' | 'rect' | 'ellipse' | 'line' | 'pen' | 'text' | 'measure' | 'calibrate' | 'hand' | 'zoom' | 'pipet' | 'nummer' | 'hek'
+type Tool = 'select' | 'direct' | 'rect' | 'ellipse' | 'line' | 'pen' | 'text' | 'measure' | 'calibrate' | 'hand' | 'zoom' | 'pipet' | 'nummer' | 'hek' | 'maat'
 
 const uid = () => Math.random().toString(36).slice(2, 10)
-const r2 = (v: number) => Math.round(v * 100) / 100
-const fmt = (v: number) => r2(v).toLocaleString('nl-NL', { maximumFractionDigits: 2 }) + ' m'
 const STANDAARD_LAGEN: Laag[] = [
   { id: 'locatie', naam: 'Locatie', zichtbaar: true, vast: false },
   { id: 'infra', naam: 'Infra (stroom, hekken, sanitair)', zichtbaar: true, vast: false },
-  { id: 'partners', naam: 'Partners', zichtbaar: true, vast: false },
-  { id: 'teksten', naam: 'Teksten & legenda', zichtbaar: true, vast: false },
+  { id: 'partners', naam: 'Deelnemers', zichtbaar: true, vast: false },
+  { id: 'teksten', naam: 'Teksten & maten', zichtbaar: true, vast: false },
 ]
-const leeg: Doc = { objs: [], bg: null, lagen: STANDAARD_LAGEN, gidsen: { x: [], y: [] } }
+const leeg: Doc = { objs: [], bg: null, kaart: null, lagen: STANDAARD_LAGEN, gidsen: { x: [], y: [] }, meta: {} }
 const bnaam = (p: { naam: string; bedrijfsnaam: string | null }) => (p.bedrijfsnaam || '').trim() || p.naam
-// Blokken waar andere dingen in mogen staan, die tellen niet mee voor overlap
-const OMHULLEND = new Set(['tent3', 'tent3x6', 'tent5', 'tent6x12', 'tent10x20', 'stretchtent', 'terras', 'verzamel', 'podium'])
 const KLEUREN = ['#9b3737', '#c9a24b', '#2e6b3a', '#010341', '#5b6b8c', '#8b8574', '#d9cfb8', '#2b6cb0', '#c53030', '#d69e2e', '#4a5568', '#ffffff']
 
-// ---- geometrie ----
-const isBlok = (k: Kind) => k === 'rect' || k === 'ellipse' || k === 'partner' || k === 'materiaal' || k === 'text' || k === 'legenda' || k === 'voorziening'
-const hoeken = (o: Obj): Pt[] => {
-  if (o.pts) return o.pts
-  const cx = o.x + o.w / 2, cy = o.y + o.h / 2, a = (o.rot * Math.PI) / 180, c = Math.cos(a), s = Math.sin(a)
-  return ([[o.x, o.y], [o.x + o.w, o.y], [o.x + o.w, o.y + o.h], [o.x, o.y + o.h]] as Pt[]).map(([x, y]) => {
-    const dx = x - cx, dy = y - cy
-    return [cx + dx * c - dy * s, cy + dx * s + dy * c] as Pt
-  })
-}
-const bbox = (pts: Pt[]) => {
-  if (!pts.length) return { x1: 0, y1: 0, x2: 0, y2: 0 }
-  const xs = pts.map(p => p[0]), ys = pts.map(p => p[1])
-  return { x1: Math.min(...xs), y1: Math.min(...ys), x2: Math.max(...xs), y2: Math.max(...ys) }
-}
-const overlapt = (a: Pt[], b: Pt[]) => {
-  for (const poly of [a, b]) for (let i = 0; i < poly.length; i++) {
-    const p1 = poly[i], p2 = poly[(i + 1) % poly.length]
-    const nx = p2[1] - p1[1], ny = p1[0] - p2[0]
-    const pa = a.map(p => p[0] * nx + p[1] * ny), pb = b.map(p => p[0] * nx + p[1] * ny)
-    if (Math.max(...pa) <= Math.min(...pb) + 1e-6 || Math.max(...pb) <= Math.min(...pa) + 1e-6) return false
-  }
-  return true
-}
-const draaiPunt = ([x, y]: Pt, [cx, cy]: Pt, graden: number): Pt => {
-  const a = (graden * Math.PI) / 180, c = Math.cos(a), s = Math.sin(a)
-  return [cx + (x - cx) * c - (y - cy) * s, cy + (x - cx) * s + (y - cy) * c]
-}
-const lengte = (pts: Pt[]) => pts.reduce((s, p, i) => i ? s + Math.hypot(p[0] - pts[i - 1][0], p[1] - pts[i - 1][1]) : 0, 0)
-const hekStuks = (o: Obj) => { const m = MATERIAAL[o.mat || '']; return m?.stuk ? Math.max(1, Math.ceil(lengte(o.pts || []) / m.stuk - 0.01)) : 0 }
-
-// Oude documenten (eerste versie) bijwerken naar het huidige formaat
+// Oude documenten bijwerken naar het huidige formaat
 const migreer = (d: Doc): Doc => {
   const lagen = d.lagen?.length ? d.lagen : STANDAARD_LAGEN
   const objs = (d.objs || []).map(o => {
@@ -96,17 +42,17 @@ const migreer = (d: Doc): Doc => {
     if (!n.laag || !lagen.some(l => l.id === n.laag)) n = { ...n, laag: n.kind === 'partner' ? (lagen.find(l => l.id === 'partners')?.id || lagen[0].id) : n.kind === 'poly' || n.kind === 'line' ? lagen[0].id : (lagen.find(l => l.id === 'infra')?.id || lagen[0].id) }
     return n
   })
-  return { ...d, objs, lagen, gidsen: d.gidsen || { x: [], y: [] } }
+  return { ...d, objs, lagen, gidsen: d.gidsen || { x: [], y: [] }, meta: d.meta || {} }
 }
 
-export default function Plattegrond({ flash, demo }: { flash: (m: string, ms?: number) => void; demo?: { partners: PartnerRij[]; maten: Maat[] } }) {
+export default function PlattegrondEditor({ adapter, flash }: { adapter: Adapter; flash: (m: string, ms?: number) => void }) {
   // ---- data ----
   const [lijst, setLijst] = useState<{ id: string; naam: string; updated_at: string }[]>([])
   const [huidigId, setHuidigId] = useState<string | null>(null)
   const [naam, setNaam] = useState('')
   const [doc, setDocRaw] = useState<Doc>(leeg)
   const docRef = useRef(doc); docRef.current = doc
-  const [partners, setPartners] = useState<PartnerRij[]>([])
+  const [basisPartners, setPartners] = useState<PartnerRij[]>([])
   const [maten, setMaten] = useState<Maat[]>([])
   const [opgeslagen, setOpgeslagen] = useState<'ja' | 'bezig' | 'nee'>('ja')
   const hist = useRef<{ past: Doc[]; future: Doc[] }>({ past: [], future: [] })
@@ -129,7 +75,18 @@ export default function Plattegrond({ flash, demo }: { flash: (m: string, ms?: n
   const [nieuweGids, setNieuweGids] = useState<{ as: 'x' | 'y'; v: number } | null>(null)
   const [zoek, setZoek] = useState('')
   const [matZoek, setMatZoek] = useState('')
-  const [zijTab, setZijTab] = useState<'partners' | 'materialen' | 'lagen' | 'lijst'>('partners')
+  const [zijTab, setZijTab] = useState<'locatie' | 'partners' | 'materialen' | 'check' | 'lagen'>('locatie')
+  const [metaDlg, setMetaDlg] = useState<(Meta & { nieuw?: boolean }) | null>(null)
+  const [exportDlg, setExportDlg] = useState<{ papier: string; schaal: number | 'auto'; titel: string; bezig?: boolean } | null>(null)
+  const [adresQ, setAdresQ] = useState('')
+  const [adressen, setAdressen] = useState<Adres[] | null>(null)
+  const [toonNormen, setToonNormen] = useState(false)
+  const [toonHulp, setToonHulp] = useState(false)
+  const [maat, setMaatSvg] = useState({ w: 1000, h: 700 })
+  // losse deelnemers uit de tekening tellen mee met die uit de app
+  const partners = useMemo(() => [...basisPartners, ...(doc.deelnemers || [])], [basisPartners, doc.deelnemers])
+  const normen = useMemo(() => ({ ...STANDAARD_NORMEN, ...(doc.normen || {}) }), [doc.normen])
+  const meta = doc.meta || {}
   const [actieveLaag, setActieveLaag] = useState('infra')
   const [tekstEdit, setTekstEdit] = useState<{ id: string; waarde: string } | null>(null)
   const [verplaatsDlg, setVerplaatsDlg] = useState<{ dx: string; dy: string } | null>(null)
@@ -142,6 +99,7 @@ export default function Plattegrond({ flash, demo }: { flash: (m: string, ms?: n
   const meetVast = useRef(false)
   const laatsteTransform = useRef<{ dx: number; dy: number; kopie: boolean } | null>(null)
 
+  const toolRef = useRef<Tool>('select'); toolRef.current = tool
   const setTool = (t: Tool) => { setToolRaw(t); setConcept(null); meetVast.current = false }
   const lagen = doc.lagen || STANDAARD_LAGEN
   const laagIdx = useMemo(() => Object.fromEntries(lagen.map((l, i) => [l.id, i])), [lagen])
@@ -159,52 +117,54 @@ export default function Plattegrond({ flash, demo }: { flash: (m: string, ms?: n
   const undo = () => { const p = hist.current.past.pop(); if (!p) return; hist.current.future.push(docRef.current); docRef.current = p; setDocRaw(p); setOpgeslagen('nee') }
   const redo = () => { const f = hist.current.future.pop(); if (!f) return; hist.current.past.push(docRef.current); docRef.current = f; setDocRaw(f); setOpgeslagen('nee') }
 
-  // ---- laden ----
-  const laadLijst = useCallback(async () => {
-    const { data } = await supabase.from('plattegronden').select('id,naam,updated_at').order('updated_at', { ascending: false })
-    setLijst(data || [])
-    return data || []
-  }, [])
+  // ---- laden en opslaan (via de adapter van de app) ----
+  const passendRef = useRef<() => void>(() => {})
+  const laadLijst = useCallback(async () => { const l = await adapter.lijst(); setLijst(l); return l }, [adapter])
   const open = useCallback(async (id: string) => {
-    const { data, error } = await supabase.from('plattegronden').select('*').eq('id', id).single()
-    if (error || !data) { flash('Kon plattegrond niet openen'); return }
-    const d = migreer(Object.assign({ objs: [], bg: null }, data.data) as Doc)
-    setHuidigId(id); setNaam(data.naam); docRef.current = d; setDocRaw(d); hist.current = { past: [], future: [] }; setSel([]); setOpgeslagen('ja')
+    const r = await adapter.open(id)
+    if (!r) { flash('Kon plattegrond niet openen'); return }
+    const d = migreer(Object.assign({ objs: [], bg: null }, r.data) as Doc)
+    setHuidigId(id); setNaam(r.naam); docRef.current = d; setDocRaw(d); hist.current = { past: [], future: [] }; setSel([]); setOpgeslagen('ja')
     setNrVolgende(Math.max(0, ...d.objs.map(o => o.nr || 0)) + 1)
-    try { localStorage.setItem('nvdw-plattegrond', id) } catch { }
-  }, [flash])
+    setZijTab(d.kaart || d.bg ? (d.objs.length ? 'check' : 'partners') : 'locatie')
+    try { localStorage.setItem(adapter.sleutel, id) } catch { }
+    setTimeout(() => passendRef.current(), 120)
+  }, [adapter, flash])
   useEffect(() => {
-    if (demo) { setPartners(demo.partners); setMaten(demo.maten); setLijst([{ id: 'demo', naam: 'Demo', updated_at: '' }]); setHuidigId('demo'); setNaam('Demo'); return }
     (async () => {
-      const [{ data: p }, { data: m }] = await Promise.all([
-        supabase.from('partners').select('id,naam,bedrijfsnaam,pakket,type,stand_breedte_m,stand_diepte_m,barlocatie'),
-        supabase.from('plattegrond_standaardmaten').select('*'),
-      ])
-      setPartners(((p || []) as PartnerRij[]).sort((a, b) => bnaam(a).localeCompare(bnaam(b), 'nl'))); setMaten((m || []) as Maat[])
+      const dn = await adapter.deelnemers()
+      setPartners([...dn.partners].sort((a, b) => bnaam(a).localeCompare(bnaam(b), 'nl'))); setMaten(dn.maten)
       const l = await laadLijst()
       let laatst: string | null = null
-      try { laatst = localStorage.getItem('nvdw-plattegrond') } catch { }
+      try { laatst = localStorage.getItem(adapter.sleutel) } catch { }
       const kies = l.find(x => x.id === laatst) || l[0]
       if (kies) open(kies.id)
     })()
-  }, [laadLijst, open, demo])
+  }, [adapter, laadLijst, open])
 
-  const nieuw = async () => {
-    const n = prompt('Naam van de nieuwe plattegrond', 'NvdW 2027 Werkspoorkathedraal')
-    if (!n) return
-    const { data, error } = await supabase.from('plattegronden').insert({ naam: n, data: leeg }).select().single()
-    if (error) { flash(error.message); return }
-    await laadLijst(); open(data.id)
+  const nieuw = () => setMetaDlg({ nieuw: true, organisator: adapter.merk })
+  const bewaarMeta = async () => {
+    if (!metaDlg) return
+    const { nieuw: isNieuw, ...m } = metaDlg
+    if (!m.evenement?.trim()) { flash('Geef het evenement een naam'); return }
+    if (isNieuw) {
+      const r = await adapter.nieuw(m.evenement.trim(), { ...leeg, meta: m })
+      if (r.fout || !r.id) { flash(r.fout || 'Aanmaken mislukt'); return }
+      await laadLijst(); await open(r.id); setZijTab('locatie')
+    } else {
+      setDoc(d => ({ ...d, meta: m }))
+    }
+    setMetaDlg(null)
   }
   const dupliceerPlattegrond = async () => {
     if (!huidigId) return
-    const { data, error } = await supabase.from('plattegronden').insert({ naam: naam + ' (kopie)', data: doc }).select().single()
-    if (error) { flash(error.message); return }
-    await laadLijst(); open(data.id); flash('Kopie gemaakt, je werkt nu in de kopie')
+    const r = await adapter.nieuw(naam + ' (kopie)', docRef.current)
+    if (r.fout || !r.id) { flash(r.fout || 'Kopie maken mislukt'); return }
+    await laadLijst(); open(r.id); flash('Kopie gemaakt, je werkt nu in de kopie')
   }
   const verwijderPlattegrond = async () => {
     if (!huidigId || !confirm(`"${naam}" verwijderen? Dit kan niet ongedaan worden.`)) return
-    await supabase.from('plattegronden').delete().eq('id', huidigId)
+    await adapter.verwijder(huidigId)
     const l = await laadLijst(); setHuidigId(null); docRef.current = leeg; setDocRaw(leeg)
     if (l[0]) open(l[0].id)
   }
@@ -212,20 +172,19 @@ export default function Plattegrond({ flash, demo }: { flash: (m: string, ms?: n
   // opslaan; wijzigingen die binnenkomen tijdens het opslaan blijven op 'nee' staan
   const naamRef = useRef(naam); naamRef.current = naam
   const opslaan = useCallback(async (): Promise<boolean> => {
-    if (!huidigId || demo) return true
+    if (!huidigId) return true
     const snap = docRef.current
     setOpgeslagen('bezig')
-    const { error } = await supabase.from('plattegronden').update({ data: snap, naam: naamRef.current, updated_at: new Date().toISOString() }).eq('id', huidigId)
-    if (error) { setOpgeslagen('nee'); flash('Opslaan mislukt: ' + error.message, 8000); return false }
+    const fout = await adapter.opslaan(huidigId, naamRef.current, snap)
+    if (fout) { setOpgeslagen('nee'); flash('Opslaan mislukt: ' + fout, 8000); return false }
     setOpgeslagen(docRef.current === snap ? 'ja' : 'nee')
     return true
-  }, [huidigId, demo, flash])
-  // autosave, ook als er (onbedoeld) nog een sleepactie open staat
+  }, [huidigId, adapter, flash])
   useEffect(() => {
-    if (!huidigId || opgeslagen !== 'nee' || demo) return
+    if (!huidigId || opgeslagen !== 'nee') return
     const t = setTimeout(() => { opslaan() }, 1200)
     return () => clearTimeout(t)
-  }, [doc, naam, huidigId, opgeslagen, demo, opslaan])
+  }, [doc, naam, huidigId, opgeslagen, opslaan])
   // niet weggaan met onopgeslagen werk
   useEffect(() => {
     const f = (e: BeforeUnloadEvent) => { if (opgeslagen !== 'ja') { e.preventDefault(); e.returnValue = '' } }
@@ -258,15 +217,22 @@ export default function Plattegrond({ flash, demo }: { flash: (m: string, ms?: n
   }, [partners, maten, partnerById, maatVan, setDoc, huidigId])
   const slaMaatOp = async (p: PartnerRij, w: string, h: string) => {
     const b = w === '' ? null : parseFloat(w.replace(',', '.')), dd = h === '' ? null : parseFloat(h.replace(',', '.'))
-    if (demo) { setPartners(ps => ps.map(x => x.id === p.id ? { ...x, stand_breedte_m: b, stand_diepte_m: dd } : x)); return }
-    const { error } = await supabase.from('partners').update({ stand_breedte_m: b, stand_diepte_m: dd }).eq('id', p.id)
-    if (error) { flash(error.message); return }
+    if ((doc.deelnemers || []).some(x => x.id === p.id)) { setDoc(d => ({ ...d, deelnemers: (d.deelnemers || []).map(x => x.id === p.id ? { ...x, stand_breedte_m: b, stand_diepte_m: dd } : x) })); return }
+    const fout = adapter.slaMaatOp ? await adapter.slaMaatOp(p.id, b, dd) : null
+    if (fout) { flash(fout); return }
     setPartners(ps => ps.map(x => x.id === p.id ? { ...x, stand_breedte_m: b, stand_diepte_m: dd } : x))
   }
   const slaStandaardOp = async (m: Maat, veld: 'breedte_m' | 'diepte_m', v: string) => {
     const n = parseFloat(v.replace(',', '.')); if (!n) return
-    if (!demo) { const { error } = await supabase.from('plattegrond_standaardmaten').update({ [veld]: n }).eq('pakket', m.pakket); if (error) { flash(error.message); return } }
+    const fout = adapter.slaStandaardOp ? await adapter.slaStandaardOp(m.pakket, veld, n) : null
+    if (fout) { flash(fout); return }
     setMaten(ms => ms.map(x => x.pakket === m.pakket ? { ...x, [veld]: n } : x))
+  }
+  const voegDeelnemerToe = () => {
+    const nm = prompt('Naam van de deelnemer of stand'); if (!nm) return
+    const mt = (prompt('Afmeting in meters, breedte x diepte', '3 x 3') || '3x3').replace(/,/g, '.').split(/[x×*]/i).map(v => parseFloat(v))
+    const p: PartnerRij = { id: 'x' + uid(), naam: nm, bedrijfsnaam: nm, pakket: 'los', type: 'los', stand_breedte_m: mt[0] || 3, stand_diepte_m: mt[1] || mt[0] || 3 }
+    setDoc(d => ({ ...d, deelnemers: [...(d.deelnemers || []), p] }))
   }
 
   // ---- coördinaten ----
@@ -277,6 +243,17 @@ export default function Plattegrond({ flash, demo }: { flash: (m: string, ms?: n
   const naarScherm = (p: Pt): Pt => [(p[0] - view.x) * view.s, (p[1] - view.y) * view.s]
   const rs = (v: number) => (snap && raster ? Math.round(v / raster) * raster : v)
   const rsp = (p: Pt): Pt => {
+    if (toolRef.current === 'maat' || toolRef.current === 'measure') {
+      // maatlijnen klikken vast op hoeken en randen van objecten
+      const d = 9 / view.s; let best: Pt | null = null, bd = d
+      for (const o of docRef.current.objs) { if (o.verborgen || o.kind === 'maat' || o.kind === 'legenda') continue
+        const h = hoeken(o)
+        for (let i = 0; i < h.length; i++) {
+          const a = h[i], b = h[(i + 1) % h.length]
+          for (const q of [a, [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2] as Pt]) { const dd = Math.hypot(q[0] - p[0], q[1] - p[1]); if (dd < bd) { bd = dd; best = q } }
+        } }
+      if (best) return best
+    }
     // punt vastklikken: eerst op hulplijnen, dan op raster
     const g = doc.gidsen, d = 6 / view.s
     const gx = toonGidsen && g ? g.x.find(v => Math.abs(v - p[0]) < d) : undefined
@@ -287,6 +264,12 @@ export default function Plattegrond({ flash, demo }: { flash: (m: string, ms?: n
     const r = svgRef.current?.getBoundingClientRect()
     return r ? [view.x + r.width / 2 / view.s, view.y + r.height / 2 / view.s] : [0, 0]
   }
+
+  useEffect(() => {
+    const el = svgRef.current; if (!el) return
+    const ro = new ResizeObserver(() => { const r = el.getBoundingClientRect(); setMaatSvg({ w: r.width, h: r.height }) })
+    ro.observe(el); return () => ro.disconnect()
+  }, [huidigId])
 
   // ---- zichtbaarheid / selectie ----
   const zichtbaar = (o: Obj) => !o.verborgen && laagVan(o).zichtbaar
@@ -303,7 +286,7 @@ export default function Plattegrond({ flash, demo }: { flash: (m: string, ms?: n
   const laagVoor = (kind: Kind) => {
     const actief = lagen.find(l => l.id === actieveLaag && !l.vast)
     if (kind === 'partner' && lagen.some(l => l.id === 'partners')) return 'partners'
-    if (kind === 'legenda' && lagen.some(l => l.id === 'teksten')) return 'teksten'
+    if ((kind === 'legenda' || kind === 'maat' || kind === 'text') && lagen.some(l => l.id === 'teksten')) return 'teksten'
     return actief?.id || lagen.find(l => !l.vast)?.id || lagen[0].id
   }
   const voegToe = (objs: Obj[]) => { setDoc(d => ({ ...d, objs: [...d.objs, ...objs] })); setSel(objs.map(o => o.id)) }
@@ -323,9 +306,9 @@ export default function Plattegrond({ flash, demo }: { flash: (m: string, ms?: n
     voegToe([op ? basis : vrijePlek(basis)]); setTool('select')
   }
   const plaatsMateriaal = (m: Materiaal, op?: Pt) => {
-    if (m.soort === 'lijn') { setHekMat(m.key); setTool('hek'); flash(`Teken de lijn waar de ${m.label.toLowerCase()} moeten komen. De tool telt de stuks.`, 4500); return }
+    if (isLijn(m)) { setHekMat(m.key); setTool('hek'); flash(m.soort === 'route' ? `Klik de ${m.label.toLowerCase()} aan, punt voor punt. De band laat zien wat vrij moet blijven.` : `Teken de lijn waar de ${m.label.toLowerCase()} moeten komen. De tool telt de stuks.`, 5000); return }
     const c = op || midden()
-    const basis: Obj = { id: uid(), kind: 'materiaal', mat: m.key, x: rs(c[0] - m.w / 2), y: rs(c[1] - m.h / 2), w: m.w, h: m.h, rot: 0, laag: laagVoor('materiaal') }
+    const basis: Obj = { id: uid(), kind: 'materiaal', mat: m.key, x: rs(c[0] - m.w / 2), y: rs(c[1] - m.h / 2), w: m.w, h: m.h, rot: 0, laag: laagVoor('materiaal'), ...(m.uitgang ? { toonLabel: true } : {}) }
     voegToe([op ? basis : vrijePlek(basis)]); setTool('select')
   }
   const plaatsLegenda = () => {
@@ -341,11 +324,14 @@ export default function Plattegrond({ flash, demo }: { flash: (m: string, ms?: n
   const passend = () => {
     const pts = doc.objs.filter(zichtbaar).flatMap(hoeken)
     if (doc.bg) pts.push([doc.bg.x, doc.bg.y], [doc.bg.x + doc.bg.w, doc.bg.y + doc.bg.h])
-    if (!pts.length) return
-    const b = bbox(pts), r = svgRef.current!.getBoundingClientRect()
+    if (!pts.length && doc.kaart) pts.push([-90, -90], [90, 90])
+    if (!pts.length || !svgRef.current) return
+    const b = bbox(pts), r = svgRef.current.getBoundingClientRect()
+    if (!r.width) return
     const s = Math.min(r.width / (b.x2 - b.x1 + 6), r.height / (b.y2 - b.y1 + 6))
     setView({ s, x: (b.x1 + b.x2) / 2 - r.width / 2 / s, y: (b.y1 + b.y2) / 2 - r.height / 2 / s })
   }
+  passendRef.current = passend
   const zoomOp = (f: number, scherm?: Pt) => {
     const r = svgRef.current!.getBoundingClientRect()
     const [sx, sy] = scherm || [r.width / 2, r.height / 2]
@@ -467,15 +453,15 @@ export default function Plattegrond({ flash, demo }: { flash: (m: string, ms?: n
   }
   const naamVan = (o: Obj) => o.kind === 'partner' ? (partnerById[o.partnerId!] ? bnaam(partnerById[o.partnerId!]) : 'Partner (verwijderd)')
     : o.kind === 'materiaal' ? (o.label || MATERIAAL[o.mat || '']?.label || 'Materiaal')
-      : o.kind === 'hek' ? `${MATERIAAL[o.mat || '']?.label || 'Hekwerk'} (${hekStuks(o)}×)`
-        : o.label || ({ rect: 'Rechthoek', ellipse: 'Ellips', line: 'Lijn', poly: 'Vlak', text: 'Tekst', legenda: 'Legenda', partner: '', materiaal: '', hek: '', voorziening: '' } as Record<Kind, string>)[o.kind]
+      : o.kind === 'hek' ? (MATERIAAL[o.mat || '']?.soort === 'route' ? (o.label || MATERIAAL[o.mat || '']!.label) : `${MATERIAAL[o.mat || '']?.label || 'Hekwerk'} (${hekStuks(o)}×)`)
+        : o.label || ({ rect: 'Rechthoek', ellipse: 'Ellips', line: 'Lijn', poly: 'Vlak', text: 'Tekst', legenda: 'Legenda', maat: 'Maatlijn', partner: '', materiaal: '', hek: '', voorziening: '' } as Record<Kind, string>)[o.kind]
 
   // ---- toetsenbord (Illustrator-sneltoetsen) ----
   useEffect(() => {
     const k = (e: KeyboardEvent) => {
       setAlt(e.altKey)
       const t = e.target as HTMLElement
-      if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || tekstEdit || verplaatsDlg) return
+      if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || tekstEdit || verplaatsDlg || metaDlg || exportDlg) return
       const cmd = e.metaKey || e.ctrlKey, key = e.key.toLowerCase(), code = e.code
       if (e.key === ' ') { spatie.current = true; e.preventDefault(); return }
       if (cmd) {
@@ -524,7 +510,7 @@ export default function Plattegrond({ flash, demo }: { flash: (m: string, ms?: n
       }
       if (key === 'r' && sel.length) { draai(e.shiftKey ? -90 : 90); return }
       if (key === 'o' && sel.length) { spiegel(e.shiftKey ? 'v' : 'h'); return }
-      const map: Record<string, Tool> = { v: 'select', a: 'direct', m: 'rect', l: 'ellipse', '\\': 'line', p: 'pen', t: 'text', h: 'hand', z: 'zoom', i: 'pipet', n: 'nummer', u: 'measure' }
+      const map: Record<string, Tool> = { v: 'select', a: 'direct', m: 'rect', l: 'ellipse', '\\': 'line', p: 'pen', t: 'text', h: 'hand', z: 'zoom', i: 'pipet', n: 'nummer', u: 'measure', d: 'maat' }
       if (map[key]) setTool(map[key])
     }
     const ku = (e: KeyboardEvent) => { setAlt(e.altKey); if (e.key === ' ') spatie.current = false }
@@ -605,8 +591,8 @@ export default function Plattegrond({ flash, demo }: { flash: (m: string, ms?: n
     for (let i = gesorteerd.length - 1; i >= 0; i--) {
       const o = gesorteerd[i]
       if (!zichtbaar(o) || (alleenSelecteerbaar && !selecteerbaar(o))) continue
-      if (o.kind === 'line' || o.kind === 'hek') {
-        const tol = Math.max(0.25, 6 / view.s) + (o.kind === 'hek' ? (MATERIAAL[o.mat || '']?.breedte || 0.2) : (o.dik || 0.2)) / 2
+      if (o.kind === 'line' || o.kind === 'hek' || o.kind === 'maat') {
+        const tol = Math.max(0.25, 6 / view.s) + (o.kind === 'hek' ? (o.dik ?? MATERIAAL[o.mat || '']?.breedte ?? 0.2) : (o.dik || 0.2)) / 2
         const pts = o.pts || []
         for (let j = 0; j < pts.length - 1; j++) if (afstandTotLijn(p, pts[j], pts[j + 1]) < tol) return o
       } else if (o.kind === 'poly' && (!o.color || o.color === 'none')) {
@@ -652,12 +638,13 @@ export default function Plattegrond({ flash, demo }: { flash: (m: string, ms?: n
       setDoc(d => ({ ...d, objs: d.objs.map(q => q.id === o.id ? { ...q, nr: nrVolgende } : bezet && q.id === bezet.id ? { ...q, nr: undefined } : q) }))
       setNrVolgende(n => n + 1); return
     }
-    if (tool === 'line' || tool === 'pen' || tool === 'hek' || tool === 'measure' || tool === 'calibrate') {
+    if (tool === 'line' || tool === 'pen' || tool === 'hek' || tool === 'measure' || tool === 'calibrate' || tool === 'maat') {
       const vorige = concept && concept[concept.length - 2]
       const q = e.shiftKey && vorige ? haaks(vorige, sp) : sp
       if (!concept || meetVast.current) { meetVast.current = false; setConcept([q, q]); return }
       if (tool === 'measure') { setConcept([concept[0], q]); meetVast.current = true; return }
       if (tool === 'calibrate') { kalibreer(concept[0], q); setConcept(null); setTool('select'); return }
+      if (tool === 'maat') { if (Math.hypot(q[0] - concept[0][0], q[1] - concept[0][1]) > 0.05) voegToe([{ id: uid(), kind: 'maat', x: 0, y: 0, w: 0, h: 0, rot: 0, pts: [concept[0], q], laag: laagVoor('maat') }]); setConcept(null); return }
       if (tool === 'pen' && concept.length > 2) {
         const [fx, fy] = concept[0]
         if (Math.hypot(fx - q[0], fy - q[1]) < 8 / view.s) { afrondenVlak(); return }
@@ -693,7 +680,7 @@ export default function Plattegrond({ flash, demo }: { flash: (m: string, ms?: n
   const onMove = (e: React.PointerEvent) => {
     const p = naarM(e.clientX, e.clientY)
     setMuis(p)
-    if (concept && !meetVast.current && ['line', 'pen', 'hek', 'measure', 'calibrate'].includes(tool)) {
+    if (concept && !meetVast.current && ['line', 'pen', 'hek', 'measure', 'calibrate', 'maat'].includes(tool)) {
       const sp = rsp(p)
       const vorige = concept[concept.length - 2]
       const q = e.shiftKey && vorige ? haaks(vorige, sp) : sp
@@ -828,7 +815,7 @@ export default function Plattegrond({ flash, demo }: { flash: (m: string, ms?: n
         ? { id: uid(), kind: 'hek', mat: hekMat, x: 0, y: 0, w: 0, h: 0, rot: 0, pts, laag: laagVoor('hek') }
         : { id: uid(), kind: 'line', x: 0, y: 0, w: 0, h: 0, rot: 0, pts, color: '#010341', dik: tool === 'line' ? 0.2 : 0.1, laag: laagVoor('line') }
       voegToe([o])
-      if (tool === 'hek') flash(`${hekStuks(o)}× ${MATERIAAL[hekMat]?.label.toLowerCase()} (${fmt(lengte(pts))})`)
+      if (tool === 'hek') flash(MATERIAAL[hekMat]?.soort === 'route' ? `${MATERIAAL[hekMat]!.label}: ${fmt(lengte(pts))}` : `${hekStuks(o)}× ${MATERIAAL[hekMat]?.label.toLowerCase()} (${fmt(lengte(pts))})`)
     }
     setConcept(null)
   }
@@ -843,7 +830,7 @@ export default function Plattegrond({ flash, demo }: { flash: (m: string, ms?: n
   const pdfNaarBlob = async (f: File): Promise<Blob> => {
     // legacy-build: werkt ook in oudere Safari; worker staat los in /public
     const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs')
-    pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js'
+    pdfjs.GlobalWorkerOptions.workerSrc = adapter.pdfWorker
     const pdf = await pdfjs.getDocument({ data: new Uint8Array(await f.arrayBuffer()) }).promise
     const pagina = await pdf.getPage(1)
     const basis = pagina.getViewport({ scale: 1 })
@@ -862,16 +849,10 @@ export default function Plattegrond({ flash, demo }: { flash: (m: string, ms?: n
       const blob: Blob = isPdf ? await pdfNaarBlob(f) : f
       const lokaal = URL.createObjectURL(blob)
       const img = await new Promise<HTMLImageElement>((ok, nee) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => nee(new Error('Afbeelding kon niet geladen worden')); i.src = lokaal })
-      let src = lokaal
-      if (!demo) {
-        const ext = isPdf ? 'jpg' : (f.name.split('.').pop() || 'png').toLowerCase()
-        const pad = `${huidigId}/${Date.now()}.${ext}`
-        const { error } = await supabase.storage.from('plattegronden').upload(pad, blob, { contentType: isPdf ? 'image/jpeg' : f.type || 'image/png', upsert: false })
-        if (error) throw new Error('Uploaden mislukt: ' + error.message)
-        src = supabase.storage.from('plattegronden').getPublicUrl(pad).data.publicUrl
-      }
+      const src = await adapter.upload(huidigId!, blob, isPdf ? 'jpg' : (f.name.split('.').pop() || 'png').toLowerCase(), isPdf ? 'image/jpeg' : f.type || 'image/png')
       const w = 60, h = (60 * img.height) / img.width
-      setDoc(d => ({ ...d, bg: { src, x: 0, y: 0, w, h, opacity: 1, locked: false } }))
+      const [mx, my] = midden()
+      setDoc(d => ({ ...d, bg: { src, x: mx - w / 2, y: my - h / 2, w, h, opacity: 1, locked: false, opSchaal: false } }))
       if (!(await opslaan())) return
       setTimeout(passend, 50)
       flash('Plattegrond van de locatie geplaatst. Zet hem nu op schaal: trek een lijn over een maat die je kent.', 7000)
@@ -885,7 +866,7 @@ export default function Plattegrond({ flash, demo }: { flash: (m: string, ms?: n
     const echt = parseFloat((prompt(`Deze lijn is nu ${fmt(gemeten)}. Hoe lang is hij in het echt (meters)?`) || '').replace(',', '.'))
     if (!echt) return
     const f = echt / gemeten
-    setDoc(d => d.bg ? ({ ...d, bg: { ...d.bg, x: a[0] - (a[0] - d.bg.x) * f, y: a[1] - (a[1] - d.bg.y) * f, w: d.bg.w * f, h: d.bg.h * f } }) : d)
+    setDoc(d => d.bg ? ({ ...d, bg: { ...d.bg, x: a[0] - (a[0] - d.bg.x) * f, y: a[1] - (a[1] - d.bg.y) * f, w: d.bg.w * f, h: d.bg.h * f, opSchaal: true } }) : d)
     setTimeout(passend, 50)
     flash('Plattegrond van de locatie staat op schaal')
   }
@@ -914,10 +895,34 @@ export default function Plattegrond({ flash, demo }: { flash: (m: string, ms?: n
     return Object.entries(c).map(([pakket, n]) => ({ maat: maten.find(m => m.pakket === pakket) || { pakket, label: pakket, kleur: '#999', breedte_m: 0, diepte_m: 0 }, n }))
   }, [doc.objs, partnerById, maten])
   const genummerd = useMemo(() => doc.objs.filter(o => o.nr).sort((a, b) => a.nr! - b.nr!), [doc.objs])
-  const oppervlak = (o: Obj) => {
-    if (o.kind === 'poly' && o.pts) { let a = 0; for (let i = 0; i < o.pts.length; i++) { const [x1, y1] = o.pts[i], [x2, y2] = o.pts[(i + 1) % o.pts.length]; a += x1 * y2 - x2 * y1 } return Math.abs(a / 2) }
-    if (o.kind === 'ellipse' || MATERIAAL[o.mat || '']?.rond) return Math.PI * o.w * o.h / 4
-    return o.w * o.h
+  const checks = useMemo(() => controleer(doc, partnerById), [doc, partnerById])
+  const checkActies = checks.filter(c => c.status === 'actie').length
+  const tegels = useMemo(() => doc.kaart && doc.kaart.zichtbaar
+    ? kaartTegels(doc.kaart, { x1: view.x, y1: view.y, x2: view.x + maat.w / view.s, y2: view.y + maat.h / view.s }, view.s * 1.5)
+    : [], [doc.kaart, view, maat])
+  const zoomNaar = (ids: string[]) => {
+    const os = doc.objs.filter(o => ids.includes(o.id)); if (!os.length || !svgRef.current) return
+    const b = bbox(os.flatMap(hoeken)), r = svgRef.current.getBoundingClientRect()
+    const sc = Math.min(40, r.width / (b.x2 - b.x1 + 20), r.height / (b.y2 - b.y1 + 20))
+    setView({ s: sc, x: (b.x1 + b.x2) / 2 - r.width / 2 / sc, y: (b.y1 + b.y2) / 2 - r.height / 2 / sc })
+    setSel(os.filter(selecteerbaar).map(o => o.id)); setTool('select')
+  }
+  const kiesAdres = (a: Adres) => {
+    setAdressen(null); setAdresQ(a.naam)
+    const k = docRef.current.kaart
+    if (k && docRef.current.objs.length) {
+      // er staat al een tekening: nulpunt laten staan, alleen ernaartoe schuiven
+      const r = svgRef.current!.getBoundingClientRect()
+      setView(v => ({ ...v, x: a.rd[0] - k.rd[0] - r.width / 2 / v.s, y: k.rd[1] - a.rd[1] - r.height / 2 / v.s }))
+      return
+    }
+    setDoc(d => ({ ...d, kaart: { rd: a.rd, adres: a.naam, type: d.kaart?.type || 'luchtfoto', opacity: 1, zichtbaar: true }, meta: { ...(d.meta || {}), locatie: d.meta?.locatie || a.naam } }))
+    setTimeout(() => passendRef.current(), 60)
+    flash('De kaart staat op schaal, noord is boven. Teken nu het terrein en zet de deelnemers erop.', 6000)
+  }
+  const zoekOpAdres = async () => {
+    if (adresQ.trim().length < 3) return
+    try { const r = await zoekAdres(adresQ); setAdressen(r); if (!r.length) flash('Geen adres gevonden. Probeer straat en plaats.') } catch (e) { flash((e as Error).message) }
   }
 
   // ---- materiaallijst (CSV voor de verhuurder) ----
@@ -930,61 +935,68 @@ export default function Plattegrond({ flash, demo }: { flash: (m: string, ms?: n
   }
 
   // ---- export ----
-  const svgVoorExport = async () => {
+  const inhoudBbox = (): Gebied | null => {
     const pts = doc.objs.filter(zichtbaar).flatMap(hoeken)
     if (doc.bg) pts.push([doc.bg.x, doc.bg.y], [doc.bg.x + doc.bg.w, doc.bg.y + doc.bg.h])
-    if (!pts.length) { flash('Er staat nog niets op de kaart'); return null }
-    const b = bbox(pts), m = 2
+    return pts.length ? bbox(pts) : null
+  }
+  const dataUrl = (bl: Blob) => new Promise<string>(ok => { const rd = new FileReader(); rd.onload = () => ok(rd.result as string); rd.readAsDataURL(bl) })
+  // De tekening als SVG-tekst voor een gebied: kaarttegels op de resolutie van
+  // de export, en alle afbeeldingen ingesloten zodat ze meekomen in PNG en PDF.
+  const tekeningInhoud = async (g: Gebied, pxPerM: number) => {
     const kloon = svgRef.current!.querySelector('#tekening')!.cloneNode(true) as SVGGElement
     kloon.querySelectorAll('[data-ui]').forEach(n => n.remove())
-    // locatieplattegrond insluiten, anders valt hij weg in PNG/PDF
-    const im = kloon.querySelector('image')
-    if (im && doc.bg && !doc.bg.src.startsWith('data:')) {
-      try { const bl = await (await fetch(doc.bg.src)).blob(); const du = await new Promise<string>(ok => { const rd = new FileReader(); rd.onload = () => ok(rd.result as string); rd.readAsDataURL(bl) }); im.setAttribute('href', du) } catch { }
-    }
-    const W = b.x2 - b.x1 + 2 * m, H = b.y2 - b.y1 + 2 * m
-    const ppm = 20
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${W * ppm}" height="${H * ppm}" viewBox="${b.x1 - m} ${b.y1 - m} ${W} ${H}"><rect x="${b.x1 - m}" y="${b.y1 - m}" width="${W}" height="${H}" fill="#ffffff"/>${kloon.innerHTML}</svg>`
-    return { svg, W, H, ppm }
+    const kl = kloon.querySelector('#kaartlaag')
+    if (kl && doc.kaart?.zichtbaar) kl.innerHTML = kaartTegels(doc.kaart, g, pxPerM, 220).map(t => `<image href="${t.href}" x="${t.x}" y="${t.y}" width="${t.s * 1.002}" height="${t.s * 1.002}"/>`).join('')
+    await Promise.all([...kloon.querySelectorAll('image')].map(async im => {
+      const href = im.getAttribute('href') || ''
+      if (!href || href.startsWith('data:')) return
+      try { im.setAttribute('href', await dataUrl(await (await fetch(href)).blob())) } catch { im.remove() }
+    }))
+    return kloon.innerHTML
   }
   const bestandsnaam = (naam || 'plattegrond').replace(/[^\w\- ]+/g, '').trim()
-  const download = (url: string, ext: string) => { const a = document.createElement('a'); a.href = url; a.download = `${bestandsnaam}.${ext}`; a.click() }
+  const download = (url: string, nm: string) => { const a = document.createElement('a'); a.href = url; a.download = nm; a.click() }
   const naarCanvas = (svg: string, w: number, h: number) => new Promise<HTMLCanvasElement>((ok, nee) => {
     const img = new Image()
-    img.onload = () => { const c = document.createElement('canvas'); c.width = w; c.height = h; const ctx = c.getContext('2d')!; ctx.drawImage(img, 0, 0, w, h); ok(c) }
+    img.onload = () => { const c = document.createElement('canvas'); c.width = w; c.height = h; const ctx = c.getContext('2d')!; ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h); ctx.drawImage(img, 0, 0, w, h); ok(c) }
     img.onerror = () => nee(new Error('Renderen mislukt'))
-    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg)
+    img.src = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }))
   })
-  const exporteer = async (soort: 'svg' | 'png' | 'pdf') => {
-    const sel0 = sel; setSel([])
-    await new Promise(r => setTimeout(r, 30))
-    const e = await svgVoorExport(); setSel(sel0); if (!e) return
-    if (soort === 'svg') { download(URL.createObjectURL(new Blob([e.svg], { type: 'image/svg+xml' })), 'svg'); return }
-    if (soort === 'png') { const c = await naarCanvas(e.svg, e.W * e.ppm * 2, e.H * e.ppm * 2); c.toBlob(bl => bl && download(URL.createObjectURL(bl), 'png')); return }
-    // PDF A3 liggend, met titelblok en een echte schaal (1:N)
-    const { jsPDF } = await import('jspdf')
-    const pdf = new jsPDF({ orientation: e.W >= e.H ? 'landscape' : 'portrait', unit: 'mm', format: 'a3' })
-    const PW = pdf.internal.pageSize.getWidth(), PH = pdf.internal.pageSize.getHeight()
-    const vakW = PW - 20, vakH = PH - 20 - 18
-    const mmPerM = Math.min(vakW / e.W, vakH / e.H)
-    const schalen = [50, 100, 125, 200, 250, 300, 400, 500, 750, 1000, 1250, 1500, 2000, 2500, 5000, 10000]
-    const N = schalen.find(n => 1000 / n <= mmPerM) || 10000
-    const mm = 1000 / N
-    const dw = e.W * mm, dh = e.H * mm
-    const c = await naarCanvas(e.svg, Math.round(dw * 12), Math.round(dh * 12)) // ~300 dpi
-    pdf.addImage(c.toDataURL('image/jpeg', 0.92), 'JPEG', 10 + (vakW - dw) / 2, 10 + (vakH - dh) / 2, dw, dh)
-    // titelblok
-    const ty = PH - 24
-    pdf.setDrawColor(1, 3, 65); pdf.setLineWidth(0.3); pdf.rect(10, ty, PW - 20, 14)
-    pdf.setFont('helvetica', 'bold'); pdf.setFontSize(12); pdf.setTextColor(1, 3, 65); pdf.text(naam || 'Plattegrond', 14, ty + 6)
-    pdf.setFont('helvetica', 'normal'); pdf.setFontSize(8.5)
-    pdf.text(`Nacht van de Wijn  ·  technische tekening  ·  ${new Date().toLocaleDateString('nl-NL', { day: 'numeric', month: 'long', year: 'numeric' })}`, 14, ty + 11)
-    pdf.setFont('helvetica', 'bold'); pdf.setFontSize(11); pdf.text(`Schaal 1:${N} (A3)`, PW - 14, ty + 6, { align: 'right' })
-    // schaalbalk van 10 m
-    const sbx = PW - 14 - 10 * mm, sby = ty + 9.5
-    pdf.setFillColor(1, 3, 65); for (let i = 0; i < 10; i += 2) pdf.rect(sbx + i * mm, sby, mm, 1.4, 'F')
-    pdf.rect(sbx, sby, 10 * mm, 1.4); pdf.setFont('helvetica', 'normal'); pdf.setFontSize(7); pdf.text('0', sbx, sby + 3.8, { align: 'center' }); pdf.text('10 m', sbx + 10 * mm, sby + 3.8, { align: 'center' })
-    pdf.save(`${bestandsnaam}.pdf`)
+  const exporteer = async (soort: 'svg' | 'png') => {
+    const b = inhoudBbox(); if (!b) { flash('Er staat nog niets op de tekening'); return }
+    const sel0 = sel; setSel([]); await new Promise(r => setTimeout(r, 40))
+    const m = 2, g = { x1: b.x1 - m, y1: b.y1 - m, x2: b.x2 + m, y2: b.y2 + m }, W = g.x2 - g.x1, H = g.y2 - g.y1
+    const ppm = Math.min(20, 6000 / Math.max(W, H))
+    const inhoud = await tekeningInhoud(g, ppm * 2); setSel(sel0)
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${W * ppm}" height="${H * ppm}" viewBox="${g.x1} ${g.y1} ${W} ${H}"><rect x="${g.x1}" y="${g.y1}" width="${W}" height="${H}" fill="#ffffff"/>${inhoud}</svg>`
+    if (soort === 'svg') { download(URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' })), bestandsnaam + '.svg'); return }
+    const c = await naarCanvas(svg, Math.round(W * ppm * 2), Math.round(H * ppm * 2)); c.toBlob(bl => bl && download(URL.createObjectURL(bl), bestandsnaam + '.png'))
+  }
+  // PDF: tekenblad op echte schaal met legenda, noordpijl, schaalbalk en titelblok
+  const exporteerPdf = async () => {
+    if (!exportDlg) return
+    const b = inhoudBbox(); if (!b) { flash('Er staat nog niets op de tekening'); return }
+    const inst = exportDlg
+    setExportDlg({ ...inst, bezig: true }); setSel([]); await new Promise(r => setTimeout(r, 40))
+    try {
+      const blad = await maakBlad({
+        inhoud: tekeningInhoud, bbox: b, papier: inst.papier, schaal: inst.schaal, titel: inst.titel,
+        meta: { ...meta, evenement: meta.evenement || naam }, merk: adapter.merk,
+        noordHoek: doc.kaart ? 0 : (meta.noordHoek ?? 0),
+        bron: doc.kaart?.zichtbaar ? `Ondergrond: PDOK ${doc.kaart.type === 'luchtfoto' ? 'Luchtfoto' : 'BGT'} (CC BY 4.0)` : '',
+        legenda: { vlakken: pakketTelling.map(p => ({ kleur: p.maat.kleur, label: p.maat.label, aantal: p.n })), symbolen: telling, nummers: genummerd.map(o => ({ nr: o.nr!, naam: naamVan(o) })) },
+      })
+      const pxmm = blad.dpi / 25.4
+      const c = await naarCanvas(blad.svg, Math.round(blad.W * pxmm), Math.round(blad.H * pxmm))
+      const { jsPDF } = await import('jspdf')
+      const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: inst.papier.toLowerCase() })
+      pdf.addImage(c.toDataURL('image/jpeg', 0.93), 'JPEG', 0, 0, blad.W, blad.H)
+      const nm = `${bestandsnaam} ${inst.titel} 1-${blad.N} ${inst.papier}.pdf`
+      if (typeof window !== 'undefined' && (window as unknown as { __pgTest?: (b: Blob, n: string) => void }).__pgTest) (window as unknown as { __pgTest: (b: Blob, n: string) => void }).__pgTest(pdf.output('blob'), nm)
+      else pdf.save(nm)
+      setExportDlg(null)
+    } catch (e) { flash('PDF maken mislukt: ' + (e as Error).message, 8000); setExportDlg(d => d && { ...d, bezig: false }) }
   }
 
   // ---- tekenen ----
@@ -1060,9 +1072,45 @@ export default function Plattegrond({ flash, demo }: { flash: (m: string, ms?: n
         {toonMaten && view.s > 6 && o.pts!.slice(1).map((p, i) => { const a = o.pts![i]; const l = Math.hypot(p[0] - a[0], p[1] - a[1]); return l > 1 ? <text data-ui key={i} x={(a[0] + p[0]) / 2} y={(a[1] + p[1]) / 2 - 0.35} fontSize={11 * sw} textAnchor="middle" fill="#9b3737" fontFamily="Inter">{fmt(l)}</text> : null })}
       </g>
     )
+    if (o.kind === 'maat') {
+      const [a, b] = o.pts!, l = Math.hypot(b[0] - a[0], b[1] - a[1]); if (!l) return null
+      const ux = (b[0] - a[0]) / l, uy = (b[1] - a[1]) / l, tg = (doc.nrGrootte || 0.6) * 1.1, tk = tg * 0.45
+      let hk = Math.atan2(uy, ux) * 180 / Math.PI; if (hk > 90 || hk < -90) hk += 180
+      const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2, kl = o.color || '#010341'
+      return (
+        <g key={o.id} opacity={dek}>
+          <line x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]} stroke={kl} strokeWidth={tg * 0.07} />
+          {[a, b].map((q, i) => <g key={i}><line x1={q[0] - uy * tk} y1={q[1] + ux * tk} x2={q[0] + uy * tk} y2={q[1] - ux * tk} stroke={kl} strokeWidth={tg * 0.07} /><line x1={q[0] - (ux + uy) * tk * 0.6} y1={q[1] - (uy - ux) * tk * 0.6} x2={q[0] + (ux + uy) * tk * 0.6} y2={q[1] + (uy - ux) * tk * 0.6} stroke={kl} strokeWidth={tg * 0.1} /></g>)}
+          <text x={mx} y={my - tg * 0.35} transform={`rotate(${hk} ${mx} ${my})`} fontSize={tg} textAnchor="middle" fill={kl} fontFamily="Helvetica, Arial, sans-serif" fontWeight={700} stroke="#fff" strokeWidth={tg * 0.18} paintOrder="stroke">{fmt(l)}</text>
+          {isSel && <line data-ui x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]} stroke="#2b6cb0" strokeWidth={1.5 * sw} />}
+        </g>
+      )
+    }
     if (o.kind === 'hek') {
-      const m = MATERIAAL[o.mat || '']; const br = m?.breedte || 0.2, stuk = m?.stuk || 1
+      const m = MATERIAAL[o.mat || '']; const br = o.dik ?? m?.breedte ?? 0.2, stuk = m?.stuk || 1
       const pts = o.pts || []
+      if (m?.soort === 'route') {
+        const pijlen: React.ReactNode[] = []
+        const stapP = Math.max(8, br * 3), ps = Math.min(1.2, Math.max(0.5, br * 0.3))
+        let k2 = 0
+        for (let i = 1; i < pts.length; i++) {
+          const [ax, ay] = pts[i - 1], [bx, by] = pts[i], l = Math.hypot(bx - ax, by - ay); if (!l) continue
+          const ux = (bx - ax) / l, uy = (by - ay) / l
+          for (let t = Math.min(stapP / 2, l / 2); t < l; t += stapP) { const px = ax + ux * t, py = ay + uy * t; pijlen.push(<path key={k2++} d={`M${px + ux * ps} ${py + uy * ps} L${px - ux * ps * 0.6 - uy * ps * 0.7} ${py - uy * ps * 0.6 + ux * ps * 0.7} L${px - ux * ps * 0.6 + uy * ps * 0.7} ${py - uy * ps * 0.6 - ux * ps * 0.7} Z`} fill={c} />) }
+        }
+        const mid = Math.floor((pts.length - 1) / 2), A = pts[mid], B = pts[mid + 1] || A
+        let hk = Math.atan2(B[1] - A[1], B[0] - A[0]) * 180 / Math.PI; if (hk > 90 || hk < -90) hk += 180
+        const lx = (A[0] + B[0]) / 2, ly = (A[1] + B[1]) / 2, fs = Math.min(1.1, Math.max(0.5, br * 0.28))
+        return (
+          <g key={o.id} opacity={dek}>
+            <polyline points={pts.map(p => p.join(',')).join(' ')} fill="none" stroke={c} strokeOpacity={0.2} strokeWidth={br} strokeLinejoin="round" strokeLinecap="butt" />
+            <polyline points={pts.map(p => p.join(',')).join(' ')} fill="none" stroke={c} strokeWidth={Math.max(0.08, br * 0.035)} strokeDasharray={`${br * 0.4} ${br * 0.25}`} />
+            {pijlen}
+            <text x={lx} y={ly - br / 2 - fs * 0.4} transform={`rotate(${hk} ${lx} ${ly})`} fontSize={fs} textAnchor="middle" fill={c} fontFamily="Helvetica, Arial, sans-serif" fontWeight={700} stroke="#fff" strokeWidth={fs * 0.2} paintOrder="stroke">{o.label || m.label} · {String(r2(br)).replace('.', ',')} m breed</text>
+            {isSel && <polyline data-ui points={pts.map(p => p.join(',')).join(' ')} fill="none" stroke="#2b6cb0" strokeWidth={1.5 * sw} />}
+          </g>
+        )
+      }
       const ticks: React.ReactNode[] = []
       // streepjes op elke stuk-grens langs de lijn
       let rest = 0, k = 0
@@ -1092,6 +1140,7 @@ export default function Plattegrond({ flash, demo }: { flash: (m: string, ms?: n
         <g key={o.id} opacity={dek}>
           <polygon points={o.pts!.map(p => p.join(',')).join(' ')} fill={c === 'none' ? 'none' : c} fillOpacity={0.6} stroke={lijnVan(o, '#010341')} strokeWidth={ld} strokeLinejoin="miter" strokeDasharray={o.streep ? `${ld * 4} ${ld * 3}` : undefined} />
           {o.label && <text x={(b.x1 + b.x2) / 2} y={(b.y1 + b.y2) / 2} fontSize={Math.min(1.6, (b.x2 - b.x1) / 8)} textAnchor="middle" dominantBaseline="middle" fill="#010341" fillOpacity={0.55} fontFamily="Fraunces, Georgia, serif">{o.label}</text>}
+          {o.publiek && <text x={(b.x1 + b.x2) / 2} y={(b.y1 + b.y2) / 2 + Math.min(1.6, (b.x2 - b.x1) / 8) * 1.2} fontSize={Math.min(1, (b.x2 - b.x1) / 14)} textAnchor="middle" dominantBaseline="middle" fill="#010341" fillOpacity={0.6} fontFamily="Helvetica, Arial, sans-serif">{Math.round(oppervlak(o)).toLocaleString('nl-NL')} m² · max {Math.floor(oppervlak(o) * (o.dichtheid || normen.dichtheid)).toLocaleString('nl-NL')} pers.</text>}
           {toonMaten && isSel && <text data-ui x={(b.x1 + b.x2) / 2} y={(b.y1 + b.y2) / 2 + 1.6} fontSize={11 * sw} textAnchor="middle" fill="#2b6cb0" fontFamily="Inter">{r2(oppervlak(o))} m²</text>}
           {isSel && <polygon data-ui points={o.pts!.map(p => p.join(',')).join(' ')} fill="none" stroke="#2b6cb0" strokeWidth={1.5 * sw} />}
         </g>
@@ -1116,13 +1165,16 @@ export default function Plattegrond({ flash, demo }: { flash: (m: string, ms?: n
         <g key={o.id} opacity={dek}>
           <g transform={tr}>
             {rond
+              ? <ellipse cx={cx} cy={cy} rx={o.w / 2} ry={o.h / 2} fill="#fff" fillOpacity={0.9} />
+              : <rect x={o.x} y={o.y} width={o.w} height={o.h} rx={o.hoek ?? Math.min(o.w, o.h) * 0.08} fill="#fff" fillOpacity={OMHULLEND.has(o.mat || '') ? 0.45 : 0.9} />}
+            {rond
               ? <ellipse cx={cx} cy={cy} rx={o.w / 2} ry={o.h / 2} fill={c} fillOpacity={0.14} stroke={lijnVan(o, c)} strokeWidth={ld} strokeDasharray={o.streep ? `${ld * 4} ${ld * 3}` : undefined} />
               : <rect x={o.x} y={o.y} width={o.w} height={o.h} rx={o.hoek ?? Math.min(o.w, o.h) * 0.08} fill={c} fillOpacity={OMHULLEND.has(o.mat || '') ? 0.07 : 0.14} stroke={lijnVan(o, c)} strokeWidth={ld} strokeDasharray={o.streep || OMHULLEND.has(o.mat || '') ? `${Math.max(ld, 0.05) * 4} ${Math.max(ld, 0.05) * 3}` : undefined} />}
             {fout && <rect data-ui x={o.x} y={o.y} width={o.w} height={o.h} fill="none" stroke="#e53935" strokeWidth={2.5 * sw} strokeDasharray={`${5 * sw} ${3 * sw}`} />}
             {isSel && <rect data-ui x={o.x} y={o.y} width={o.w} height={o.h} fill="none" stroke="#2b6cb0" strokeWidth={1.5 * sw} />}
           </g>
           {icoon(m, cx, o.toonLabel && Math.min(o.w, o.h) > 1.5 ? cy - s * 0.25 : cy, s, c, 0)}
-          {o.toonLabel && <text x={cx} y={Math.min(o.w, o.h) > 1.5 ? cy + s * 0.55 : o.y + o.h + Math.max(0.35, s * 0.35)} fontSize={Math.max(0.3, Math.min(0.9, o.w / Math.max(6, (o.label || m?.label || '').length * 0.6)))} textAnchor="middle" dominantBaseline="middle" fill={c} fontFamily="Inter, sans-serif" fontWeight={600}>{o.label || m?.label}</text>}
+          {o.toonLabel && <text x={cx} y={Math.min(o.w, o.h) > 1.5 ? cy + s * 0.55 : o.y + o.h + Math.max(0.35, s * 0.35)} fontSize={Math.max(0.3, Math.min(0.9, o.w / Math.max(6, (o.label || m?.label || '').length * 0.6)))} textAnchor="middle" dominantBaseline="middle" fill={c} fontFamily="Inter, sans-serif" fontWeight={600}>{o.label || m?.label}{m?.uitgang ? ` ${fmt(Math.max(o.w, o.h))}` : ''}</text>}
         </g>
       )
     }
@@ -1227,7 +1279,7 @@ export default function Plattegrond({ flash, demo }: { flash: (m: string, ms?: n
     const a = concept[concept.length - 2], b = concept[concept.length - 1]
     const l = Math.hypot(b[0] - a[0], b[1] - a[1]), hoek = ((Math.atan2(b[1] - a[1], b[0] - a[0]) * 180) / Math.PI + 360) % 360
     const tot = lengte(concept)
-    const extra = tool === 'hek' ? `  ${Math.max(1, Math.ceil(tot / (MATERIAAL[hekMat]?.stuk || 1) - 0.01))}× ${MATERIAAL[hekMat]?.label.toLowerCase()}` : (tool === 'line' || tool === 'pen') && concept.length > 2 ? `  Σ ${fmt(tot)}` : ''
+    const extra = tool === 'hek' ? (MATERIAAL[hekMat]?.soort === 'route' ? `  Σ ${fmt(tot)}` : `  ${Math.max(1, Math.ceil(tot / (MATERIAAL[hekMat]?.stuk || 1) - 0.01))}× ${MATERIAAL[hekMat]?.label.toLowerCase()}`) : (tool === 'line' || tool === 'pen') && concept.length > 2 ? `  Σ ${fmt(tot)}` : ''
     return { b, txt: `${fmt(l)} · ${Math.round(hoek)}°${extra}` }
   })() : null
 
@@ -1241,9 +1293,9 @@ export default function Plattegrond({ flash, demo }: { flash: (m: string, ms?: n
   const svgIcon = (d: string) => `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`
   const knop = (t: Tool, icoon: string, titel: string, sneltoets: string) => (
     <button key={t} title={`${titel} (${sneltoets})`} onClick={() => setTool(t)}
-      style={{ width: 36, height: 34, border: 'none', borderRadius: 8, cursor: 'pointer', background: tool === t ? 'var(--navy)' : 'transparent', color: tool === t ? 'var(--cream)' : 'var(--navy)', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+      style={{ width: 36, height: 34, border: 'none', borderRadius: 8, cursor: 'pointer', background: tool === t ? 'var(--pg-inkt)' : 'transparent', color: tool === t ? 'var(--pg-papier)' : 'var(--pg-inkt)', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
       <span dangerouslySetInnerHTML={{ __html: icoon }} />
-      <span style={{ position: 'absolute', right: 2, bottom: 0, fontSize: 8, opacity: 0.5, fontFamily: 'Inter' }}>{sneltoets}</span>
+      <span style={{ position: 'absolute', right: 2, bottom: 0, fontSize: 8, opacity: 0.5, fontFamily: 'var(--pg-sans)' }}>{sneltoets}</span>
     </button>
   )
   const mini: React.CSSProperties = { ...AS.input, padding: '4px 7px', fontSize: 12 }
@@ -1304,11 +1356,11 @@ export default function Plattegrond({ flash, demo }: { flash: (m: string, ms?: n
   const tekstObj = tekstEdit ? doc.objs.find(o => o.id === tekstEdit.id) : null
 
   return (
-    <div>
+    <div style={{ '--pg-inkt': adapter.thema.inkt, '--pg-papier': adapter.thema.papier, '--pg-kaart': adapter.thema.kaart, '--pg-accent': adapter.thema.accent, '--pg-serif': adapter.thema.serif, '--pg-sans': adapter.thema.sans, fontFamily: adapter.thema.sans } as React.CSSProperties}>
       <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 12 }}>
         <div>
           <div style={AS.title}>Plattegrond</div>
-          <div style={{ ...AS.sub, marginBottom: 0 }}>Technische tekening op ware schaal. Werkt met de sneltoetsen van Illustrator.</div>
+          <div style={{ ...AS.sub, marginBottom: 0 }}>Technische tekening op ware schaal, klaar om in te dienen bij de gemeente.</div>
         </div>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
           <select style={{ ...mini, width: 'auto', minWidth: 210 }} value={huidigId || ''} onChange={e => open(e.target.value)}>
@@ -1320,25 +1372,44 @@ export default function Plattegrond({ flash, demo }: { flash: (m: string, ms?: n
             <button style={klein} onClick={dupliceerPlattegrond}>Kopie</button>
             <button style={klein} onClick={() => { const n = prompt('Nieuwe naam', naam); if (n) { setNaam(n); setOpgeslagen('nee'); setLijst(l => l.map(x => x.id === huidigId ? { ...x, naam: n } : x)) } }}>Hernoem</button>
             <span style={{ width: 1, height: 20, background: '#e3dcc9' }} />
-            <button style={{ ...klein, background: 'var(--navy)', color: 'var(--cream)', borderColor: 'var(--navy)' }} onClick={() => exporteer('pdf')} title="A3 met titelblok en schaal">PDF op schaal</button>
+            <button style={{ ...klein, background: 'var(--pg-inkt)', color: 'var(--pg-papier)', border: '1px solid var(--pg-inkt)' }} onClick={() => setExportDlg({ papier: 'A3', schaal: 'auto', titel: 'Situatietekening' })} title="Tekenblad op schaal met legenda, noordpijl en titelblok">Tekening voor gemeente (PDF)</button>
+            <button style={klein} onClick={() => setMetaDlg({ ...meta, evenement: meta.evenement || naam })}>Gegevens</button>
             <button style={klein} onClick={() => exporteer('svg')}>SVG (Illustrator)</button>
             <button style={klein} onClick={() => exporteer('png')}>PNG</button>
-            <button style={{ ...klein, color: '#999', borderColor: '#ddd' }} onClick={verwijderPlattegrond}>Verwijder</button>
+            <button style={{ ...klein, color: '#999', border: '1px solid #ddd' }} onClick={verwijderPlattegrond}>Verwijder</button>
           </>}
           {opgeslagen === 'ja'
             ? <span style={{ fontSize: 11.5, color: '#2e6b3a', minWidth: 78 }}>✓ Opgeslagen</span>
-            : <button style={{ ...klein, color: '#9a5b00', borderColor: '#e8c98a' }} onClick={() => opslaan()} title="⌘S">{opgeslagen === 'bezig' ? 'Opslaan…' : 'Opslaan'}</button>}
+            : <button style={{ ...klein, color: '#9a5b00', border: '1px solid #e8c98a' }} onClick={() => opslaan()} title="⌘S">{opgeslagen === 'bezig' ? 'Opslaan…' : 'Opslaan'}</button>}
         </div>
       </div>
 
+            {metaDlg && (
+              <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60 }} onPointerDown={e => { if (e.target === e.currentTarget && !metaDlg.nieuw) setMetaDlg(null) }}>
+                <div style={{ ...AS.card, width: 420, margin: 0, maxHeight: '92%', overflowY: 'auto' }}>
+                  <div style={{ ...AS.cardTitle, fontSize: 16, marginBottom: 4 }}>{metaDlg.nieuw ? 'Nieuwe tekening' : 'Gegevens van het evenement'}</div>
+                  <div style={{ fontSize: 12, color: '#8b8574', marginBottom: 10 }}>Dit komt in het titelblok van de tekening. Met het aantal bezoekers reken ik uitgangen, toiletten en EHBO na.</div>
+                  {([['evenement', 'Naam evenement', 'text', 'APÉRO Festival 2027'], ['locatie', 'Locatie', 'text', 'Naam en adres van het terrein'], ['datum', 'Datum (eerste dag)', 'date', ''], ['bezoekers', 'Bezoekers tegelijk aanwezig (piek)', 'number', '1500'], ['organisator', 'Organisator', 'text', ''], ['tekenaar', 'Getekend door', 'text', ''], ['versie', 'Versie', 'text', '1']] as const).map(([k, l, type, ph], i) => (
+                    <label key={k} style={{ fontSize: 12, color: '#777162', display: 'block', marginBottom: 8 }}>{l}
+                      <input autoFocus={i === 0} style={AS.input} type={type} placeholder={ph} value={(metaDlg[k] as string | number | undefined) ?? ''}
+                        onKeyDown={e => { e.stopPropagation(); if (e.key === 'Enter') bewaarMeta() }}
+                        onChange={e => setMetaDlg({ ...metaDlg, [k]: type === 'number' ? (e.target.value === '' ? undefined : parseInt(e.target.value)) : e.target.value })} /></label>
+                  ))}
+                  <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 6 }}>
+                    <button style={AS.btnSm} onClick={() => setMetaDlg(null)}>Annuleer</button>
+                    <button style={{ ...AS.btnSm, background: 'var(--pg-inkt)', color: 'var(--pg-papier)', border: '1px solid var(--pg-inkt)' }} onClick={bewaarMeta}>{metaDlg.nieuw ? 'Maak tekening' : 'Bewaar'}</button>
+                  </div>
+                </div>
+              </div>
+            )}
       {!huidigId ? (
         <div style={{ ...AS.card, textAlign: 'center', padding: 60 }}>
-          <div style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 20, color: 'var(--navy)', marginBottom: 8 }}>Begin met een lege plattegrond</div>
-          <div style={{ fontSize: 13, color: '#8b8574', marginBottom: 4 }}>Upload de plattegrond van de locatie (PDF of afbeelding), zet hem op schaal met één bekende maat en sleep de partners en materialen erop.</div>
+          <div style={{ fontFamily: 'var(--pg-serif)', fontSize: 20, color: 'var(--pg-inkt)', marginBottom: 8 }}>Begin een nieuwe tekening</div>
+          <div style={{ fontSize: 13, color: '#8b8574', marginBottom: 4 }}>Vul de gegevens van je evenement in, zoek het adres op voor een kaart op schaal en zet alles erop. De gemeentecheck vertelt je wat er nog mist.</div>
           <button style={AS.btn} onClick={nieuw}>Nieuwe plattegrond</button>
         </div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: '46px 1fr 300px', gap: 10, height: 'calc(100vh - 180px)', minHeight: 600 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '46px 1fr 336px', gap: 10, height: 'calc(100vh - 180px)', minHeight: 600 }}>
           {/* gereedschap */}
           <div style={{ ...AS.card, padding: 4, margin: 0, display: 'flex', flexDirection: 'column', gap: 2, alignItems: 'center', overflowY: 'auto' }}>
             {knop('select', svgIcon('<path d="M5 3l14 8-6 2-3 6z" fill="currentColor"/>'), 'Selecteren', 'V')}
@@ -1353,6 +1424,7 @@ export default function Plattegrond({ flash, demo }: { flash: (m: string, ms?: n
             {scheiding}
             {knop('nummer', svgIcon('<circle cx="12" cy="12" r="9"/><path d="M10 8l2-1v10"/>'), 'Nummeren: klik objecten op volgorde (alt-klik = nummer weg)', 'N')}
             {knop('pipet', svgIcon('<path d="M2 22l1-1h3l9-9M3 21v-3l9-9"/><path d="M15 6l3-3 3 3-3 3M12 9l3 3"/>'), 'Pipet: kopieer opmaak naar selectie', 'I')}
+            {knop('maat', svgIcon('<path d="M4 12h16M4 8v8M20 8v8M7 10l-3 2 3 2M17 10l3 2-3 2"/>'), 'Maatlijn: zet een maat vast op de tekening', 'D')}
             {knop('measure', svgIcon('<path d="M3 17L17 3l4 4L7 21z"/><path d="M7 13l2 2M10 10l2 2M13 7l2 2"/>'), 'Meetlat', 'U')}
             {scheiding}
             {knop('hand', svgIcon('<path d="M8 13V5a1.5 1.5 0 013 0v6m0-1V3.5a1.5 1.5 0 013 0V11m0-5.5a1.5 1.5 0 013 0V13m0-4.5a1.5 1.5 0 013 0V15a6 6 0 01-6 6h-2a6 6 0 01-5-3l-2.7-4.5a1.5 1.5 0 012.5-1.6L8 14"/>'), 'Handje (of spatie ingedrukt)', 'H')}
@@ -1387,6 +1459,7 @@ export default function Plattegrond({ flash, demo }: { flash: (m: string, ms?: n
               <rect width="100%" height="100%" fill="url(#r-klein)" />
               <rect width="100%" height="100%" fill="url(#r-groot)" />
               <g id="tekening" transform={`scale(${view.s}) translate(${-view.x} ${-view.y})`}>
+                <g id="kaartlaag" opacity={doc.kaart?.opacity ?? 1} style={{ pointerEvents: 'none' }}>{tegels.map(t => <image key={t.href} href={t.href} x={t.x} y={t.y} width={t.s * 1.002} height={t.s * 1.002} />)}</g>
                 {doc.bg && <image data-bg="1" href={doc.bg.src} x={doc.bg.x} y={doc.bg.y} width={doc.bg.w} height={doc.bg.h} opacity={doc.bg.opacity} preserveAspectRatio="none" style={{ pointerEvents: doc.bg.locked ? 'none' : 'auto' }} />}
                 {gesorteerd.map(renderObj)}
                 {gesorteerd.map(renderNummer)}
@@ -1409,7 +1482,7 @@ export default function Plattegrond({ flash, demo }: { flash: (m: string, ms?: n
                   })}
                   {marquee && (() => { const b = bbox([marquee.a, marquee.b]); return <rect x={b.x1} y={b.y1} width={b.x2 - b.x1} height={b.y2 - b.y1} fill="rgba(43,108,176,0.08)" stroke="#2b6cb0" strokeWidth={sw} /> })()}
                   {concept && tool === 'pen' && concept.length > 2 && <polygon points={concept.map(p => p.join(',')).join(' ')} fill="rgba(43,108,176,0.08)" stroke="none" />}
-                  {concept && <polyline points={concept.map(p => p.join(',')).join(' ')} fill="none" stroke={tool === 'measure' ? '#e0338a' : tool === 'calibrate' ? '#d69e2e' : tool === 'hek' ? (MATERIAAL[hekMat]?.kleur || '#4a5568') : '#010341'} strokeOpacity={tool === 'hek' ? 0.5 : 1} strokeWidth={tool === 'line' ? 0.2 : tool === 'hek' ? (MATERIAAL[hekMat]?.breedte || 0.2) : 2 * sw} strokeDasharray={tool === 'measure' || tool === 'calibrate' ? `${6 * sw} ${3 * sw}` : undefined} />}
+                  {concept && <polyline points={concept.map(p => p.join(',')).join(' ')} fill="none" stroke={tool === 'measure' ? '#e0338a' : tool === 'maat' ? '#2b6cb0' : tool === 'calibrate' ? '#d69e2e' : tool === 'hek' ? (MATERIAAL[hekMat]?.kleur || '#4a5568') : '#010341'} strokeOpacity={tool === 'hek' ? 0.5 : 1} strokeWidth={tool === 'line' ? 0.2 : tool === 'hek' ? (MATERIAAL[hekMat]?.breedte || 0.2) : 2 * sw} strokeLinejoin="round" strokeDasharray={tool === 'measure' || tool === 'calibrate' ? `${6 * sw} ${3 * sw}` : undefined} />}
                   {concept && concept.map((p, i) => <circle key={i} cx={p[0]} cy={p[1]} r={(i === 0 && tool === 'pen' ? 5 : 3.5) * sw} fill="#fff" stroke="#2b6cb0" strokeWidth={1.5 * sw} />)}
                   {conceptLabel && (
                     <g transform={`translate(${conceptLabel.b[0] + 12 * sw} ${conceptLabel.b[1] - 12 * sw})`}>
@@ -1430,7 +1503,7 @@ export default function Plattegrond({ flash, demo }: { flash: (m: string, ms?: n
                 onChange={e => setTekstEdit({ ...tekstEdit, waarde: e.target.value })}
                 onKeyDown={e => { if (e.key === 'Enter') bevestigTekst(); if (e.key === 'Escape') setTekstEdit(null); e.stopPropagation() }}
                 onBlur={bevestigTekst}
-                style={{ position: 'absolute', left: sx, top: sy, fontSize: fs, fontFamily: 'Fraunces, Georgia, serif', fontWeight: 600, color: 'var(--navy)', background: 'rgba(255,255,255,0.9)', border: '1.5px solid #2b6cb0', borderRadius: 4, padding: '0 4px', outline: 'none', minWidth: 160 }} />
+                style={{ position: 'absolute', left: sx, top: sy, fontSize: fs, fontFamily: 'var(--pg-serif)', fontWeight: 600, color: 'var(--pg-inkt)', background: 'rgba(255,255,255,0.9)', border: '1.5px solid #2b6cb0', borderRadius: 4, padding: '0 4px', outline: 'none', minWidth: 160 }} />
             })()}
 
             {/* verplaatsen-dialoog (Enter) */}
@@ -1446,15 +1519,46 @@ export default function Plattegrond({ flash, demo }: { flash: (m: string, ms?: n
                   <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
                     <button style={{ ...AS.btnSm }} onClick={() => setVerplaatsDlg(null)}>Annuleer</button>
                     <button style={{ ...AS.btnSm }} onClick={() => { const dx = parseFloat(verplaatsDlg.dx.replace(',', '.')) || 0, dy = parseFloat(verplaatsDlg.dy.replace(',', '.')) || 0; const k = kopieer(gesel, dx, dy); if (k.length) voegToe(k); laatsteTransform.current = { dx, dy, kopie: true }; setVerplaatsDlg(null) }}>Kopie</button>
-                    <button data-ok style={{ ...AS.btnSm, background: 'var(--navy)', color: 'var(--cream)' }} onClick={() => { const dx = parseFloat(verplaatsDlg.dx.replace(',', '.')) || 0, dy = parseFloat(verplaatsDlg.dy.replace(',', '.')) || 0; wijzig(sel, o => o.locked ? o : verplaats(o, dx, dy)); laatsteTransform.current = { dx, dy, kopie: false }; setVerplaatsDlg(null) }}>OK</button>
+                    <button data-ok style={{ ...AS.btnSm, background: 'var(--pg-inkt)', color: 'var(--pg-papier)' }} onClick={() => { const dx = parseFloat(verplaatsDlg.dx.replace(',', '.')) || 0, dy = parseFloat(verplaatsDlg.dy.replace(',', '.')) || 0; wijzig(sel, o => o.locked ? o : verplaats(o, dx, dy)); laatsteTransform.current = { dx, dy, kopie: false }; setVerplaatsDlg(null) }}>OK</button>
                   </div>
                   <div style={{ fontSize: 10.5, color: '#a39d8c', marginTop: 8 }}>Tip: Kopie en daarna ⌘D herhaalt het, handig voor een rij statafels.</div>
                 </div>
               </div>
             )}
 
+            {exportDlg && (() => {
+              const b = inhoudBbox(), auto = b ? kiesSchaal(b, exportDlg.papier) : 500
+              const N = exportDlg.schaal === 'auto' ? auto : exportDlg.schaal
+              return (
+                <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 6 }} onPointerDown={e => { if (e.target === e.currentTarget && !exportDlg.bezig) setExportDlg(null) }}>
+                  <div style={{ ...AS.card, width: 440, margin: 0 }}>
+                    <div style={{ ...AS.cardTitle, fontSize: 16, marginBottom: 4 }}>Tekening voor gemeente en leveranciers</div>
+                    <div style={{ fontSize: 12, color: '#8b8574', marginBottom: 12, lineHeight: 1.5 }}>Je krijgt een tekenblad op een echte schaal, met legenda, noordpijl, schaalbalk en titelblok.</div>
+                    <label style={{ fontSize: 12, color: '#777162', display: 'block', marginBottom: 8 }}>Soort tekening
+                      <input style={AS.input} list="pg-titels" value={exportDlg.titel} onKeyDown={e => e.stopPropagation()} onChange={e => setExportDlg({ ...exportDlg, titel: e.target.value })} />
+                      <datalist id="pg-titels">{['Situatietekening', 'Inrichtingstekening', 'Tentindeling', 'Calamiteitenplattegrond', 'Opbouwtekening leveranciers'].map(t => <option key={t} value={t} />)}</datalist></label>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                      <label style={{ fontSize: 12, color: '#777162' }}>Papier
+                        <select style={AS.input} value={exportDlg.papier} onChange={e => setExportDlg({ ...exportDlg, papier: e.target.value })}>{Object.keys(PAPIER).map(k => <option key={k} value={k}>{k} liggend</option>)}</select></label>
+                      <label style={{ fontSize: 12, color: '#777162' }}>Schaal
+                        <select style={AS.input} value={exportDlg.schaal} onChange={e => setExportDlg({ ...exportDlg, schaal: e.target.value === 'auto' ? 'auto' : parseInt(e.target.value) })}>
+                          <option value="auto">Passend (1:{auto})</option>{SCHALEN.filter(n => n <= 2500).map(n => <option key={n} value={n}>1:{n}{n < auto ? ' (uitsnede)' : ''}</option>)}</select></label>
+                    </div>
+                    <div style={{ fontSize: 11.5, color: N > 1000 ? '#9a5b00' : '#777162', background: N > 1000 ? '#fff4e0' : '#f6f2e8', borderRadius: 8, padding: '8px 10px', marginTop: 10, lineHeight: 1.5 }}>
+                      {N > 1000 ? `Schaal 1:${N} is klein. Gemeentes vragen voor een situatietekening meestal 1:500 of 1:1000. Kies groter papier.` : N <= 200 ? `Schaal 1:${N}: geschikt als inrichtings- of tentindeling (gevraagd: 1:100 of 1:200).` : `Schaal 1:${N}: geschikt als situatietekening (gevraagd: 1:500 of 1:1000).`}
+                      {checkActies > 0 && <><br />Let op: de gemeentecheck heeft nog {checkActies} {checkActies === 1 ? 'punt' : 'punten'} open.</>}
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 14 }}>
+                      <button style={AS.btnSm} disabled={exportDlg.bezig} onClick={() => setExportDlg(null)}>Annuleer</button>
+                      <button style={{ ...AS.btnSm, background: 'var(--pg-inkt)', color: 'var(--pg-papier)', border: '1px solid var(--pg-inkt)' }} disabled={exportDlg.bezig} onClick={exporteerPdf}>{exportDlg.bezig ? 'PDF wordt gemaakt…' : 'Maak PDF'}</button>
+                    </div>
+                  </div>
+                </div>
+              )
+            })()}
+
             {/* schaalbalk en coördinaten */}
-            <div style={{ position: 'absolute', left: linialen ? 28 : 12, bottom: 10, display: 'flex', alignItems: 'center', gap: 10, fontSize: 11, color: '#777162', fontFamily: 'Inter', pointerEvents: 'none' }}>
+            <div style={{ position: 'absolute', left: linialen ? 28 : 12, bottom: 10, display: 'flex', alignItems: 'center', gap: 10, fontSize: 11, color: '#777162', fontFamily: 'var(--pg-sans)', pointerEvents: 'none' }}>
               <div>
                 <div style={{ width: grootStap * view.s, height: 6, borderLeft: '2px solid #010341', borderRight: '2px solid #010341', borderBottom: '2px solid #010341' }} />
                 <div style={{ textAlign: 'center', marginTop: 2 }}>{String(grootStap).replace('.', ',')} m</div>
@@ -1467,7 +1571,7 @@ export default function Plattegrond({ flash, demo }: { flash: (m: string, ms?: n
               <button style={{ ...klein, border: 'none' }} onClick={() => zoomOp(1.3)} title="⌘+">+</button>
               <button style={{ ...klein, border: 'none' }} onClick={passend} title="⌘0">Passend</button>
             </div>
-            <div style={{ position: 'absolute', left: linialen ? 26 : 10, top: linialen ? 26 : 10, display: 'flex', gap: 10, background: 'rgba(255,255,255,0.94)', borderRadius: 10, padding: '5px 10px', fontSize: 11.5, color: 'var(--navy)', boxShadow: '0 2px 10px rgba(1,3,65,0.08)', alignItems: 'center', flexWrap: 'wrap', maxWidth: 'calc(100% - 60px)' }}>
+            <div style={{ position: 'absolute', left: linialen ? 26 : 10, top: linialen ? 26 : 10, display: 'flex', gap: 10, background: 'rgba(255,255,255,0.94)', borderRadius: 10, padding: '5px 10px', fontSize: 11.5, color: 'var(--pg-inkt)', boxShadow: '0 2px 10px rgba(1,3,65,0.08)', alignItems: 'center', flexWrap: 'wrap', maxWidth: 'calc(100% - 60px)' }}>
               <label style={{ display: 'flex', gap: 4, alignItems: 'center', cursor: 'pointer' }}><input type="checkbox" checked={snap} onChange={e => setSnap(e.target.checked)} /> Magnetisch</label>
               <label style={{ display: 'flex', gap: 4, alignItems: 'center', cursor: 'pointer' }} title="⌘U"><input type="checkbox" checked={slim} onChange={e => setSlim(e.target.checked)} /> Slimme hulplijnen</label>
               <label style={{ display: 'flex', gap: 4, alignItems: 'center' }}>raster
@@ -1479,11 +1583,11 @@ export default function Plattegrond({ flash, demo }: { flash: (m: string, ms?: n
               {overlappers.size > 0 && <span style={{ color: '#e53935', fontWeight: 600 }}>⚠ {overlappers.size} blokken overlappen</span>}
             </div>
             {(tool !== 'select' && tool !== 'hand' && tool !== 'direct') && (
-              <div style={{ position: 'absolute', left: '50%', top: linialen ? 62 : 48, transform: 'translateX(-50%)', background: 'var(--navy)', color: 'var(--cream)', fontSize: 12, padding: '6px 12px', borderRadius: 8, pointerEvents: 'none', whiteSpace: 'nowrap' }}>
-                {({ rect: 'Sleep een rechthoek. Shift = vierkant, alt = vanuit het midden.', ellipse: 'Sleep een ellips. Shift = cirkel.', line: 'Klik punten voor een muur. Shift = haaks. Dubbelklik, Enter of Esc = klaar.', pen: 'Klik punten. Klik op het beginpunt voor een gesloten vlak, Enter voor een open pad.', text: 'Klik waar de tekst moet komen.', measure: 'Klik twee punten om te meten. Esc = stoppen.', calibrate: 'Trek een lijn over een maat die je kent, bijvoorbeeld een muur.', zoom: 'Klik om in te zoomen, alt-klik om uit te zoomen.', pipet: 'Klik op een object om de opmaak over te nemen op je selectie.', nummer: `Klik objecten op volgorde. Volgende nummer: ${nrVolgende}. Alt-klik = nummer weg.`, hek: `${MATERIAAL[hekMat]?.label}: klik de route. Shift = haaks, dubbelklik of Enter = klaar.`, hand: '', select: '', direct: '' } as Record<Tool, string>)[tool]}
+              <div style={{ position: 'absolute', left: '50%', top: linialen ? 62 : 48, transform: 'translateX(-50%)', background: 'var(--pg-inkt)', color: 'var(--pg-papier)', fontSize: 12, padding: '6px 12px', borderRadius: 8, pointerEvents: 'none', whiteSpace: 'nowrap' }}>
+                {({ rect: 'Sleep een rechthoek. Shift = vierkant, alt = vanuit het midden.', ellipse: 'Sleep een ellips. Shift = cirkel.', line: 'Klik punten voor een muur. Shift = haaks. Dubbelklik, Enter of Esc = klaar.', pen: 'Klik punten. Klik op het beginpunt voor een gesloten vlak, Enter voor een open pad.', text: 'Klik waar de tekst moet komen.', measure: 'Klik twee punten om te meten. Esc = stoppen.', calibrate: 'Trek een lijn over een maat die je kent, bijvoorbeeld een muur.', zoom: 'Klik om in te zoomen, alt-klik om uit te zoomen.', pipet: 'Klik op een object om de opmaak over te nemen op je selectie.', nummer: `Klik objecten op volgorde. Volgende nummer: ${nrVolgende}. Alt-klik = nummer weg.`, hek: `${MATERIAAL[hekMat]?.label}: klik de route. Shift = haaks, dubbelklik of Enter = klaar.`, maat: 'Maatlijn: klik begin en eind. Klikt vast op hoeken van objecten. Blijft op de tekening staan.', hand: '', select: '', direct: '' } as Record<Tool, string>)[tool]}
               </div>
             )}
-            {uploadBezig && <div style={{ position: 'absolute', inset: 0, background: 'rgba(251,248,241,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, color: 'var(--navy)', fontFamily: 'Fraunces, Georgia, serif' }}>Plattegrond van de locatie inladen…</div>}
+            {uploadBezig && <div style={{ position: 'absolute', inset: 0, background: 'rgba(251,248,241,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, color: 'var(--pg-inkt)', fontFamily: 'var(--pg-serif)' }}>Plattegrond van de locatie inladen…</div>}
           </div>
 
           {/* rechterpaneel */}
@@ -1492,7 +1596,7 @@ export default function Plattegrond({ flash, demo }: { flash: (m: string, ms?: n
               {enkel ? <>
                 <div style={{ ...AS.cardTitle, marginBottom: 6, display: 'flex', justifyContent: 'space-between', gap: 8 }}>
                   <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{naamVan(enkel)}</span>
-                  <span style={{ fontWeight: 400, color: '#8b8574', fontSize: 11.5, whiteSpace: 'nowrap' }}>{enkel.kind === 'line' || enkel.kind === 'hek' ? fmt(lengte(enkel.pts!)) : enkel.kind === 'legenda' ? '' : `${r2(oppervlak(enkel))} m²`}</span>
+                  <span style={{ fontWeight: 400, color: '#8b8574', fontSize: 11.5, whiteSpace: 'nowrap' }}>{enkel.kind === 'line' || enkel.kind === 'hek' || enkel.kind === 'maat' ? fmt(lengte(enkel.pts!)) : enkel.kind === 'legenda' ? '' : `${r2(oppervlak(enkel))} m²`}</span>
                 </div>
                 {isBlok(enkel.kind) && (
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 5 }}>
@@ -1507,11 +1611,17 @@ export default function Plattegrond({ flash, demo }: { flash: (m: string, ms?: n
                     </label>
                   </div>
                 )}
-                {enkel.kind === 'hek' && <div style={{ fontSize: 12, color: 'var(--navy)' }}>{hekStuks(enkel)} stuks van {String(MATERIAAL[enkel.mat || '']?.stuk).replace('.', ',')} m
+                {enkel.kind === 'hek' && <div style={{ fontSize: 12, color: 'var(--pg-inkt)' }}>{MATERIAAL[enkel.mat || '']?.soort === 'route'
+                  ? <label style={{ fontSize: 11, color: '#777162', display: 'block' }}>Vrije breedte (m)<input style={mini} type="number" step={0.5} min={0.5} value={enkel.dik ?? MATERIAAL[enkel.mat || '']?.breedte ?? 3.5} onChange={e => wijzig([enkel.id], o => ({ ...o, dik: Math.max(0.5, parseFloat(e.target.value) || 3.5) }))} /></label>
+                  : <>{hekStuks(enkel)} stuks van {String(MATERIAAL[enkel.mat || '']?.stuk).replace('.', ',')} m</>}
                   <select style={{ ...mini, marginTop: 6 }} value={enkel.mat} onChange={e => wijzig([enkel.id], o => ({ ...o, mat: e.target.value }))}>
-                    {MATERIALEN.filter(m => m.soort === 'lijn').map(m => <option key={m.key} value={m.key}>{m.label}</option>)}
+                    {MATERIALEN.filter(m => m.soort === MATERIAAL[enkel.mat || '']?.soort).map(m => <option key={m.key} value={m.key}>{m.label}</option>)}
                   </select></div>}
                 {enkel.kind === 'partner' && <div style={{ fontSize: 10.5, color: '#8b8574', marginTop: 5 }}>Maat komt van de partner. Aanpassen kan in de partnerlijst.</div>}
+                {(enkel.kind === 'poly' || enkel.kind === 'rect') && <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 6 }}>
+                  <label style={{ fontSize: 11, color: '#777162', display: 'flex', gap: 5, alignItems: 'center', cursor: 'pointer' }}><input type="checkbox" checked={!!enkel.publiek} onChange={e => wijzig([enkel.id], o => ({ ...o, publiek: e.target.checked }))} /> Publieksruimte</label>
+                  {enkel.publiek && <label style={{ fontSize: 11, color: '#777162', display: 'flex', gap: 4, alignItems: 'center' }}><input style={{ ...mini, width: 52 }} type="number" step={0.5} min={0.5} value={enkel.dichtheid ?? normen.dichtheid} onChange={e => wijzig([enkel.id], o => ({ ...o, dichtheid: Math.max(0.1, parseFloat(e.target.value) || 2.5) }))} /> pers/m²</label>}
+                </div>}
                 {enkel.kind === 'materiaal' && <label style={{ fontSize: 11, color: '#777162', display: 'flex', gap: 5, alignItems: 'center', marginTop: 6, cursor: 'pointer' }}><input type="checkbox" checked={!!enkel.toonLabel} onChange={e => wijzig([enkel.id], o => ({ ...o, toonLabel: e.target.checked }))} /> Naam tonen</label>}
                 {enkel.kind === 'text' && <label style={{ fontSize: 11, color: '#777162', display: 'block', marginTop: 4 }}>Lettergrootte (m)
                   <input style={mini} type="number" step={0.1} value={r2(enkel.tekstgrootte || 1)} onChange={e => wijzig([enkel.id], o => ({ ...o, tekstgrootte: Math.max(0.1, parseFloat(e.target.value) || 1) }))} /></label>}
@@ -1542,54 +1652,50 @@ export default function Plattegrond({ flash, demo }: { flash: (m: string, ms?: n
                   <select style={{ ...mini, flex: 1 }} value="" onChange={e => e.target.value && naarLaag(e.target.value)}><option value="">Kies…</option>{lagen.map(l => <option key={l.id} value={l.id}>{l.naam}</option>)}</select></label>
                 {schikKnoppen}
               </> : <>
-                <div style={{ ...AS.cardTitle, marginBottom: 6 }}>Upload plattegrond locatie</div>
-                {doc.bg ? <>
-                  <label style={{ fontSize: 11, color: '#777162' }}>Doorzichtigheid
-                    <input type="range" min={0.05} max={1} step={0.05} value={doc.bg.opacity} onChange={e => setDoc(d => d.bg ? { ...d, bg: { ...d.bg, opacity: parseFloat(e.target.value) } } : d, false)} style={{ width: '100%' }} /></label>
-                  <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                    <button style={klein} onClick={() => setTool('calibrate')}>Op schaal zetten</button>
-                    <button style={klein} onClick={() => setDoc(d => d.bg ? { ...d, bg: { ...d.bg, locked: !d.bg.locked } } : d)}>{doc.bg.locked ? 'Ontgrendel' : 'Vergrendel'}</button>
-                    <label style={{ ...klein, cursor: 'pointer' }}>Vervang<input type="file" accept="image/*,application/pdf,.pdf" style={{ display: 'none' }} onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) kiesLocatie(f) }} /></label>
-                    <button style={{ ...klein, color: '#999' }} onClick={() => setDoc(d => ({ ...d, bg: null }))}>Weg</button>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
+                  <div style={{ ...AS.cardTitle, marginBottom: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{meta.evenement || naam}</div>
+                  <button style={klein} onClick={() => setMetaDlg({ ...meta, evenement: meta.evenement || naam })}>Gegevens</button>
+                </div>
+                <div style={{ fontSize: 12, color: '#8b8574' }}>{[meta.locatie, meta.datum && new Date(meta.datum).toLocaleDateString('nl-NL', { day: 'numeric', month: 'long', year: 'numeric' }), meta.bezoekers && `${meta.bezoekers.toLocaleString('nl-NL')} bezoekers`].filter(Boolean).join(' · ') || 'Vul locatie, datum en aantal bezoekers in.'}</div>
+                <button onClick={() => setZijTab('check')} style={{ width: '100%', marginTop: 10, padding: '9px 11px', borderRadius: 10, border: 'none', cursor: 'pointer', textAlign: 'left', background: checkActies ? '#fff4e0' : '#e8f3ea', fontFamily: 'var(--pg-sans)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, fontWeight: 700, color: checkActies ? '#9a5b00' : '#2e6b3a' }}>
+                    <span>Gemeentecheck</span><span>{checkActies ? `${checkActies} te doen` : 'klaar om in te dienen'}</span>
                   </div>
-                  <div style={{ fontSize: 11, color: '#8b8574', marginTop: 5 }}>{fmt(doc.bg.w)} × {fmt(doc.bg.h)}</div>
-                </> : <>
-                  <div style={{ fontSize: 12, color: '#8b8574', marginBottom: 6 }}>PDF, PNG of JPG van de locatie. Hij komt onder je tekening te liggen, zodat je kunt overtrekken. Slepen op de tekening kan ook.</div>
-                  <label style={{ ...klein, display: 'inline-block', cursor: 'pointer' }}>{uploadBezig ? 'Bezig…' : 'Bestand kiezen'}
-                    <input type="file" accept="image/*,application/pdf,.pdf" style={{ display: 'none' }} onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) kiesLocatie(f) }} /></label>
-                </>}
+                  <div style={{ height: 5, background: 'rgba(0,0,0,0.08)', borderRadius: 3, overflow: 'hidden', marginTop: 6 }}><div style={{ height: '100%', width: `${(1 - checkActies / Math.max(1, checks.length)) * 100}%`, background: checkActies ? '#d69e2e' : '#2e6b3a', transition: 'width .3s' }} /></div>
+                </button>
                 <div style={sectie}>Nummering & legenda</div>
                 <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                  <button style={klein} onClick={nummerAuto} title="Alle partners en materialen, van linksboven naar rechtsonder">Automatisch nummeren</button>
+                  <button style={klein} onClick={nummerAuto} title="Alle deelnemers en materialen, van linksboven naar rechtsonder">Automatisch nummeren</button>
                   <button style={klein} onClick={() => setTool('nummer')}>Met de hand (N)</button>
                   <button style={{ ...klein, color: '#999' }} onClick={nummersWissen}>Wis nummers</button>
                 </div>
                 <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 6 }}>
-                  <button style={{ ...klein, background: 'var(--navy)', color: 'var(--cream)', borderColor: 'var(--navy)' }} onClick={plaatsLegenda}>Legenda plaatsen</button>
-                  <label style={{ fontSize: 11, color: '#777162', display: 'flex', alignItems: 'center', gap: 4 }}>nummer Ø
+                  <label style={{ fontSize: 11, color: '#777162', display: 'flex', alignItems: 'center', gap: 4 }}>Tekst en nummers
                     <input style={{ ...mini, width: 56 }} type="number" step={0.1} min={0.2} value={r2(nrStraal * 2)} onChange={e => setDoc(d => ({ ...d, nrGrootte: Math.max(0.1, (parseFloat(e.target.value) || 1.2) / 2) }))} /> m</label>
+                  <button style={{ ...klein, border: 'none', color: '#a39d8c' }} onClick={() => setToonHulp(v => !v)}>{toonHulp ? 'Verberg sneltoetsen' : 'Sneltoetsen'}</button>
                 </div>
-                <div style={{ fontSize: 10.5, color: '#a39d8c', marginTop: 10, lineHeight: 1.55 }}>
-                  <b>Sneltoetsen zoals Illustrator</b><br />
-                  V selecteer · A direct · P pen · \ lijn · M rechthoek · L ellips · T tekst · N nummer · I pipet · U meet · H hand · Z zoom<br />
-                  ⌘G groep · ⌘2 vergrendel · ⌘3 verberg · ⌘D nogmaals · Enter verplaatsen · ⌘F/⌘B plak voor/achter · ⌘[ ] schikken · R draai 90° · O spiegel · alt-slepen kopie · alt ingedrukt = afstanden · ⌘R linialen (sleep er hulplijnen uit) · ⌘; hulplijnen · ⌘0 passend · ⌘1 1 m = 50 px
-                </div>
+                <div style={{ fontSize: 10.5, color: '#a39d8c', marginTop: 4 }}>De legenda komt vanzelf op het tekenblad in de PDF.</div>
+                {toonHulp && <div style={{ fontSize: 10.5, color: '#8b8574', marginTop: 8, lineHeight: 1.55 }}>
+                  V selecteer · A direct · P pen · \ lijn · M rechthoek · L ellips · T tekst · D maatlijn · N nummer · I pipet · U meet · H hand · Z zoom<br />
+                  ⌘G groep · ⌘2 vergrendel · ⌘3 verberg · ⌘D nogmaals · Enter verplaatsen · ⌘F/⌘B plak voor/achter · ⌘[ ] schikken · R draai 90° · O spiegel · alt-slepen kopie · alt ingedrukt = afstanden · ⌘R linialen (sleep er hulplijnen uit) · ⌘; hulplijnen · ⌘0 passend · ⌘S opslaan
+                </div>}
               </>}
             </div>
 
             {/* tabbladen */}
             <div style={{ ...AS.card, margin: 0, padding: 0, flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
               <div style={{ display: 'flex', borderBottom: '1px solid rgba(1,3,65,0.07)' }}>
-                {([['partners', `Partners ${relevante.filter(p => geplaatst.has(p.id)).length}/${relevante.length}`], ['materialen', 'Materialen'], ['lagen', 'Lagen'], ['lijst', 'Lijst']] as const).map(([k, l]) => (
-                  <button key={k} onClick={() => setZijTab(k)} style={{ flex: 1, padding: '9px 2px', border: 'none', background: 'none', fontSize: 11.5, fontWeight: 600, cursor: 'pointer', color: zijTab === k ? 'var(--navy)' : '#a39d8c', borderBottom: zijTab === k ? '2px solid var(--bordeaux)' : '2px solid transparent', whiteSpace: 'nowrap' }}>{l}</button>
+                {([['locatie', '1 Locatie'], ['partners', `2 ${adapter.deelnemerLabel}`], ['materialen', '3 Materiaal'], ['check', `4 Check${checkActies ? ` (${checkActies})` : ' ✓'}`], ['lagen', 'Lagen']] as const).map(([k, l]) => (
+                  <button key={k} onClick={() => setZijTab(k)} style={{ flex: 1, padding: '9px 2px', border: 'none', background: 'none', fontSize: 11, fontWeight: 600, cursor: 'pointer', color: zijTab === k ? 'var(--pg-inkt)' : '#a39d8c', borderBottom: zijTab === k ? '2px solid var(--bordeaux)' : '2px solid transparent', whiteSpace: 'nowrap' }}>{l}</button>
                 ))}
               </div>
               <div style={{ overflowY: 'auto', padding: '10px 12px', flex: 1 }}>
                 {zijTab === 'partners' && <>
+                  <div style={{ fontSize: 11.5, color: '#777162', marginBottom: 5 }}>{relevante.filter(p => geplaatst.has(p.id)).length} van {relevante.length} op de tekening</div>
                   <div style={{ height: 5, background: '#efe9da', borderRadius: 3, overflow: 'hidden', marginBottom: 8 }}>
                     <div style={{ height: '100%', width: `${relevante.length ? (relevante.filter(p => geplaatst.has(p.id)).length / relevante.length) * 100 : 0}%`, background: '#2e6b3a', transition: 'width .3s' }} />
                   </div>
-                  <input style={{ ...mini, marginBottom: 8 }} placeholder="Zoek partner…" value={zoek} onChange={e => setZoek(e.target.value)} />
+                  <input style={{ ...mini, marginBottom: 8 }} placeholder="Zoek op naam…" value={zoek} onChange={e => setZoek(e.target.value)} />
                   {[...groepen, ...(zonderGroep.length ? [{ m: { pakket: '?', label: 'Overig', breedte_m: 3, diepte_m: 2, kleur: '#999' } as Maat, ps: zonderGroep }] : [])].map(({ m, ps }) => (
                     <div key={m.pakket} style={{ marginBottom: 12 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 700, color: '#777162', marginBottom: 4 }}>
@@ -1606,7 +1712,7 @@ export default function Plattegrond({ flash, demo }: { flash: (m: string, ms?: n
                             style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 6px', borderRadius: 7, cursor: op ? 'pointer' : 'grab', background: op ? 'transparent' : '#fbf8f1', marginBottom: 2, border: op ? '1px solid transparent' : '1px dashed #e3dcc9' }}
                             onClick={() => plaatsPartner(p)}>
                             <span style={{ width: 16, height: 16, borderRadius: 5, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700, color: '#fff', background: op ? (ob?.nr ? '#010341' : '#2e6b3a') : 'transparent', border: op ? 'none' : '1.5px solid #c9c1ab' }}>{op ? (ob?.nr ?? '✓') : ''}</span>
-                            <span style={{ flex: 1, fontSize: 12.5, color: 'var(--navy)', opacity: op ? 0.6 : 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={p.naam}>{bnaam(p)}</span>
+                            <span style={{ flex: 1, fontSize: 12.5, color: 'var(--pg-inkt)', opacity: op ? 0.6 : 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={p.naam}>{bnaam(p)}</span>
                             <span onClick={e => e.stopPropagation()} style={{ fontSize: 10.5, color: mt.eigen ? '#2e6b3a' : '#a39d8c', whiteSpace: 'nowrap' }} title={mt.eigen ? 'Door partner ingevuld' : 'Standaardmaat, nog niet ingevuld door partner'}>
                               <input defaultValue={p.stand_breedte_m ?? ''} placeholder={String(mt.w)} onBlur={e => e.target.value !== String(p.stand_breedte_m ?? '') && slaMaatOp(p, e.target.value, String(p.stand_diepte_m ?? ''))} style={{ width: 28, fontSize: 10.5, border: '1px solid #eee5d2', borderRadius: 4, padding: '0 2px', textAlign: 'right' }} />×<input defaultValue={p.stand_diepte_m ?? ''} placeholder={String(mt.h)} onBlur={e => e.target.value !== String(p.stand_diepte_m ?? '') && slaMaatOp(p, String(p.stand_breedte_m ?? ''), e.target.value)} style={{ width: 28, fontSize: 10.5, border: '1px solid #eee5d2', borderRadius: 4, padding: '0 2px' }} />
                             </span>
@@ -1615,7 +1721,8 @@ export default function Plattegrond({ flash, demo }: { flash: (m: string, ms?: n
                       })}
                     </div>
                   ))}
-                  <div style={{ fontSize: 10.5, color: '#a39d8c', lineHeight: 1.5 }}>Sleep een partner op de tekening of klik erop. Groene maat = door de partner zelf ingevuld, grijs = standaardmaat van het pakket.</div>
+                  <div style={{ fontSize: 10.5, color: '#a39d8c', lineHeight: 1.5 }}>Sleep een naam op de tekening of klik erop. Groene maat = zelf ingevuld, grijs = standaardmaat.</div>
+                  <button style={{ ...klein, marginTop: 8 }} onClick={voegDeelnemerToe}>+ Deelnemer of stand toevoegen</button>
                 </>}
                 {zijTab === 'materialen' && <>
                   <input style={{ ...mini, marginBottom: 6 }} placeholder="Zoek materiaal… (aggregaat, hek, tent)" value={matZoek} onChange={e => setMatZoek(e.target.value)} />
@@ -1627,11 +1734,11 @@ export default function Plattegrond({ flash, demo }: { flash: (m: string, ms?: n
                         {items.map(m => {
                           const n = telling.find(t => t.mat.key === m.key)
                           return (
-                            <div key={m.key} draggable={m.soort !== 'lijn'} onDragStart={e => e.dataTransfer.setData('materiaal', m.key)} onClick={() => plaatsMateriaal(m)}
-                              title={`${m.label} · ${m.soort === 'lijn' ? `teken een lijn, ${String(m.stuk).replace('.', ',')} m per stuk` : `${m.w} × ${m.h} m`}`}
-                              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 6px', borderRadius: 8, cursor: m.soort === 'lijn' ? 'crosshair' : 'grab', border: tool === 'hek' && hekMat === m.key ? '1.5px solid var(--navy)' : '1px solid #eee5d2', background: '#fff', position: 'relative' }}>
+                            <div key={m.key} draggable={!isLijn(m)} onDragStart={e => e.dataTransfer.setData('materiaal', m.key)} onClick={() => plaatsMateriaal(m)}
+                              title={`${m.label} · ${isLijn(m) ? (m.soort === 'route' ? 'teken de route als lijn' : `teken een lijn, ${String(m.stuk).replace('.', ',')} m per stuk`) : `${m.w} × ${m.h} m`}`}
+                              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 6px', borderRadius: 8, cursor: isLijn(m) ? 'crosshair' : 'grab', border: tool === 'hek' && hekMat === m.key ? '1.5px solid var(--navy)' : '1px solid #eee5d2', background: '#fff', position: 'relative' }}>
                               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={m.kleur} strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, color: m.kleur }} dangerouslySetInnerHTML={{ __html: m.icoon }} />
-                              <span style={{ fontSize: 11, color: 'var(--navy)', lineHeight: 1.2, overflow: 'hidden' }}>{m.label}<br /><span style={{ color: '#a39d8c', fontSize: 10 }}>{m.soort === 'lijn' ? `lijn · ${String(m.stuk).replace('.', ',')} m/st` : `${String(m.w).replace('.', ',')}×${String(m.h).replace('.', ',')}`}</span></span>
+                              <span style={{ fontSize: 11, color: 'var(--pg-inkt)', lineHeight: 1.2, overflow: 'hidden' }}>{m.label}<br /><span style={{ color: '#a39d8c', fontSize: 10 }}>{isLijn(m) ? (m.soort === 'route' ? `route · ${String(m.breedte).replace('.', ',')} m breed` : `lijn · ${String(m.stuk).replace('.', ',')} m/st`) : `${String(m.w).replace('.', ',')}×${String(m.h).replace('.', ',')}`}</span></span>
                               {n && <span style={{ position: 'absolute', top: 2, right: 4, fontSize: 9.5, fontWeight: 700, color: '#2e6b3a' }}>{n.stuks}</span>}
                             </div>
                           )
@@ -1650,7 +1757,7 @@ export default function Plattegrond({ flash, demo }: { flash: (m: string, ms?: n
                       <div onClick={() => setActieveLaag(l.id)} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '5px 6px', borderRadius: 7, background: actieveLaag === l.id ? 'rgba(1,3,65,0.06)' : 'transparent', cursor: 'pointer' }}>
                         <button title="Zichtbaar" onClick={e => { e.stopPropagation(); zetLaag({ zichtbaar: !l.zichtbaar }) }} style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 13, opacity: l.zichtbaar ? 1 : 0.25, width: 18 }}>👁</button>
                         <button title="Vergrendelen" onClick={e => { e.stopPropagation(); zetLaag({ vast: !l.vast }) }} style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 11, opacity: l.vast ? 1 : 0.25, width: 18 }}>🔒</button>
-                        <span onDoubleClick={() => { const n = prompt('Naam van de laag', l.naam); if (n) zetLaag({ naam: n }) }} style={{ flex: 1, fontSize: 12.5, fontWeight: 600, color: 'var(--navy)' }}>{l.naam}</span>
+                        <span onDoubleClick={() => { const n = prompt('Naam van de laag', l.naam); if (n) zetLaag({ naam: n }) }} style={{ flex: 1, fontSize: 12.5, fontWeight: 600, color: 'var(--pg-inkt)' }}>{l.naam}</span>
                         <span style={{ fontSize: 10.5, color: '#a39d8c' }}>{objs.length}</span>
                         <button title="Omhoog" disabled={i === lagen.length - 1} onClick={e => { e.stopPropagation(); setDoc(d => { const ls = [...(d.lagen || [])];[ls[i], ls[i + 1]] = [ls[i + 1], ls[i]]; return { ...d, lagen: ls } }) }} style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 10, opacity: 0.5 }}>▲</button>
                         <button title="Omlaag" disabled={i === 0} onClick={e => { e.stopPropagation(); setDoc(d => { const ls = [...(d.lagen || [])];[ls[i], ls[i - 1]] = [ls[i - 1], ls[i]]; return { ...d, lagen: ls } }) }} style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 10, opacity: 0.5 }}>▼</button>
@@ -1658,7 +1765,7 @@ export default function Plattegrond({ flash, demo }: { flash: (m: string, ms?: n
                       </div>
                       {objs.map(o => (
                         <div key={o.id} onClick={() => { if (selecteerbaar(o)) setSel(metGroep([o.id])); centreerOp(o) }}
-                          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '2px 6px 2px 28px', borderRadius: 6, cursor: 'pointer', background: sel.includes(o.id) ? 'rgba(43,108,176,0.1)' : 'transparent', fontSize: 11.5, color: 'var(--navy)', opacity: o.verborgen ? 0.4 : 1 }}>
+                          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '2px 6px 2px 28px', borderRadius: 6, cursor: 'pointer', background: sel.includes(o.id) ? 'rgba(43,108,176,0.1)' : 'transparent', fontSize: 11.5, color: 'var(--pg-inkt)', opacity: o.verborgen ? 0.4 : 1 }}>
                           <span style={{ width: 8, height: 8, borderRadius: 2, background: kleurVan(o) === 'none' ? '#fff' : kleurVan(o), border: '1px solid rgba(0,0,0,0.1)' }} />
                           {o.nr && <span style={{ fontSize: 9.5, fontWeight: 700, color: '#fff', background: '#010341', borderRadius: 8, padding: '0 4px' }}>{o.nr}</span>}
                           <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{naamVan(o)}{o.groep ? ' ⧉' : ''}</span>
@@ -1671,24 +1778,89 @@ export default function Plattegrond({ flash, demo }: { flash: (m: string, ms?: n
                   <button style={klein} onClick={() => { const n = prompt('Naam van de nieuwe laag', 'Nieuwe laag'); if (!n) return; const id = uid(); setDoc(d => ({ ...d, lagen: [...(d.lagen || STANDAARD_LAGEN), { id, naam: n, zichtbaar: true, vast: false }] })); setActieveLaag(id) }}>+ Nieuwe laag</button>
                   <div style={{ fontSize: 10.5, color: '#a39d8c', marginTop: 8, lineHeight: 1.5 }}>Klik op een laag om erin te tekenen. Dubbelklik om te hernoemen. Vergrendel de laag Locatie als je de zaal klaar hebt.</div>
                 </>}
-                {zijTab === 'lijst' && <>
-                  <div style={{ fontSize: 12, color: '#8b8574', marginBottom: 8 }}>Alles wat op de tekening staat, geteld. Handig voor de bestelling bij de verhuurder.</div>
+                {zijTab === 'locatie' && <>
+                  <div style={{ ...sectie, marginTop: 2 }}>Buitenterrein: zoek het adres</div>
+                  <form onSubmit={e => { e.preventDefault(); zoekOpAdres() }} style={{ display: 'flex', gap: 5 }}>
+                    <input style={mini} placeholder="Straat en plaats, bijv. Tractieweg 41 Utrecht" value={adresQ} onChange={e => setAdresQ(e.target.value)} />
+                    <button type="submit" style={{ ...klein, background: 'var(--pg-inkt)', color: 'var(--pg-papier)', border: '1px solid var(--pg-inkt)' }}>Zoek</button>
+                  </form>
+                  {adressen && adressen.map((a, i) => (
+                    <div key={i} onClick={() => kiesAdres(a)} style={{ padding: '6px 8px', fontSize: 12, color: 'var(--pg-inkt)', cursor: 'pointer', borderBottom: '1px solid #f3eee2' }}>{a.naam} <span style={{ color: '#a39d8c', fontSize: 10.5 }}>{a.soort}</span></div>
+                  ))}
+                  {doc.kaart ? <>
+                    <div style={{ fontSize: 12, color: 'var(--pg-inkt)', marginTop: 10, fontWeight: 600 }}>{doc.kaart.adres}</div>
+                    <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
+                      {([['luchtfoto', 'Luchtfoto'], ['kaart', 'Kaart (BGT)']] as const).map(([k, l]) => (
+                        <button key={k} style={{ ...klein, flex: 1, ...(doc.kaart!.type === k ? { background: 'var(--pg-inkt)', color: 'var(--pg-papier)', border: '1px solid var(--pg-inkt)' } : {}) }} onClick={() => setDoc(d => d.kaart ? { ...d, kaart: { ...d.kaart, type: k, zichtbaar: true } } : d)}>{l}</button>
+                      ))}
+                    </div>
+                    <label style={{ fontSize: 11, color: '#777162', display: 'block', marginTop: 8 }}>Sterkte van de ondergrond
+                      <input type="range" min={0.15} max={1} step={0.05} value={doc.kaart.opacity} onChange={e => setDoc(d => d.kaart ? { ...d, kaart: { ...d.kaart, opacity: parseFloat(e.target.value) } } : d, false)} onPointerUp={() => setOpgeslagen('nee')} style={{ width: '100%' }} /></label>
+                    <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                      <label style={{ fontSize: 11, color: '#777162', display: 'flex', gap: 5, alignItems: 'center', cursor: 'pointer' }}><input type="checkbox" checked={doc.kaart.zichtbaar} onChange={e => setDoc(d => d.kaart ? { ...d, kaart: { ...d.kaart, zichtbaar: e.target.checked } } : d)} /> Tonen</label>
+                      <button style={{ ...klein, border: 'none', color: '#999' }} onClick={() => { if (confirm('Kaartondergrond verwijderen? Je tekening blijft staan.')) setDoc(d => ({ ...d, kaart: null })) }}>Verwijder kaart</button>
+                    </div>
+                    <div style={{ fontSize: 10.5, color: '#a39d8c', marginTop: 6, lineHeight: 1.5 }}>Officiële kaart van de overheid (PDOK). Staat vanzelf op schaal en het noorden is boven. De BGT is de kaart waar de gemeente zelf mee werkt.</div>
+                  </> : <div style={{ fontSize: 11.5, color: '#8b8574', marginTop: 6, lineHeight: 1.5 }}>Je krijgt de luchtfoto of de officiële kaart van het terrein eronder, direct op schaal. Kalibreren hoeft niet.</div>}
+
+                  <div style={sectie}>Binnenlocatie: upload plattegrond locatie</div>
+                  {doc.bg ? <>
+                    <label style={{ fontSize: 11, color: '#777162' }}>Doorzichtigheid
+                      <input type="range" min={0.05} max={1} step={0.05} value={doc.bg.opacity} onChange={e => setDoc(d => d.bg ? { ...d, bg: { ...d.bg, opacity: parseFloat(e.target.value) } } : d, false)} onPointerUp={() => setOpgeslagen('nee')} style={{ width: '100%' }} /></label>
+                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                      <button style={{ ...klein, ...(doc.bg.opSchaal ? {} : { background: '#fff4e0', border: '1px solid #e8c98a', color: '#9a5b00' }) }} onClick={() => setTool('calibrate')}>{doc.bg.opSchaal ? 'Opnieuw op schaal zetten' : 'Op schaal zetten'}</button>
+                      <button style={klein} onClick={() => setDoc(d => d.bg ? { ...d, bg: { ...d.bg, locked: !d.bg.locked } } : d)}>{doc.bg.locked ? 'Ontgrendel' : 'Vergrendel'}</button>
+                      <label style={{ ...klein, cursor: 'pointer' }}>Vervang<input type="file" accept="image/*,application/pdf,.pdf" style={{ display: 'none' }} onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) kiesLocatie(f) }} /></label>
+                      <button style={{ ...klein, color: '#999' }} onClick={() => setDoc(d => ({ ...d, bg: null }))}>Weg</button>
+                    </div>
+                    <div style={{ fontSize: 11, color: '#8b8574', marginTop: 5 }}>{fmt(doc.bg.w)} × {fmt(doc.bg.h)}{doc.bg.opSchaal ? ', op schaal' : ', nog niet op schaal'}</div>
+                    {!doc.kaart && <label style={{ fontSize: 11, color: '#777162', display: 'block', marginTop: 8 }}>Waar is het noorden op deze plattegrond?
+                      <select style={mini} value={meta.noordHoek ?? ''} onChange={e => setDoc(d => ({ ...d, meta: { ...(d.meta || {}), noordHoek: e.target.value === '' ? null : parseFloat(e.target.value) } }))}>
+                        <option value="">Nog niet aangegeven</option>
+                        {[[0, 'Boven'], [45, 'Rechtsboven'], [90, 'Rechts'], [135, 'Rechtsonder'], [180, 'Onder'], [225, 'Linksonder'], [270, 'Links'], [315, 'Linksboven']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                      </select></label>}
+                  </> : <>
+                    <div style={{ fontSize: 11.5, color: '#8b8574', marginBottom: 6, lineHeight: 1.5 }}>PDF, PNG of JPG van de zaal of hal. Hij komt onder je tekening te liggen. Daarna zet je hem op schaal met één maat die je kent.</div>
+                    <label style={{ ...klein, display: 'inline-block', cursor: 'pointer' }}>{uploadBezig ? 'Bezig…' : 'Bestand kiezen'}
+                      <input type="file" accept="image/*,application/pdf,.pdf" style={{ display: 'none' }} onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) kiesLocatie(f) }} /></label>
+                  </>}
+                </>}
+                {zijTab === 'check' && <>
+                  <div style={{ fontSize: 12, color: '#8b8574', marginBottom: 8, lineHeight: 1.5 }}>Dit vragen gemeente, brandweer en GHOR doorgaans bij een vergunningaanvraag. Klik op een regel om te zien waar het om gaat.</div>
+                  {[...checks].sort((a, b) => ['actie', 'tip', 'ok'].indexOf(a.status) - ['actie', 'tip', 'ok'].indexOf(b.status)).map(c => {
+                    const kl = c.status === 'actie' ? '#c53030' : c.status === 'tip' ? '#b7791f' : '#2e6b3a'
+                    return (
+                      <div key={c.id} onClick={() => { if (c.ids?.length) zoomNaar(c.ids); else if (c.naar === 'gegevens') setMetaDlg({ ...meta, evenement: meta.evenement || naam }); else if (c.naar === 'locatie') setZijTab('locatie'); else if (c.naar === 'materialen') { setZijTab('materialen'); setMatZoek('') } }}
+                        style={{ display: 'flex', gap: 8, padding: '8px 8px', borderRadius: 9, cursor: 'pointer', marginBottom: 4, background: c.status === 'actie' ? '#fdf1f0' : c.status === 'tip' ? '#fff9ec' : 'transparent', border: c.status === 'ok' ? '1px solid #eef3ea' : '1px solid transparent' }}>
+                        <span style={{ width: 18, height: 18, borderRadius: 9, flexShrink: 0, background: kl, color: '#fff', fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: 1 }}>{c.status === 'actie' ? '!' : c.status === 'tip' ? 'i' : '✓'}</span>
+                        <span><span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--pg-inkt)', display: 'block' }}>{c.titel}</span><span style={{ fontSize: 11.5, color: '#777162', lineHeight: 1.45, display: 'block' }}>{c.uitleg}</span></span>
+                      </div>
+                    )
+                  })}
+                  <button style={{ ...klein, border: 'none', color: '#a39d8c', paddingLeft: 0 }} onClick={() => setToonNormen(v => !v)}>{toonNormen ? 'Verberg normen' : 'Normen aanpassen (per gemeente verschillend)'}</button>
+                  {toonNormen && <div style={{ display: 'grid', gridTemplateColumns: '1fr 70px', gap: 5, alignItems: 'center', fontSize: 11.5, color: '#777162', marginTop: 4 }}>
+                    {([['calBreedte', 'Calamiteitenroute, breedte in m'], ['uitgangPm', 'Personen per meter uitgang'], ['uitgangMin', 'Nooduitgang minimaal, m'], ['toiletPer', 'Bezoekers per toilet'], ['ehboPer', 'Bezoekers per hulpverlener'], ['blusAfstand', 'Blusser binnen, m'], ['dichtheid', 'Personen per m² publieksruimte']] as const).map(([k, l]) => (
+                      <label key={k} style={{ display: 'contents' }}><span>{l}</span><input style={mini} type="number" step={k === 'uitgangMin' || k === 'calBreedte' || k === 'dichtheid' ? 0.05 : 1} value={normen[k]} onChange={e => { const v = parseFloat(e.target.value); if (v > 0) setDoc(d => ({ ...d, normen: { ...(d.normen || {}), [k]: v } })) }} /></label>
+                    ))}
+                    <span style={{ gridColumn: '1 / -1', fontSize: 10.5, color: '#a39d8c', lineHeight: 1.5 }}>Er is geen landelijke norm. Dit zijn de gangbare vuistregels; sommige gemeentes vragen bijvoorbeeld 4,5 m voor de calamiteitenroute. De gemeente heeft het laatste woord.</span>
+                  </div>}
+                  <div style={sectie}>Materiaallijst</div>
                   {!telling.length && !pakketTelling.length && <div style={{ fontSize: 12, color: '#a39d8c' }}>Nog niets geteld.</div>}
                   {CATEGORIEEN.map(cat => {
                     const items = telling.filter(t => t.mat.cat === cat); if (!items.length) return null
                     return <div key={cat}>
                       <div style={sectie}>{cat}</div>
                       {items.map(t => (
-                        <div key={t.mat.key} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 0', fontSize: 12.5, color: 'var(--navy)', borderBottom: '1px solid #f3eee2' }}>
+                        <div key={t.mat.key} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 0', fontSize: 12.5, color: 'var(--pg-inkt)', borderBottom: '1px solid #f3eee2' }}>
                           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={t.mat.kleur} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" style={{ color: t.mat.kleur }} dangerouslySetInnerHTML={{ __html: t.mat.icoon }} />
                           <span style={{ flex: 1 }}>{t.mat.label}</span>
-                          <span style={{ fontWeight: 700 }}>{t.stuks}×</span>
+                          {t.stuks > 0 && <span style={{ fontWeight: 700 }}>{t.stuks}×</span>}
                           {t.meter > 0 && <span style={{ fontSize: 11, color: '#8b8574', width: 48, textAlign: 'right' }}>{Math.round(t.meter)} m</span>}
                         </div>
                       ))}
                     </div>
                   })}
-                  {pakketTelling.length > 0 && <><div style={sectie}>Partners</div>{pakketTelling.map(p => <div key={p.maat.pakket} style={{ display: 'flex', gap: 6, padding: '3px 0', fontSize: 12.5, color: 'var(--navy)', borderBottom: '1px solid #f3eee2' }}><span style={{ width: 10, height: 10, borderRadius: 2, background: p.maat.kleur, marginTop: 3 }} /><span style={{ flex: 1 }}>{p.maat.label}</span><b>{p.n}×</b></div>)}</>}
+                  {pakketTelling.length > 0 && <><div style={sectie}>{adapter.deelnemerLabel}</div>{pakketTelling.map(p => <div key={p.maat.pakket} style={{ display: 'flex', gap: 6, padding: '3px 0', fontSize: 12.5, color: 'var(--pg-inkt)', borderBottom: '1px solid #f3eee2' }}><span style={{ width: 10, height: 10, borderRadius: 2, background: p.maat.kleur, marginTop: 3 }} /><span style={{ flex: 1 }}>{p.maat.label}</span><b>{p.n}×</b></div>)}</>}
                   {(telling.length > 0 || pakketTelling.length > 0) && <button style={{ ...klein, marginTop: 12 }} onClick={csv}>Download materiaallijst (CSV)</button>}
                 </>}
               </div>
@@ -1700,22 +1872,3 @@ export default function Plattegrond({ flash, demo }: { flash: (m: string, ms?: n
   )
 }
 
-function puntInPoly([x, y]: Pt, poly: Pt[]) {
-  let binnen = false
-  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-    const [xi, yi] = poly[i], [xj, yj] = poly[j]
-    if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) binnen = !binnen
-  }
-  return binnen
-}
-function afstandTotLijn(p: Pt, a: Pt, b: Pt) {
-  const dx = b[0] - a[0], dy = b[1] - a[1], l = dx * dx + dy * dy
-  const t = l ? Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / l)) : 0
-  return Math.hypot(p[0] - a[0] - t * dx, p[1] - a[1] - t * dy)
-}
-// Shift: vastklikken op 0/45/90 graden
-function haaks(a: Pt, b: Pt): Pt {
-  const dx = b[0] - a[0], dy = b[1] - a[1], l = Math.hypot(dx, dy)
-  const hoek = Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) * (Math.PI / 4)
-  return [a[0] + Math.cos(hoek) * l, a[1] + Math.sin(hoek) * l]
-}

@@ -12,10 +12,13 @@ export type Materiaal = {
   h: number
   kleur: string
   icoon: string // SVG-inhoud in een 24x24 viewBox
-  soort?: 'blok' | 'lijn'
+  soort?: 'blok' | 'lijn' | 'route' // lijn = telt stuks, route = band met pijlen
   stuk?: number // lijn: lengte per stuk in meters
   breedte?: number // lijn: dikte van de lijn in meters
   rond?: boolean
+  brand?: boolean   // brandrisico: hier hoort een blusser bij
+  wc?: number       // aantal toiletplekken
+  uitgang?: boolean // telt mee als (nood)uitgang, breedte = lange zijde
 }
 
 const I = {
@@ -63,13 +66,28 @@ const I = {
   zitje: '<path d="M5 11V6a2 2 0 012-2h10a2 2 0 012 2v5"/><path d="M3 11h18v5H3zM5 16v4M19 16v4"/>',
   boom: '<circle cx="12" cy="9" r="6"/><path d="M12 15v7"/>',
   pijl: '<path d="M3 12h16M14 6l6 6-6 6"/>',
+  brandkraan: '<circle cx="12" cy="12" r="9"/><path d="M12 7v10M8 10h8M9 17h6"/>',
+  gas: '<path d="M8 8h8v12a1 1 0 01-1 1H9a1 1 0 01-1-1z"/><path d="M10 8V5h4v3M11 3h2"/><path d="M12 12c1.2 1.4 1.8 2.2 1.8 3.2a1.8 1.8 0 01-3.6 0c0-1 .6-1.8 1.8-3.2z"/>',
+  kraam: '<path d="M3 9l2-5h14l2 5"/><path d="M3 9q2.25 2.5 4.5 0t4.5 0 4.5 0 4.5 0"/><path d="M5 10v10h14V10M5 15h14"/>',
+  vuur: '<path d="M12 3c3 4 6 6 6 11a6 6 0 01-12 0c0-2 1-3.5 2-4.5 0 2 1 3 2 3 0-3 0-6 2-9.5z"/>',
+  tribune: '<path d="M3 20h18M3 20v-4h5v-4h5V8h5V4h3v16"/>',
+  unit: '<rect x="2" y="6" width="20" height="12" rx="1"/><path d="M6 10h4v4H6zM14 10h4v8h-4z"/>',
+  rolstoel: '<circle cx="10" cy="5" r="2"/><path d="M10 7v6h5l3 5"/><path d="M14 16a5 5 0 11-6-6"/>',
+  fiets: '<circle cx="6" cy="16" r="4"/><circle cx="18" cy="16" r="4"/><path d="M6 16l4-8h5l3 8M10 8H8M12 16l3-8"/>',
+  parkeer: '<rect x="3" y="3" width="18" height="18" rx="3"/><path d="M9 17V7h4a3 3 0 010 6H9"/>',
+  verkeer: '<circle cx="12" cy="5" r="2.5"/><path d="M7 21l1-11h8l1 11M4 12l4-2M20 12l-4-2"/>',
+  schrikhek: '<path d="M2 8h20v5H2z"/><path d="M5 13v7M19 13v7M6 8l-3 5M11 8l-3 5M16 8l-3 5M21 8l-3 5"/>',
+  haspel: '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><path d="M12 4v5M12 15v5M4 12h5M15 12h5"/>',
+  noodlicht: '<rect x="3" y="8" width="18" height="8" rx="1"/><path d="M7 12h6M11 10l2 2-2 2M17 10v4"/>',
+  munt: '<circle cx="12" cy="12" r="8"/><path d="M14.5 9.5a3 3 0 100 5M9 11h4M9 13h4"/>',
+  kantoor: '<rect x="3" y="5" width="18" height="14" rx="1"/><path d="M7 9h4M7 12h10M7 15h6"/>',
   mobiel: '<path d="M3 12h4l2-6 3 12 2-6h7"/>',
 }
 
 export const MATERIALEN: Materiaal[] = [
   // Stroom & techniek
-  { key: 'aggregaat', label: 'Aggregaat', cat: 'Stroom & techniek', w: 3, h: 1.2, kleur: '#d69e2e', icoon: I.aggregaat },
-  { key: 'aggregaat_groot', label: 'Aggregaat groot (100 kVA+)', cat: 'Stroom & techniek', w: 4.5, h: 1.6, kleur: '#d69e2e', icoon: I.aggregaat },
+  { brand: true, key: 'aggregaat', label: 'Aggregaat', cat: 'Stroom & techniek', w: 3, h: 1.2, kleur: '#d69e2e', icoon: I.aggregaat },
+  { brand: true, key: 'aggregaat_groot', label: 'Aggregaat groot (100 kVA+)', cat: 'Stroom & techniek', w: 4.5, h: 1.6, kleur: '#d69e2e', icoon: I.aggregaat },
   { key: 'stroom', label: 'Stroomkast', cat: 'Stroom & techniek', w: 1, h: 0.6, kleur: '#d69e2e', icoon: I.stroomkast },
   { key: 'kabelbrug', label: 'Kabelbrug', cat: 'Stroom & techniek', w: 0.9, h: 0.6, kleur: '#b7791f', icoon: I.kabel, soort: 'lijn', stuk: 0.9, breedte: 0.6 },
   { key: 'lichtmast', label: 'Lichtmast', cat: 'Stroom & techniek', w: 1.2, h: 1.2, kleur: '#d69e2e', icoon: I.lichtmast },
@@ -79,20 +97,20 @@ export const MATERIALEN: Materiaal[] = [
   // Afzetting & grond
   { key: 'bouwhek', label: 'Bouwhek', cat: 'Afzetting & grond', w: 3.5, h: 0.2, kleur: '#4a5568', icoon: I.hek, soort: 'lijn', stuk: 3.5, breedte: 0.2 },
   { key: 'dranghek', label: 'Dranghek', cat: 'Afzetting & grond', w: 2.5, h: 0.5, kleur: '#718096', icoon: I.dranghek, soort: 'lijn', stuk: 2.5, breedte: 0.5 },
-  { key: 'hekpoort', label: 'Hekpoort / doorgang', cat: 'Afzetting & grond', w: 3.5, h: 0.3, kleur: '#4a5568', icoon: I.poort },
+  { uitgang: true, key: 'hekpoort', label: 'Hekpoort / doorgang', cat: 'Afzetting & grond', w: 3.5, h: 0.3, kleur: '#4a5568', icoon: I.poort },
   { key: 'rijplaat', label: 'Rijplaten', cat: 'Afzetting & grond', w: 3, h: 2, kleur: '#8b8574', icoon: I.rijplaat, soort: 'lijn', stuk: 3, breedte: 2 },
   { key: 'looppad', label: 'Loopvloer / grondbescherming', cat: 'Afzetting & grond', w: 1, h: 1.2, kleur: '#a39d8c', icoon: I.rijplaat, soort: 'lijn', stuk: 1, breedte: 1.2 },
   // Sanitair
-  { key: 'toilet', label: 'Toiletunit', cat: 'Sanitair', w: 1.2, h: 1.2, kleur: '#2b6cb0', icoon: I.toilet },
-  { key: 'toiletwagen', label: 'Toiletwagen', cat: 'Sanitair', w: 6, h: 2.5, kleur: '#2b6cb0', icoon: I.toiletwagen },
-  { key: 'urinoir', label: 'Urinoir (4 pers.)', cat: 'Sanitair', w: 1.5, h: 1.5, kleur: '#2b6cb0', icoon: I.urinoir },
+  { wc: 1, key: 'toilet', label: 'Toiletunit', cat: 'Sanitair', w: 1.2, h: 1.2, kleur: '#2b6cb0', icoon: I.toilet },
+  { wc: 8, key: 'toiletwagen', label: 'Toiletwagen', cat: 'Sanitair', w: 6, h: 2.5, kleur: '#2b6cb0', icoon: I.toiletwagen },
+  { wc: 4, key: 'urinoir', label: 'Urinoir (4 pers.)', cat: 'Sanitair', w: 1.5, h: 1.5, kleur: '#2b6cb0', icoon: I.urinoir },
   { key: 'handen', label: 'Handenwasunit', cat: 'Sanitair', w: 1, h: 1, kleur: '#2b6cb0', icoon: I.handen },
   { key: 'water', label: 'Waterpunt', cat: 'Sanitair', w: 1, h: 1, kleur: '#2b6cb0', icoon: I.water },
   // Veiligheid
   { key: 'blusser', label: 'Brandblusser', cat: 'Veiligheid', w: 0.6, h: 0.6, kleur: '#c53030', icoon: I.blusser },
   { key: 'ehbo', label: 'EHBO-post', cat: 'Veiligheid', w: 3, h: 3, kleur: '#c53030', icoon: I.ehbo },
   { key: 'aed', label: 'AED', cat: 'Veiligheid', w: 0.6, h: 0.6, kleur: '#2e8b3a', icoon: I.aed },
-  { key: 'nooduitgang', label: 'Nooduitgang', cat: 'Veiligheid', w: 2, h: 0.6, kleur: '#2e8b3a', icoon: I.nooduitgang },
+  { uitgang: true, key: 'nooduitgang', label: 'Nooduitgang', cat: 'Veiligheid', w: 2, h: 0.6, kleur: '#2e8b3a', icoon: I.nooduitgang },
   { key: 'verzamel', label: 'Verzamelplaats', cat: 'Veiligheid', w: 4, h: 4, kleur: '#2e8b3a', icoon: I.verzamel },
   { key: 'beveiliging', label: 'Beveiligingspost', cat: 'Veiligheid', w: 2, h: 2, kleur: '#2d3748', icoon: I.beveiliging },
   { key: 'looproute', label: 'Looproute / vluchtrichting', cat: 'Veiligheid', w: 3, h: 1, kleur: '#2e8b3a', icoon: I.pijl },
@@ -115,7 +133,7 @@ export const MATERIALEN: Materiaal[] = [
   { key: 'afval', label: 'Afvalbak', cat: 'Horeca & meubilair', w: 0.6, h: 0.6, kleur: '#777162', icoon: I.afval },
   { key: 'container', label: 'Afvalcontainer', cat: 'Horeca & meubilair', w: 2, h: 1.5, kleur: '#777162', icoon: I.container },
   // Publiek & organisatie
-  { key: 'ingang', label: 'Ingang', cat: 'Publiek & organisatie', w: 6, h: 1, kleur: '#010341', icoon: I.ingang },
+  { uitgang: true, key: 'ingang', label: 'Ingang', cat: 'Publiek & organisatie', w: 6, h: 1, kleur: '#010341', icoon: I.ingang },
   { key: 'kassa', label: 'Kassa / scan', cat: 'Publiek & organisatie', w: 4, h: 1.5, kleur: '#010341', icoon: I.kassa },
   { key: 'garderobe', label: 'Garderobe / lockers', cat: 'Publiek & organisatie', w: 6, h: 2, kleur: '#5b6b8c', icoon: I.garderobe },
   { key: 'glasbar', label: 'Glasbar', cat: 'Publiek & organisatie', w: 3, h: 2, kleur: '#5b6b8c', icoon: I.bar },
@@ -127,8 +145,33 @@ export const MATERIALEN: Materiaal[] = [
   { key: 'mobiel', label: 'Stroompunt mobiel', cat: 'Stroom & techniek', w: 0.6, h: 0.6, kleur: '#d69e2e', icoon: I.mobiel },
 ]
 
+MATERIALEN.push(
+  // Routes: teken je als lijn, de band laat zien hoeveel ruimte vrij moet blijven
+  { key: 'calamiteitenroute', label: 'Calamiteitenroute', cat: 'Veiligheid', w: 3.5, h: 3.5, kleur: '#e02424', icoon: I.pijl, soort: 'route', breedte: 3.5 },
+  { key: 'vluchtroute', label: 'Vluchtroute publiek', cat: 'Veiligheid', w: 1.2, h: 1.2, kleur: '#2e8b3a', icoon: I.pijl, soort: 'route', breedte: 1.2 },
+  { key: 'leverroute', label: 'Aan- en afvoerroute', cat: 'Veiligheid', w: 3, h: 3, kleur: '#dd6b20', icoon: I.pijl, soort: 'route', breedte: 3 },
+  { key: 'brandkraan', label: 'Brandkraan', cat: 'Veiligheid', w: 0.8, h: 0.8, kleur: '#c53030', icoon: I.brandkraan, rond: true },
+  { key: 'haspel', label: 'Brandslanghaspel', cat: 'Veiligheid', w: 0.6, h: 0.6, kleur: '#c53030', icoon: I.haspel },
+  { key: 'noodverlichting', label: 'Noodverlichting / transparant', cat: 'Veiligheid', w: 0.6, h: 0.3, kleur: '#2e8b3a', icoon: I.noodlicht },
+  { key: 'gasflessen', label: 'Gasflessen', cat: 'Veiligheid', w: 1, h: 1, kleur: '#dd6b20', icoon: I.gas, brand: true },
+  { key: 'verkeersregelaar', label: 'Verkeersregelaar', cat: 'Veiligheid', w: 0.8, h: 0.8, kleur: '#dd6b20', icoon: I.verkeer, rond: true },
+  { key: 'schrikhek', label: 'Wegafzetting (schrikhek)', cat: 'Afzetting & grond', w: 2, h: 0.4, kleur: '#c53030', icoon: I.schrikhek, soort: 'lijn', stuk: 2, breedte: 0.4 },
+  { key: 'bakkraam', label: 'Bak- en braadkraam', cat: 'Horeca & meubilair', w: 4, h: 3, kleur: '#2e6b3a', icoon: I.vuur, brand: true },
+  { key: 'marktkraam', label: 'Marktkraam', cat: 'Horeca & meubilair', w: 4, h: 1.2, kleur: '#8b8574', icoon: I.kraam },
+  { key: 'munten', label: 'Munt- of tokenverkoop', cat: 'Publiek & organisatie', w: 3, h: 2, kleur: '#010341', icoon: I.munt },
+  { key: 'tribune', label: 'Tribune', cat: 'Publiek & organisatie', w: 10, h: 5, kleur: '#3a2a52', icoon: I.tribune },
+  { key: 'foh', label: 'FOH / regie', cat: 'Stroom & techniek', w: 3, h: 3, kleur: '#3a2a52', icoon: I.dj },
+  { key: 'productie', label: 'Productiekantoor (unit)', cat: 'Publiek & organisatie', w: 6, h: 3, kleur: '#4a5568', icoon: I.kantoor },
+  { key: 'zeecontainer', label: 'Zeecontainer 20 ft', cat: 'Publiek & organisatie', w: 6.06, h: 2.44, kleur: '#4a5568', icoon: I.unit },
+  { key: 'backstage', label: 'Backstage / crew', cat: 'Publiek & organisatie', w: 8, h: 6, kleur: '#4a5568', icoon: I.zitje },
+  { key: 'mivatoilet', label: 'Toilet mindervaliden', cat: 'Sanitair', w: 2.2, h: 2.2, kleur: '#2b6cb0', icoon: I.rolstoel, wc: 1 },
+  { key: 'rolstoelplatform', label: 'Rolstoelplatform', cat: 'Publiek & organisatie', w: 4, h: 3, kleur: '#2b6cb0', icoon: I.rolstoel },
+  { key: 'fietsen', label: 'Fietsenstalling', cat: 'Publiek & organisatie', w: 10, h: 4, kleur: '#5b6b8c', icoon: I.fiets },
+  { key: 'parkeren', label: 'Parkeren', cat: 'Publiek & organisatie', w: 10, h: 5, kleur: '#2b6cb0', icoon: I.parkeer },
+)
+export const isLijn = (m?: Materiaal) => m?.soort === 'lijn' || m?.soort === 'route'
 export const MATERIAAL: Record<string, Materiaal> = Object.fromEntries(MATERIALEN.map(m => [m.key, m]))
-export const CATEGORIEEN = [...new Set(MATERIALEN.map(m => m.cat))]
+export const CATEGORIEEN = ['Veiligheid', 'Afzetting & grond', 'Sanitair', 'Stroom & techniek', 'Tenten', 'Horeca & meubilair', 'Publiek & organisatie']
 
 // Oude 'voorziening'-objecten uit de eerste versie zetten we om naar materialen
 export const OUDE_VOORZIENING: Record<string, string> = {
