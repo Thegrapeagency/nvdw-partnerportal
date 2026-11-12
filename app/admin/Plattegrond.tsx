@@ -871,7 +871,7 @@ export default function Plattegrond({ flash, demo }: { flash: (m: string, ms?: n
         src = supabase.storage.from('plattegronden').getPublicUrl(pad).data.publicUrl
       }
       const w = 60, h = (60 * img.height) / img.width
-      setDoc(d => ({ ...d, bg: { src, x: 0, y: 0, w, h, opacity: 0.5, locked: false } }))
+      setDoc(d => ({ ...d, bg: { src, x: 0, y: 0, w, h, opacity: 1, locked: false } }))
       if (!(await opslaan())) return
       setTimeout(passend, 50)
       flash('Plattegrond van de locatie geplaatst. Zet hem nu op schaal: trek een lijn over een maat die je kent.', 7000)
