@@ -209,16 +209,29 @@ export default function Plattegrond({ flash, demo }: { flash: (m: string, ms?: n
     if (l[0]) open(l[0].id)
   }
 
-  // autosave
+  // opslaan; wijzigingen die binnenkomen tijdens het opslaan blijven op 'nee' staan
+  const naamRef = useRef(naam); naamRef.current = naam
+  const opslaan = useCallback(async (): Promise<boolean> => {
+    if (!huidigId || demo) return true
+    const snap = docRef.current
+    setOpgeslagen('bezig')
+    const { error } = await supabase.from('plattegronden').update({ data: snap, naam: naamRef.current, updated_at: new Date().toISOString() }).eq('id', huidigId)
+    if (error) { setOpgeslagen('nee'); flash('Opslaan mislukt: ' + error.message, 8000); return false }
+    setOpgeslagen(docRef.current === snap ? 'ja' : 'nee')
+    return true
+  }, [huidigId, demo, flash])
+  // autosave, ook als er (onbedoeld) nog een sleepactie open staat
   useEffect(() => {
-    if (!huidigId || opgeslagen !== 'nee' || demo || drag.current) return
-    const t = setTimeout(async () => {
-      setOpgeslagen('bezig')
-      const { error } = await supabase.from('plattegronden').update({ data: docRef.current, naam, updated_at: new Date().toISOString() }).eq('id', huidigId)
-      if (error) { setOpgeslagen('nee'); flash('Opslaan mislukt: ' + error.message) } else setOpgeslagen('ja')
-    }, 1200)
+    if (!huidigId || opgeslagen !== 'nee' || demo) return
+    const t = setTimeout(() => { opslaan() }, 1200)
     return () => clearTimeout(t)
-  }, [doc, naam, huidigId, opgeslagen, flash, demo])
+  }, [doc, naam, huidigId, opgeslagen, demo, opslaan])
+  // niet weggaan met onopgeslagen werk
+  useEffect(() => {
+    const f = (e: BeforeUnloadEvent) => { if (opgeslagen !== 'ja') { e.preventDefault(); e.returnValue = '' } }
+    window.addEventListener('beforeunload', f)
+    return () => window.removeEventListener('beforeunload', f)
+  }, [opgeslagen])
 
   // ---- partnerafmetingen ----
   const maatVan = useCallback((p: PartnerRij) => {
@@ -468,6 +481,7 @@ export default function Plattegrond({ flash, demo }: { flash: (m: string, ms?: n
       if (cmd) {
         const actie: Record<string, () => void> = {
           z: () => e.shiftKey ? redo() : undo(),
+          s: () => { opslaan().then(ok => ok && flash('Opgeslagen')) },
           y: redo,
           d: nogmaals,
           g: () => e.shiftKey ? degroepeer() : groepeer(),
@@ -858,6 +872,7 @@ export default function Plattegrond({ flash, demo }: { flash: (m: string, ms?: n
       }
       const w = 60, h = (60 * img.height) / img.width
       setDoc(d => ({ ...d, bg: { src, x: 0, y: 0, w, h, opacity: 0.5, locked: false } }))
+      if (!(await opslaan())) return
       setTimeout(passend, 50)
       flash('Plattegrond van de locatie geplaatst. Zet hem nu op schaal: trek een lijn over een maat die je kent.', 7000)
       setTool('calibrate')
@@ -1310,7 +1325,9 @@ export default function Plattegrond({ flash, demo }: { flash: (m: string, ms?: n
             <button style={klein} onClick={() => exporteer('png')}>PNG</button>
             <button style={{ ...klein, color: '#999', borderColor: '#ddd' }} onClick={verwijderPlattegrond}>Verwijder</button>
           </>}
-          <span style={{ fontSize: 11.5, color: opgeslagen === 'ja' ? '#2e6b3a' : '#9a5b00', minWidth: 78 }}>{opgeslagen === 'ja' ? '✓ Opgeslagen' : opgeslagen === 'bezig' ? 'Opslaan…' : 'Wijzigingen…'}</span>
+          {opgeslagen === 'ja'
+            ? <span style={{ fontSize: 11.5, color: '#2e6b3a', minWidth: 78 }}>✓ Opgeslagen</span>
+            : <button style={{ ...klein, color: '#9a5b00', borderColor: '#e8c98a' }} onClick={() => opslaan()} title="⌘S">{opgeslagen === 'bezig' ? 'Opslaan…' : 'Opslaan'}</button>}
         </div>
       </div>
 
