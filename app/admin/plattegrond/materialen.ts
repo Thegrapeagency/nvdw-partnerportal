@@ -38,7 +38,7 @@ const I = {
   blusser: '<path d="M9 8h6v12a1 1 0 01-1 1h-4a1 1 0 01-1-1z"/><path d="M10 8V5h4v3"/><path d="M14 5h3l2 2"/><path d="M9 12h6"/>',
   ehbo: '<rect x="3" y="3" width="18" height="18" rx="3"/><path d="M10 7h4v3h3v4h-3v3h-4v-3H7v-4h3z" fill="currentColor" stroke="none"/>',
   aed: '<path d="M12 20s-8-4.5-8-10a4.5 4.5 0 018-2.8A4.5 4.5 0 0120 10c0 5.5-8 10-8 10z"/><path d="M13 8l-2.5 4h3L11 16"/>',
-  nooduitgang: '<rect x="3" y="4" width="8" height="16"/><path d="M14 12h7M18 8.5l3.5 3.5-3.5 3.5"/>',
+  nooduitgang: '<circle cx="8" cy="5" r="1.8" fill="currentColor"/><path d="M4 11l3-3 3 1 2 3M7 8l-1 6 3 3v4M6 14l-3 2"/><path d="M14 12h8M19 9l3 3-3 3"/>',
   verzamel: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/><path d="M7 7l3 3M17 7l-3 3M7 17l3-3M17 17l-3-3"/>',
   beveiliging: '<path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/>',
   tent: '<path d="M2 20L12 4l10 16z"/><path d="M12 4v16M8 20l4-6 4 6"/>',
@@ -169,7 +169,57 @@ MATERIALEN.push(
   { key: 'fietsen', label: 'Fietsenstalling', cat: 'Publiek & organisatie', w: 10, h: 4, kleur: '#5b6b8c', icoon: I.fiets },
   { key: 'parkeren', label: 'Parkeren', cat: 'Publiek & organisatie', w: 10, h: 5, kleur: '#2b6cb0', icoon: I.parkeer },
 )
+// ---- Tekenstijl zoals in de evenementenbranche ----
+// 'bord'  = veiligheidspictogram: gekleurd vlak met wit symbool (ISO 7010:
+//           rood = brand, groen = vluchten en eerste hulp, blauw = voorziening)
+// 'vorm'  = bovenaanzicht van het object: volle kleur, donkere rand, korte tekst erin
+export type Stijl = { s: 'bord' | 'vorm'; vul: string; tekst?: string; patroon?: 'kruis' | 'strepen'; icoon?: boolean }
+const ROOD = '#d9221c', GROEN = '#00843d', BLAUW = '#0b5cad'
+const STIJL: Record<string, Stijl> = {
+  blusser: { s: 'bord', vul: ROOD }, haspel: { s: 'bord', vul: ROOD }, brandkraan: { s: 'bord', vul: ROOD },
+  nooduitgang: { s: 'vorm', vul: GROEN, icoon: true }, aed: { s: 'bord', vul: GROEN }, verzamel: { s: 'bord', vul: GROEN }, noodverlichting: { s: 'bord', vul: GROEN },
+  water: { s: 'bord', vul: BLAUW }, handen: { s: 'bord', vul: BLAUW }, verkeersregelaar: { s: 'bord', vul: '#e67700' }, gasflessen: { s: 'bord', vul: '#e67700' },
+  camera: { s: 'bord', vul: '#333333' }, mobiel: { s: 'bord', vul: '#e6a700' }, stroom: { s: 'bord', vul: '#e6a700' }, looproute: { s: 'bord', vul: GROEN },
+  ehbo: { s: 'vorm', vul: GROEN, tekst: 'EHBO' },
+  aggregaat: { s: 'vorm', vul: ROOD, tekst: 'AGG', icoon: true }, aggregaat_groot: { s: 'vorm', vul: ROOD, tekst: 'AGG', icoon: true },
+  toilet: { s: 'vorm', vul: '#1f9e8f', tekst: 'WC' }, toiletwagen: { s: 'vorm', vul: '#1f9e8f', tekst: 'WC' }, urinoir: { s: 'vorm', vul: '#1f9e8f', tekst: 'URI' }, mivatoilet: { s: 'vorm', vul: BLAUW, tekst: 'MIVA' },
+  tent3: { s: 'vorm', vul: '#e4e4e4', patroon: 'kruis' }, tent3x6: { s: 'vorm', vul: '#e4e4e4', patroon: 'kruis' }, tent5: { s: 'vorm', vul: '#e4e4e4', patroon: 'kruis' },
+  tent6x12: { s: 'vorm', vul: '#e4e4e4', patroon: 'kruis', tekst: 'TENT' }, tent10x20: { s: 'vorm', vul: '#e4e4e4', patroon: 'kruis', tekst: 'TENT' }, stretchtent: { s: 'vorm', vul: '#efe6d2', tekst: 'STRETCHTENT' },
+  bar: { s: 'vorm', vul: '#c4c4c4', tekst: 'BAR' }, glasbar: { s: 'vorm', vul: '#c4c4c4', tekst: 'GLAS' }, bakkraam: { s: 'vorm', vul: '#f48fb1', tekst: 'FOOD' },
+  buffet: { s: 'vorm', vul: '#a0703f' }, marktkraam: { s: 'vorm', vul: '#7b3f2a', patroon: 'strepen' }, statafel: { s: 'vorm', vul: '#a0703f' }, picknick: { s: 'vorm', vul: '#c9a24b', patroon: 'strepen' }, lounge: { s: 'vorm', vul: '#b08968' },
+  koeling: { s: 'vorm', vul: '#2f6db5', tekst: 'KOEL' }, zeecontainer: { s: 'vorm', vul: '#1f4e8c', tekst: 'CONT' }, container: { s: 'vorm', vul: '#5a5a5a', tekst: 'AFVAL' }, afval: { s: 'vorm', vul: '#5a5a5a' },
+  productie: { s: 'vorm', vul: '#8a9a5b', tekst: 'OFFICE' }, backstage: { s: 'vorm', vul: '#c5cfa5', tekst: 'CREW' },
+  podium: { s: 'vorm', vul: '#f4511e', tekst: 'PODIUM' }, foh: { s: 'vorm', vul: '#f4511e', tekst: 'FOH' }, dj: { s: 'vorm', vul: '#f4511e', tekst: 'DJ' }, speaker: { s: 'vorm', vul: '#333333' },
+  tribune: { s: 'vorm', vul: '#cfcfcf', patroon: 'strepen', tekst: 'TRIBUNE' },
+  ingang: { s: 'vorm', vul: GROEN, tekst: 'INGANG' }, hekpoort: { s: 'vorm', vul: '#ffffff', tekst: 'POORT' }, kassa: { s: 'vorm', vul: '#5e35b1', tekst: 'KASSA' }, munten: { s: 'vorm', vul: '#5e35b1', tekst: 'MUNTEN' },
+  garderobe: { s: 'vorm', vul: '#5b6b8c', tekst: 'GARDEROBE' }, terras: { s: 'vorm', vul: '#ead9b0', tekst: 'TERRAS' }, fietsen: { s: 'vorm', vul: '#bcd4f0', tekst: 'FIETSEN' }, parkeren: { s: 'vorm', vul: '#bcd4f0', tekst: 'P' },
+  rolstoelplatform: { s: 'vorm', vul: BLAUW, tekst: 'MIVA' }, lichtmast: { s: 'vorm', vul: '#fbf3c4', icoon: true }, parasol: { s: 'vorm', vul: '#f3e3b0' }, heater: { s: 'vorm', vul: '#f08c2e' }, boom: { s: 'vorm', vul: '#9ccc65' },
+  bord: { s: 'vorm', vul: '#0b5cad' }, vlag: { s: 'vorm', vul: '#0b5cad' },
+}
+export const stijlVan = (m?: Materiaal): Stijl => (m && STIJL[m.key]) || { s: 'vorm', vul: m?.kleur || '#999999' }
+// Kleur van lijnmaterialen zoals op een eventplot
+export const LIJNKLEUR: Record<string, string> = { bouwhek: '#111111', dranghek: '#e8730c', schrikhek: '#d9221c', kabelbrug: '#f2c200', rijplaat: '#b3b3b3', looppad: '#cfc3a4' }
+export const leesbaarOp = (hex: string) => { const h = hex.replace('#', ''); const r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16); return (r * 299 + g * 587 + b * 114) / 1000 > 150 ? '#111111' : '#ffffff' }
+// Symbool van een materiaal als SVG-inhoud in een vak van 24 x 24 (voor legenda en lijst)
+export function symboolSvg(m: Materiaal): string {
+  if (m.soort === 'route') return `<rect x="1" y="7" width="22" height="10" fill="${m.kleur}" fill-opacity="0.22"/><path d="M3 12h15M14 8l5 4-5 4" fill="none" stroke="${m.kleur}" stroke-width="2"/>`
+  if (m.soort === 'lijn') {
+    const k = LIJNKLEUR[m.key] || m.kleur
+    if (m.key === 'bouwhek') return `<path d="M1 12h22" stroke="${k}" stroke-width="1.6"/><rect x="0" y="10" width="4" height="4" fill="#555"/><rect x="10" y="10" width="4" height="4" fill="#555"/><rect x="20" y="10" width="4" height="4" fill="#555"/>`
+    if (m.key === 'dranghek' || m.key === 'schrikhek') return `<path d="M2 12h20M2 8v8M12 8v8M22 8v8" stroke="${k}" stroke-width="1.8" fill="none"/>`
+    if (m.key === 'kabelbrug') return `<rect x="1" y="8" width="22" height="8" fill="${k}" stroke="#111" stroke-width="0.8"/><path d="M6 8v8M12 8v8M18 8v8" stroke="#111" stroke-width="1.6"/>`
+    return `<rect x="1" y="6" width="22" height="12" fill="${k}" stroke="#555" stroke-width="0.8"/><path d="M8.3 6v12M15.6 6v12" stroke="#555" stroke-width="0.8"/>`
+  }
+  const st = stijlVan(m), tk = leesbaarOp(st.vul)
+  if (st.s === 'bord') return `<rect x="1" y="1" width="22" height="22" rx="2.5" fill="${st.vul}"/><g transform="translate(3.6 3.6) scale(0.7)" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="color:#fff">${m.icoon}</g>`
+  const vorm = m.rond ? `<circle cx="12" cy="12" r="10" fill="${st.vul}" stroke="#222" stroke-width="1"/>` : `<rect x="1" y="4" width="22" height="16" fill="${st.vul}" stroke="#222" stroke-width="1"/>`
+  const pat = st.patroon === 'kruis' ? `<path d="M1 4l22 16M23 4L1 20" stroke="#888" stroke-width="0.8"/>` : st.patroon === 'strepen' ? `<path d="M6 4v16M12 4v16M18 4v16" stroke="#222" stroke-opacity="0.4" stroke-width="0.8"/>` : ''
+  const tx = st.tekst && st.tekst.length <= 4 ? `<text x="12" y="${m.rond ? 14.6 : 14.8}" font-size="${st.tekst.length > 3 ? 6.2 : 7.5}" font-weight="700" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" fill="${tk}" stroke="none">${st.tekst}</text>` : ''
+  return vorm + pat + tx
+}
+
 export const isLijn = (m?: Materiaal) => m?.soort === 'lijn' || m?.soort === 'route'
+for (const m of MATERIALEN) if (STIJL[m.key]?.s === 'bord') { m.w = 1.5; m.h = 1.5; m.rond = false }
 export const MATERIAAL: Record<string, Materiaal> = Object.fromEntries(MATERIALEN.map(m => [m.key, m]))
 export const CATEGORIEEN = ['Veiligheid', 'Afzetting & grond', 'Sanitair', 'Stroom & techniek', 'Tenten', 'Horeca & meubilair', 'Publiek & organisatie']
 

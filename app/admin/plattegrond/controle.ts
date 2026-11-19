@@ -4,7 +4,7 @@
 // passen (doc.normen). De gemeente heeft altijd het laatste woord.
 import type { Doc, Obj, PartnerRij } from './types'
 import { STANDAARD_NORMEN } from './types'
-import { MATERIAAL } from './materialen'
+import { MATERIAAL, stijlVan } from './materialen'
 import { hoeken, overlapt, lengte, oppervlak, afstandSegPoly, middenVan, fmt, r2 } from './geo'
 
 export type Check = { id: string; status: 'ok' | 'actie' | 'tip'; titel: string; uitleg: string; ids?: string[]; naar?: 'gegevens' | 'locatie' | 'materialen' | 'normen' }
@@ -47,7 +47,7 @@ export function controleer(doc: Doc, partnerById: Record<string, PartnerRij>): C
       const half = (r.dik ?? MATERIAAL.calamiteitenroute.breedte!) / 2
       for (const o of objs) {
         if (!(o.kind === 'partner' || o.kind === 'materiaal' || (o.kind === 'hek' && MATERIAAL[o.mat || '']?.soort === 'lijn'))) continue
-        if (o.kind === 'materiaal' && (OMHULLEND.has(o.mat || '') || MATERIAAL[o.mat || '']?.uitgang)) continue
+        if (o.kind === 'materiaal' && (OMHULLEND.has(o.mat || '') || MATERIAAL[o.mat || '']?.uitgang || stijlVan(MATERIAAL[o.mat || '']).s === 'bord')) continue
         const poly = hoeken(o), pts = r.pts || []
         for (let i = 1; i < pts.length; i++) {
           const d = o.kind === 'hek'
@@ -105,7 +105,7 @@ export function controleer(doc: Doc, partnerById: Record<string, PartnerRij>): C
   else if (!blussers.length) uit.push({ id: 'blusser', status: 'tip', titel: 'Blusmiddelen intekenen', uitleg: 'Teken in waar brandblussers staan. De brandweer wil ze op de tekening zien.', naar: 'materialen' })
 
   // 9. overlap
-  const blokken = objs.filter(o => (o.kind === 'partner' || o.kind === 'materiaal') && !OMHULLEND.has(o.mat || ''))
+  const blokken = objs.filter(o => (o.kind === 'partner' || o.kind === 'materiaal') && !OMHULLEND.has(o.mat || '') && !(o.kind === 'materiaal' && stijlVan(MATERIAAL[o.mat || '']).s === 'bord'))
   const ov = new Set<string>()
   for (let i = 0; i < blokken.length; i++) for (let j = i + 1; j < blokken.length; j++) if (overlapt(hoeken(blokken[i]), hoeken(blokken[j]))) { ov.add(blokken[i].id); ov.add(blokken[j].id) }
   if (ov.size) uit.push({ id: 'overlap', status: 'actie', titel: `${ov.size} objecten staan over elkaar`, uitleg: 'Twee dingen kunnen niet op dezelfde plek staan. Klik om ze te zien.', ids: [...ov] })

@@ -3,7 +3,7 @@
 // technisch tekenaar een situatietekening aan bij gemeente en leveranciers.
 import type { Meta } from './types'
 import type { Materiaal } from './materialen'
-import { isLijn } from './materialen'
+import { symboolSvg } from './materialen'
 
 export const PAPIER: Record<string, [number, number]> = { A4: [297, 210], A3: [420, 297], A2: [594, 420], A1: [841, 594], A0: [1189, 841] }
 export const SCHALEN = [50, 100, 150, 200, 250, 300, 400, 500, 750, 1000, 1250, 1500, 2000, 2500, 5000, 10000]
@@ -19,7 +19,7 @@ export type LegendaData = {
 export type BladInvoer = {
   inhoud: (g: Gebied, pxPerM: number) => Promise<string>
   bbox: Gebied
-  papier: string; schaal: number | 'auto'; titel: string
+  papier: string; schaal: number | 'auto'; titel: string; vakken?: boolean
   meta: Meta; merk: string; noordHoek: number; bron: string
   legenda: LegendaData
 }
@@ -42,6 +42,27 @@ export async function maakBlad(inv: BladInvoer) {
   const g: Gebied = { x1: cx - vw / 2, y1: cy - vh / 2, x2: cx + vw / 2, y2: cy + vh / 2 }
   const dpi = DPI[inv.papier]
   const inhoud = await inv.inhoud(g, (1000 / N) * (dpi / 25.4))
+
+  // ---- vakkenraster ----
+  let raster = ''
+  if (inv.vakken) {
+    const stap = [5, 10, 20, 25, 50, 100, 200, 500].find(v => vw / v <= 22) || 500
+    const mm = 1000 / N, fz = Math.max(2.2, Math.min(4, stap * mm * 0.22))
+    const x0 = Math.ceil(g.x1 / stap) * stap, y0 = Math.ceil(g.y1 / stap) * stap
+    const letter = (i: number) => (i >= 26 ? String.fromCharCode(64 + Math.floor(i / 26)) : '') + String.fromCharCode(65 + (i % 26))
+    const xs: number[] = [], ys: number[] = []
+    for (let x = x0; x < g.x2; x += stap) xs.push(ax + (x - g.x1) * mm)
+    for (let y = y0; y < g.y2; y += stap) ys.push(ay + (y - g.y1) * mm)
+    for (const x of xs) raster += `<line x1="${x}" x2="${x}" y1="${ay}" y2="${ay + ah}" stroke="#444" stroke-opacity="0.45" stroke-width="0.15" stroke-dasharray="1.5 1"/>`
+    for (const y of ys) raster += `<line y1="${y}" y2="${y}" x1="${ax}" x2="${ax + aw}" stroke="#444" stroke-opacity="0.45" stroke-width="0.15" stroke-dasharray="1.5 1"/>`
+    const kx0 = [ax, ...xs, ax + aw], ky0 = [ay, ...ys, ay + ah]
+    for (let i = 0; i < kx0.length - 1; i++) { const w = kx0[i + 1] - kx0[i]; if (w < fz * 1.6) continue; const cxm = i === 0 ? Math.max(kx0[i] + w / 2, ax + fz * 3) : kx0[i] + w / 2
+      raster += `<rect x="${cxm - fz}" y="${ay}" width="${fz * 2}" height="${fz * 1.5}" fill="#fff" fill-opacity="0.85"/><text x="${cxm}" y="${ay + fz * 1.1}" font-size="${fz}" font-weight="700" text-anchor="middle">${i + 1}</text>` }
+    for (let j = 0; j < ky0.length - 1; j++) { const h = ky0[j + 1] - ky0[j]; if (h < fz * 1.6) continue; const cym = ky0[j] + h / 2
+      raster += `<rect x="${ax}" y="${cym - fz * 0.8}" width="${fz * 1.7}" height="${fz * 1.6}" fill="#fff" fill-opacity="0.85"/><text x="${ax + fz * 0.85}" y="${cym + fz * 0.36}" font-size="${fz}" font-weight="700" text-anchor="middle">${letter(j)}</text>` }
+    for (let i = 0; i < kx0.length - 1; i++) for (let j = 0; j < ky0.length - 1; j++) { const w = kx0[i + 1] - kx0[i], h = ky0[j + 1] - ky0[j]; if (w < fz * 4 || h < fz * 3) continue
+      raster += `<text x="${kx0[i] + w / 2}" y="${ky0[j] + h / 2 + fz * 0.5}" font-size="${fz * 1.5}" font-weight="700" text-anchor="middle" fill="#666" fill-opacity="0.22">${letter(j)}${i + 1}</text>` }
+  }
 
   // ---- kolom rechts ----
   const kx = W - M - K, f0 = K / 27
@@ -84,7 +105,7 @@ export async function maakBlad(inv: BladInvoer) {
   const kolommen = L.nummers.length > 24 ? 2 : 1
   const nrRijen = L.nummers.length ? Math.ceil(L.nummers.length / kolommen) + 1.3 : 0
   const ruimte = ny - 3 - M
-  const f = Math.min(f0, (ruimte - f0 * 3) / ((rijen + nrRijen) * 1.75))
+  const f = Math.min(f0, (ruimte - f0 * 6.5) / ((rijen + nrRijen + 1) * 1.75))
   const rij = f * 1.75, pad = f0
   let l = `<rect x="${kx}" y="${M}" width="${K}" height="${ruimte}" fill="#fff" stroke="#111" stroke-width="0.35"/>`
   l += `<text x="${kx + pad}" y="${M + f0 * 2}" font-size="${f0 * 1.3}" font-weight="700">Legenda</text>`
@@ -99,9 +120,7 @@ export async function maakBlad(inv: BladInvoer) {
     kop('Voorzieningen en materiaal')
     for (const s of L.symbolen) {
       const mt = s.mat
-      if (mt.soort === 'route') l += `<rect x="${kx + pad}" y="${y + f * 0.1}" width="${f * 1.5}" height="${f * 0.9}" fill="${mt.kleur}" fill-opacity="0.25"/><line x1="${kx + pad}" x2="${kx + pad + f * 1.5}" y1="${y + f * 0.55}" y2="${y + f * 0.55}" stroke="${mt.kleur}" stroke-width="${f * 0.12}" stroke-dasharray="${f * 0.3} ${f * 0.2}"/>`
-      else if (isLijn(mt)) l += `<line x1="${kx + pad}" x2="${kx + pad + f * 1.5}" y1="${y + f * 0.55}" y2="${y + f * 0.55}" stroke="${mt.kleur}" stroke-width="${f * 0.3}"/>`
-      else l += `<rect x="${kx + pad}" y="${y - f * 0.15}" width="${f * 1.5}" height="${f * 1.4}" rx="${f * 0.15}" fill="${mt.kleur}" fill-opacity="0.14" stroke="${mt.kleur}" stroke-width="${f * 0.06}"/><g transform="translate(${kx + pad + f * 0.15} ${y - f * 0.05}) scale(${f * 1.2 / 24})" fill="none" stroke="${mt.kleur}" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="color:${mt.kleur}">${mt.icoon}</g>`
+      l += `<g transform="translate(${kx + pad} ${y - f * 0.2}) scale(${f * 1.5 / 24})">${symboolSvg(mt)}</g>`
       l += `<text x="${kx + pad + f * 2.2}" y="${y + f * 0.85}" font-size="${f * 0.95}">${esc(kort(mt.label, 30))}</text>${rechts((s.stuks ? s.stuks + '×' : '') + (s.meter ? (s.stuks ? ' · ' : '') + Math.round(s.meter) + ' m' : ''))}`
       y += rij
     }
@@ -119,6 +138,7 @@ export async function maakBlad(inv: BladInvoer) {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${W}mm" height="${H}mm" viewBox="0 0 ${W} ${H}" font-family="Helvetica, Arial, sans-serif" fill="#111">`
     + `<rect width="${W}" height="${H}" fill="#fff"/>`
     + `<svg x="${ax}" y="${ay}" width="${aw}" height="${ah}" viewBox="${g.x1} ${g.y1} ${vw} ${vh}" preserveAspectRatio="xMidYMid slice">${inhoud}</svg>`
+    + raster
     + `<rect x="${ax}" y="${ay}" width="${aw}" height="${ah}" fill="none" stroke="#111" stroke-width="0.35"/>`
     + l + t + `</svg>`
   return { svg, W, H, N, dpi }

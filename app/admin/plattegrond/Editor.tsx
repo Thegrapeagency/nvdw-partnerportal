@@ -12,7 +12,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type React from 'react'
 import { AS } from './stijl'
-import { MATERIALEN, MATERIAAL, CATEGORIEEN, OUDE_VOORZIENING, isLijn, type Materiaal } from './materialen'
+import { MATERIALEN, MATERIAAL, CATEGORIEEN, OUDE_VOORZIENING, isLijn, stijlVan, symboolSvg, leesbaarOp, LIJNKLEUR, type Materiaal } from './materialen'
 import type { Pt, Kind, Obj, Laag, Bg, Doc, Meta, PartnerRij, Maat, Adapter } from './types'
 import { STANDAARD_NORMEN } from './types'
 import { r2, fmt, isBlok, hoeken, bbox, overlapt, draaiPunt, lengte, hekStuks, oppervlak, puntInPoly, afstandTotLijn, haaks } from './geo'
@@ -77,7 +77,7 @@ export default function PlattegrondEditor({ adapter, flash }: { adapter: Adapter
   const [matZoek, setMatZoek] = useState('')
   const [zijTab, setZijTab] = useState<'locatie' | 'partners' | 'materialen' | 'check' | 'lagen'>('locatie')
   const [metaDlg, setMetaDlg] = useState<(Meta & { nieuw?: boolean }) | null>(null)
-  const [exportDlg, setExportDlg] = useState<{ papier: string; schaal: number | 'auto'; titel: string; bezig?: boolean } | null>(null)
+  const [exportDlg, setExportDlg] = useState<{ papier: string; schaal: number | 'auto'; titel: string; vakken?: boolean; bezig?: boolean } | null>(null)
   const [adresQ, setAdresQ] = useState('')
   const [adressen, setAdressen] = useState<Adres[] | null>(null)
   const [toonNormen, setToonNormen] = useState(false)
@@ -291,7 +291,7 @@ export default function PlattegrondEditor({ adapter, flash }: { adapter: Adapter
   }
   const voegToe = (objs: Obj[]) => { setDoc(d => ({ ...d, objs: [...d.objs, ...objs] })); setSel(objs.map(o => o.id)) }
   const vrijePlek = (o: Obj): Obj => {
-    const blokken = doc.objs.filter(q => (q.kind === 'partner' || q.kind === 'materiaal') && !OMHULLEND.has(q.mat || '')).map(hoeken)
+    const blokken = doc.objs.filter(q => (q.kind === 'partner' || q.kind === 'materiaal') && !OMHULLEND.has(q.mat || '') && !(q.kind === 'materiaal' && stijlVan(MATERIAAL[q.mat || '']).s === 'bord')).map(hoeken)
     for (let i = 0; i < 80; i++) {
       const kand = { ...o, x: o.x + (i % 8) * (o.w + 0.5), y: o.y + Math.floor(i / 8) * (o.h + 0.5) }
       if (!blokken.some(b => overlapt(b, hoeken(kand)))) return kand
@@ -876,7 +876,7 @@ export default function PlattegrondEditor({ adapter, flash }: { adapter: Adapter
   const relevante = partners.filter(p => p.type !== 'personeel')
   const overlappers = useMemo(() => {
     const s = new Set<string>()
-    const blokken = doc.objs.filter(o => (o.kind === 'partner' || o.kind === 'materiaal') && !OMHULLEND.has(o.mat || '') && !o.verborgen)
+    const blokken = doc.objs.filter(o => (o.kind === 'partner' || o.kind === 'materiaal') && !OMHULLEND.has(o.mat || '') && !o.verborgen && !(o.kind === 'materiaal' && stijlVan(MATERIAAL[o.mat || '']).s === 'bord'))
     for (let i = 0; i < blokken.length; i++) for (let j = i + 1; j < blokken.length; j++)
       if (overlapt(hoeken(blokken[i]), hoeken(blokken[j]))) { s.add(blokken[i].id); s.add(blokken[j].id) }
     return s
@@ -946,6 +946,7 @@ export default function PlattegrondEditor({ adapter, flash }: { adapter: Adapter
   const tekeningInhoud = async (g: Gebied, pxPerM: number) => {
     const kloon = svgRef.current!.querySelector('#tekening')!.cloneNode(true) as SVGGElement
     kloon.querySelectorAll('[data-ui]').forEach(n => n.remove())
+    kloon.querySelectorAll('[data-lw]').forEach(n => n.setAttribute('stroke-width', String(Math.max(parseFloat(n.getAttribute('data-lw') || '0'), (2.4 / pxPerM) * parseFloat(n.getAttribute('data-lwf') || '1')))))
     const kl = kloon.querySelector('#kaartlaag')
     if (kl && doc.kaart?.zichtbaar) kl.innerHTML = kaartTegels(doc.kaart, g, pxPerM, 220).map(t => `<image href="${t.href}" x="${t.x}" y="${t.y}" width="${t.s * 1.002}" height="${t.s * 1.002}"/>`).join('')
     await Promise.all([...kloon.querySelectorAll('image')].map(async im => {
@@ -981,7 +982,7 @@ export default function PlattegrondEditor({ adapter, flash }: { adapter: Adapter
     setExportDlg({ ...inst, bezig: true }); setSel([]); await new Promise(r => setTimeout(r, 40))
     try {
       const blad = await maakBlad({
-        inhoud: tekeningInhoud, bbox: b, papier: inst.papier, schaal: inst.schaal, titel: inst.titel,
+        inhoud: tekeningInhoud, bbox: b, papier: inst.papier, schaal: inst.schaal, titel: inst.titel, vakken: inst.vakken,
         meta: { ...meta, evenement: meta.evenement || naam }, merk: adapter.merk,
         noordHoek: doc.kaart ? 0 : (meta.noordHoek ?? 0),
         bron: doc.kaart?.zichtbaar ? `Ondergrond: PDOK ${doc.kaart.type === 'luchtfoto' ? 'Luchtfoto' : 'BGT'} (CC BY 4.0)` : '',
@@ -1001,7 +1002,31 @@ export default function PlattegrondEditor({ adapter, flash }: { adapter: Adapter
 
   // ---- tekenen ----
   const sw = 1 / view.s
-  const kleurVan = (o: Obj) => o.color || (o.kind === 'partner' ? (partnerById[o.partnerId!] ? maatVan(partnerById[o.partnerId!]).kleur : '#999') : o.kind === 'materiaal' || o.kind === 'hek' ? (MATERIAAL[o.mat || '']?.kleur || '#777') : '#8b8574')
+  // T = hoogte van tekst op de tekening, in meters. Automatisch zo gekozen dat
+  // tekst op papier ongeveer 2 mm hoog wordt; zelf in te stellen bij 'Tekst en nummers'.
+  const T = doc.nrGrootte ? doc.nrGrootte * 2 : (() => {
+    const pts = doc.objs.filter(o => o.kind !== 'legenda' && !o.verborgen).flatMap(hoeken)
+    return pts.length < 2 ? 1 : Math.max(0.6, Math.min(6, 2 * kiesSchaal(bbox(pts), 'A2') / 1000))
+  })()
+  const FONT = 'Helvetica, Arial, sans-serif'
+  // Dunne lijnen blijven op het scherm minstens ruim een pixel dik. De echte
+  // dikte staat in data-lw; bij het exporteren rekent tekeningInhoud die om
+  // naar een minimum op papier, los van hoe ver je hebt ingezoomd.
+  const dun = (w: number, f = 1) => ({ strokeWidth: Math.max(w, 1.3 * f * sw), 'data-lw': w, 'data-lwf': f })
+  // Tekst in of bij een blok: past hij erin, dan groot erin. Past hij niet en is
+  // er een nummer, dan alleen het nummer (de naam staat in de legenda).
+  const blokTekst = (o: Obj, tekst: string, kleurTekst: string, extraRot: number) => {
+    if (!tekst) return null
+    const staand = o.h > o.w * 1.3
+    const lang = staand ? o.h : o.w, krt = staand ? o.w : o.h
+    const past = Math.min(krt * 0.55, (lang * 0.9) / (tekst.length * 0.6))
+    const cx = o.x + o.w / 2, cy = o.y + o.h / 2
+    const rot = `rotate(${extraRot + (staand ? -90 : 0)} ${cx} ${cy})`
+    if (past >= T * 0.5) return <text x={cx} y={cy} transform={rot} fontSize={Math.min(past, T * 1.6)} textAnchor="middle" dominantBaseline="central" fill={kleurTekst} fontFamily={FONT} fontWeight={700}>{tekst}</text>
+    if (o.nr) return null
+    return <text x={cx} y={cy} transform={`rotate(${extraRot} ${cx} ${cy})`} fontSize={T * 0.62} textAnchor="middle" dominantBaseline="central" fill="#111" fontFamily={FONT} fontWeight={700} stroke="#fff" strokeWidth={T * 0.14} paintOrder="stroke">{tekst}</text>
+  }
+  const kleurVan = (o: Obj) => o.color || (o.kind === 'partner' ? (partnerById[o.partnerId!] ? maatVan(partnerById[o.partnerId!]).kleur : '#999') : o.kind === 'materiaal' ? stijlVan(MATERIAAL[o.mat || '']).vul : o.kind === 'hek' ? (LIJNKLEUR[o.mat || ''] || MATERIAAL[o.mat || '']?.kleur || '#777') : '#8b8574')
   const lijnVan = (o: Obj, std: string) => o.lijn === 'none' ? 'none' : (o.lijn || std)
 
   const icoon = (m: Materiaal | undefined, cx: number, cy: number, s: number, kleur: string, rot: number) => m && (
@@ -1026,8 +1051,7 @@ export default function PlattegrondEditor({ adapter, flash }: { adapter: Adapter
     if (telling.length) {
       kop('Materialen')
       for (const t of telling) {
-        els.push(<rect key={'mr' + t.mat.key} x={o.x + pad} y={y - f * 0.2} width={f * 1.5} height={f * 1.5} rx={f * 0.2} fill={t.mat.kleur} fillOpacity={0.14} stroke={t.mat.kleur} strokeWidth={f * 0.06} />)
-        els.push(<g key={'mi' + t.mat.key}>{icoon(t.mat, o.x + pad + f * 0.75, y + f * 0.55, f * 1.25, t.mat.kleur, 0)}</g>)
+        els.push(<g key={'mi' + t.mat.key} transform={`translate(${o.x + pad} ${y - f * 0.2}) scale(${f * 1.5 / 24})`} dangerouslySetInnerHTML={{ __html: symboolSvg(t.mat) }} />)
         els.push(<text key={'mt' + t.mat.key} x={o.x + pad + f * 2.1} y={y + f * 0.85} fontSize={f} fill="#010341" fontFamily="Inter, sans-serif">{t.mat.label}</text>)
         els.push(<text key={'mn' + t.mat.key} x={o.x + W - pad} y={y + f * 0.85} fontSize={f} fill="#8b8574" textAnchor="end" fontFamily="Inter, sans-serif">{t.stuks}×{t.meter ? ` · ${Math.round(t.meter)} m` : ''}</text>)
         y += rij
@@ -1074,7 +1098,7 @@ export default function PlattegrondEditor({ adapter, flash }: { adapter: Adapter
     )
     if (o.kind === 'maat') {
       const [a, b] = o.pts!, l = Math.hypot(b[0] - a[0], b[1] - a[1]); if (!l) return null
-      const ux = (b[0] - a[0]) / l, uy = (b[1] - a[1]) / l, tg = (doc.nrGrootte || 0.6) * 1.1, tk = tg * 0.45
+      const ux = (b[0] - a[0]) / l, uy = (b[1] - a[1]) / l, tg = T * 0.8, tk = tg * 0.45
       let hk = Math.atan2(uy, ux) * 180 / Math.PI; if (hk > 90 || hk < -90) hk += 180
       const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2, kl = o.color || '#010341'
       return (
@@ -1100,7 +1124,7 @@ export default function PlattegrondEditor({ adapter, flash }: { adapter: Adapter
         }
         const mid = Math.floor((pts.length - 1) / 2), A = pts[mid], B = pts[mid + 1] || A
         let hk = Math.atan2(B[1] - A[1], B[0] - A[0]) * 180 / Math.PI; if (hk > 90 || hk < -90) hk += 180
-        const lx = (A[0] + B[0]) / 2, ly = (A[1] + B[1]) / 2, fs = Math.min(1.1, Math.max(0.5, br * 0.28))
+        const lx = (A[0] + B[0]) / 2, ly = (A[1] + B[1]) / 2, fs = T * 0.75
         return (
           <g key={o.id} opacity={dek}>
             <polyline points={pts.map(p => p.join(',')).join(' ')} fill="none" stroke={c} strokeOpacity={0.2} strokeWidth={br} strokeLinejoin="round" strokeLinecap="butt" />
@@ -1111,25 +1135,37 @@ export default function PlattegrondEditor({ adapter, flash }: { adapter: Adapter
           </g>
         )
       }
-      const ticks: React.ReactNode[] = []
-      // streepjes op elke stuk-grens langs de lijn
-      let rest = 0, k = 0
+      // Naden: elk punt waar een nieuw hek of een nieuwe plaat begint
+      const naden: { x: number; y: number; ux: number; uy: number }[] = []
+      let rest = 0
       for (let i = 1; i < pts.length; i++) {
         const [ax, ay] = pts[i - 1], [bx, by] = pts[i], l = Math.hypot(bx - ax, by - ay); if (!l) continue
-        const ux = (bx - ax) / l, uy = (by - ay) / l, nx = -uy * (br / 2 + 0.08), ny = ux * (br / 2 + 0.08)
-        for (let t = rest; t <= l + 1e-6; t += stuk) { const px = ax + ux * t, py = ay + uy * t; ticks.push(<line key={k++} x1={px - nx} y1={py - ny} x2={px + nx} y2={py + ny} stroke={c} strokeWidth={Math.max(0.03, br * 0.15)} />) }
+        const ux = (bx - ax) / l, uy = (by - ay) / l
+        for (let t = rest; t <= l + 1e-6; t += stuk) naden.push({ x: ax + ux * t, y: ay + uy * t, ux, uy })
         rest = stuk - ((l - rest) % stuk); if (rest >= stuk - 1e-6) rest = 0
+        if (i === pts.length - 1) naden.push({ x: bx, y: by, ux, uy })
       }
+      const lw = Math.max(0.1, T * 0.06), pl = pts.map(p => p.join(',')).join(' ')
+      const band = ['rijplaat', 'looppad', 'kabelbrug'].includes(o.mat || '') // deze teken je op echte breedte
       const mid = Math.floor((pts.length - 1) / 2), A = pts[mid], B = pts[mid + 1] || A
       let hoek = Math.atan2(B[1] - A[1], B[0] - A[0]) * 180 / Math.PI; if (hoek > 90 || hoek < -90) hoek += 180
-      const lx = (A[0] + B[0]) / 2, ly = (A[1] + B[1]) / 2, fs = Math.max(0.45, br * 0.6)
+      const lx = (A[0] + B[0]) / 2, ly = (A[1] + B[1]) / 2
       return (
         <g key={o.id} opacity={dek}>
-          <polyline points={pts.map(p => p.join(',')).join(' ')} fill="none" stroke={c} strokeOpacity={br > 0.6 ? 0.22 : 0.35} strokeWidth={br} strokeLinejoin="miter" />
-          <polyline points={pts.map(p => p.join(',')).join(' ')} fill="none" stroke={c} strokeWidth={Math.min(0.06, br * 0.3)} strokeDasharray={o.mat === 'dranghek' ? '0.3 0.15' : undefined} />
-          {ticks}
-          {(toonMaten || isSel) && <text x={lx} y={ly - br / 2 - 0.25} transform={`rotate(${hoek} ${lx} ${ly})`} fontSize={fs} textAnchor="middle" fill={c} fontFamily="Inter, sans-serif" fontWeight={700}>{hekStuks(o)}× {m?.label.toLowerCase()} · {fmt(lengte(pts))}</text>}
-          {isSel && <polyline data-ui points={pts.map(p => p.join(',')).join(' ')} fill="none" stroke="#2b6cb0" strokeWidth={1.5 * sw} />}
+          {band ? <>
+            <polyline points={pl} fill="none" stroke="#555" strokeWidth={br + lw} strokeLinejoin="miter" />
+            <polyline points={pl} fill="none" stroke={c} strokeWidth={br} strokeLinejoin="miter" />
+            {naden.map((n, i) => <line key={i} x1={n.x + n.uy * br / 2} y1={n.y - n.ux * br / 2} x2={n.x - n.uy * br / 2} y2={n.y + n.ux * br / 2} stroke={o.mat === 'kabelbrug' ? '#111' : '#555'} strokeWidth={o.mat === 'kabelbrug' ? lw * 1.6 : lw * 0.6} />)}
+          </> : o.mat === 'bouwhek' ? <>
+            <polyline points={pl} fill="none" stroke={c} {...dun(lw)} strokeLinejoin="miter" />
+            {naden.map((n, i) => <line key={i} x1={n.x} y1={n.y} x2={n.x + n.ux * 0.001} y2={n.y + n.uy * 0.001} stroke="#444" strokeLinecap="square" {...dun(T * 0.26, 3)} />)}
+          </> : <>
+            <polyline points={pl} fill="none" stroke={c} {...dun(lw, 1)} strokeLinejoin="miter" />
+            {o.mat === 'schrikhek' && <polyline points={pl} fill="none" stroke="#fff" {...dun(lw, 1)} strokeDasharray={`${T * 0.3} ${T * 0.3}`} />}
+            {naden.map((n, i) => <line key={i} x1={n.x + n.uy * T * 0.22} y1={n.y - n.ux * T * 0.22} x2={n.x - n.uy * T * 0.22} y2={n.y + n.ux * T * 0.22} stroke={c} {...dun(lw, 1)} />)}
+          </>}
+          {isSel && <text data-ui x={lx} y={ly - br / 2 - T * 0.4} transform={`rotate(${hoek} ${lx} ${ly})`} fontSize={12 * sw} textAnchor="middle" fill="#2b6cb0" fontFamily={FONT} fontWeight={700} stroke="#fff" strokeWidth={3 * sw} paintOrder="stroke">{hekStuks(o)}× {m?.label.toLowerCase()} · {fmt(lengte(pts))}</text>}
+          {isSel && <polyline data-ui points={pl} fill="none" stroke="#2b6cb0" strokeWidth={1.5 * sw} strokeDasharray={`${4 * sw} ${3 * sw}`} />}
         </g>
       )
     }
@@ -1139,8 +1175,9 @@ export default function PlattegrondEditor({ adapter, flash }: { adapter: Adapter
       return (
         <g key={o.id} opacity={dek}>
           <polygon points={o.pts!.map(p => p.join(',')).join(' ')} fill={c === 'none' ? 'none' : c} fillOpacity={0.6} stroke={lijnVan(o, '#010341')} strokeWidth={ld} strokeLinejoin="miter" strokeDasharray={o.streep ? `${ld * 4} ${ld * 3}` : undefined} />
-          {o.label && <text x={(b.x1 + b.x2) / 2} y={(b.y1 + b.y2) / 2} fontSize={Math.min(1.6, (b.x2 - b.x1) / 8)} textAnchor="middle" dominantBaseline="middle" fill="#010341" fillOpacity={0.55} fontFamily="Fraunces, Georgia, serif">{o.label}</text>}
-          {o.publiek && <text x={(b.x1 + b.x2) / 2} y={(b.y1 + b.y2) / 2 + Math.min(1.6, (b.x2 - b.x1) / 8) * 1.2} fontSize={Math.min(1, (b.x2 - b.x1) / 14)} textAnchor="middle" dominantBaseline="middle" fill="#010341" fillOpacity={0.6} fontFamily="Helvetica, Arial, sans-serif">{Math.round(oppervlak(o)).toLocaleString('nl-NL')} m² · max {Math.floor(oppervlak(o) * (o.dichtheid || normen.dichtheid)).toLocaleString('nl-NL')} pers.</text>}
+          {o.label && <text x={(b.x1 + b.x2) / 2} y={(b.y1 + b.y2) / 2} fontSize={Math.max(T, Math.min(T * 2.2, (b.x2 - b.x1) / Math.max(4, o.label.length * 0.62)))} textAnchor="middle" dominantBaseline="central" fill="#111" fontFamily={FONT} fontWeight={700} stroke="#fff" strokeWidth={T * 0.16} paintOrder="stroke">{o.label}</text>}
+          {o.publiek && (() => { const mx = (b.x1 + b.x2) / 2, my = (b.y1 + b.y2) / 2 + (o.label ? T * 1.6 : 0), r1 = `± ${Math.round(oppervlak(o)).toLocaleString('nl-NL')} m²`, r2t = `± ${Math.floor(oppervlak(o) * (o.dichtheid || normen.dichtheid)).toLocaleString('nl-NL')} pax`, bw = Math.max(r1.length, r2t.length) * T * 0.5 + T * 0.6
+            return <g><rect x={mx - bw / 2} y={my - T * 1.15} width={bw} height={T * 2.3} rx={T * 0.2} fill="#333" /><text x={mx} y={my - T * 0.5} fontSize={T * 0.8} textAnchor="middle" dominantBaseline="central" fill="#fff" fontFamily={FONT} fontWeight={700}>{r1}</text><text x={mx} y={my + T * 0.5} fontSize={T * 0.8} textAnchor="middle" dominantBaseline="central" fill="#fff" fontFamily={FONT} fontWeight={700}>{r2t}</text></g> })()}
           {toonMaten && isSel && <text data-ui x={(b.x1 + b.x2) / 2} y={(b.y1 + b.y2) / 2 + 1.6} fontSize={11 * sw} textAnchor="middle" fill="#2b6cb0" fontFamily="Inter">{r2(oppervlak(o))} m²</text>}
           {isSel && <polygon data-ui points={o.pts!.map(p => p.join(',')).join(' ')} fill="none" stroke="#2b6cb0" strokeWidth={1.5 * sw} />}
         </g>
@@ -1155,46 +1192,56 @@ export default function PlattegrondEditor({ adapter, flash }: { adapter: Adapter
       </g>
     )
     const leesRot = o.rot > 90 && o.rot <= 270 ? 180 : 0
-    const staand = o.h > o.w * 1.3
+    const rand = o.lijnDik ?? Math.max(0.04, T * 0.035)
+    const kaders = <>
+      {fout && <rect data-ui x={o.x} y={o.y} width={o.w} height={o.h} fill="none" stroke="#e53935" strokeWidth={2.5 * sw} strokeDasharray={`${5 * sw} ${3 * sw}`} />}
+      {isSel && <rect data-ui x={o.x} y={o.y} width={o.w} height={o.h} fill="none" stroke="#2b6cb0" strokeWidth={1.5 * sw} />}
+    </>
     if (o.kind === 'materiaal') {
-      const m = MATERIAAL[o.mat || '']
-      const rond = m?.rond
-      const s = Math.min(o.w, o.h) * (o.toonLabel && Math.min(o.w, o.h) > 1.5 ? 0.55 : 0.78)
-      const ld = o.lijnDik ?? Math.min(0.06, Math.min(o.w, o.h) * 0.06)
+      const m = MATERIAAL[o.mat || ''], st = stijlVan(m), vul = o.color || st.vul, tk = leesbaarOp(vul === 'none' ? '#ffffff' : vul)
+      const kl = Math.min(o.w, o.h)
+      if (st.s === 'bord') return (
+        // veiligheidspictogram: staat altijd rechtop, wit symbool op gekleurd vlak
+        <g key={o.id} opacity={dek}>
+          <rect x={o.x} y={o.y} width={o.w} height={o.h} rx={kl * 0.12} fill={vul} stroke="#fff" strokeWidth={kl * 0.05} />
+          {icoon(m, cx, cy, kl * 0.74, '#fff', 0)}
+          {o.toonLabel && <text x={cx} y={o.y + o.h + T * 0.5} fontSize={T * 0.6} textAnchor="middle" dominantBaseline="central" fill="#111" fontFamily={FONT} fontWeight={700} stroke="#fff" strokeWidth={T * 0.14} paintOrder="stroke">{o.label || m?.label}</text>}
+          {kaders}
+        </g>
+      )
+      const tekst = (o.label || st.tekst || (o.toonLabel ? m?.label : '') || '') + (m?.uitgang ? ` ${fmt(Math.max(o.w, o.h))}` : '')
+      const stap = Math.max(0.5, (o.w > o.h ? o.w : o.h) / Math.max(3, Math.round((o.w > o.h ? o.w : o.h) / 1.5)))
       return (
         <g key={o.id} opacity={dek}>
           <g transform={tr}>
-            {rond
-              ? <ellipse cx={cx} cy={cy} rx={o.w / 2} ry={o.h / 2} fill="#fff" fillOpacity={0.9} />
-              : <rect x={o.x} y={o.y} width={o.w} height={o.h} rx={o.hoek ?? Math.min(o.w, o.h) * 0.08} fill="#fff" fillOpacity={OMHULLEND.has(o.mat || '') ? 0.45 : 0.9} />}
-            {rond
-              ? <ellipse cx={cx} cy={cy} rx={o.w / 2} ry={o.h / 2} fill={c} fillOpacity={0.14} stroke={lijnVan(o, c)} strokeWidth={ld} strokeDasharray={o.streep ? `${ld * 4} ${ld * 3}` : undefined} />
-              : <rect x={o.x} y={o.y} width={o.w} height={o.h} rx={o.hoek ?? Math.min(o.w, o.h) * 0.08} fill={c} fillOpacity={OMHULLEND.has(o.mat || '') ? 0.07 : 0.14} stroke={lijnVan(o, c)} strokeWidth={ld} strokeDasharray={o.streep || OMHULLEND.has(o.mat || '') ? `${Math.max(ld, 0.05) * 4} ${Math.max(ld, 0.05) * 3}` : undefined} />}
-            {fout && <rect data-ui x={o.x} y={o.y} width={o.w} height={o.h} fill="none" stroke="#e53935" strokeWidth={2.5 * sw} strokeDasharray={`${5 * sw} ${3 * sw}`} />}
-            {isSel && <rect data-ui x={o.x} y={o.y} width={o.w} height={o.h} fill="none" stroke="#2b6cb0" strokeWidth={1.5 * sw} />}
+            {m?.rond
+              ? <ellipse cx={cx} cy={cy} rx={o.w / 2} ry={o.h / 2} fill={vul} fillOpacity={o.mat === 'boom' ? 0.6 : 1} stroke={lijnVan(o, '#222')} strokeWidth={rand} strokeDasharray={o.streep ? `${rand * 4} ${rand * 3}` : undefined} />
+              : <rect x={o.x} y={o.y} width={o.w} height={o.h} rx={o.hoek ?? 0} fill={vul} fillOpacity={OMHULLEND.has(o.mat || '') ? 0.75 : 1} stroke={lijnVan(o, '#222')} strokeWidth={rand} strokeDasharray={o.streep ? `${rand * 4} ${rand * 3}` : undefined} />}
+            {st.patroon === 'kruis' && !m?.rond && <path d={`M${o.x} ${o.y}L${o.x + o.w} ${o.y + o.h}M${o.x + o.w} ${o.y}L${o.x} ${o.y + o.h}`} stroke="#8a8a8a" strokeWidth={rand * 0.8} fill="none" />}
+            {st.patroon === 'strepen' && <path d={Array.from({ length: Math.max(0, Math.round((o.w > o.h ? o.w : o.h) / stap) - 1) }, (_, i) => o.w > o.h ? `M${o.x + (i + 1) * stap} ${o.y}v${o.h}` : `M${o.x} ${o.y + (i + 1) * stap}h${o.w}`).join('')} stroke="#222" strokeOpacity={0.35} strokeWidth={rand * 0.8} fill="none" />}
+            {o.mat === 'lichtmast' && <rect x={cx - kl * 0.18} y={cy - kl * 0.18} width={kl * 0.36} height={kl * 0.36} fill="#7b3f2a" />}
+            {kaders}
           </g>
-          {icoon(m, cx, o.toonLabel && Math.min(o.w, o.h) > 1.5 ? cy - s * 0.25 : cy, s, c, 0)}
-          {o.toonLabel && <text x={cx} y={Math.min(o.w, o.h) > 1.5 ? cy + s * 0.55 : o.y + o.h + Math.max(0.35, s * 0.35)} fontSize={Math.max(0.3, Math.min(0.9, o.w / Math.max(6, (o.label || m?.label || '').length * 0.6)))} textAnchor="middle" dominantBaseline="middle" fill={c} fontFamily="Inter, sans-serif" fontWeight={600}>{o.label || m?.label}{m?.uitgang ? ` ${fmt(Math.max(o.w, o.h))}` : ''}</text>}
+          {st.icoon && o.mat !== 'lichtmast' && icoon(m, cx, tekst && kl > T * 1.6 ? cy - kl * 0.16 : cy, kl * (tekst && kl > T * 1.6 ? 0.5 : 0.7), tk, 0)}
+          {st.icoon && tekst && kl > T * 1.6 ? <text x={cx} y={cy + kl * 0.3} fontSize={Math.min(T * 0.9, o.w / Math.max(4, tekst.length * 0.62))} textAnchor="middle" dominantBaseline="central" fill={tk} fontFamily={FONT} fontWeight={700}>{tekst}</text> : null}
+          {!st.icoon && <g transform={tr}>{blokTekst(o, tekst, tk, leesRot)}</g>}
         </g>
       )
     }
     const tekst = o.kind === 'partner' ? naamVan(o) : (o.label || '')
-    const fs = Math.max(0.25, Math.min(o.h * 0.32, (staand ? o.h : o.w) / Math.max(4, tekst.length * 0.62), 1.1))
-    const ld = o.lijnDik ?? (o.kind === 'rect' || o.kind === 'ellipse' ? 0.05 : 0)
+    const tk = o.kind === 'partner' ? leesbaarOp(c) : '#111111'
     return (
       <g key={o.id} transform={tr} opacity={dek}>
         {o.kind === 'ellipse'
-          ? <ellipse cx={cx} cy={cy} rx={o.w / 2} ry={o.h / 2} fill={c === 'none' ? 'none' : c} stroke={lijnVan(o, '#8b8574')} strokeWidth={ld} strokeDasharray={o.streep ? `${ld * 4} ${ld * 3}` : undefined} />
-          : <rect x={o.x} y={o.y} width={o.w} height={o.h} fill={c === 'none' ? 'none' : c} fillOpacity={o.kind === 'rect' ? 0.7 : 0.92} stroke={o.kind === 'partner' && !o.lijn ? 'none' : lijnVan(o, '#8b8574')} strokeWidth={ld} strokeDasharray={o.streep ? `${ld * 4} ${ld * 3}` : undefined} rx={o.hoek ?? (o.kind === 'partner' ? Math.min(o.w, o.h) * 0.06 : 0)} />}
-        {o.kind === 'partner' && <rect x={o.x} y={o.y + o.h - Math.min(0.35, o.h * 0.15)} width={o.w} height={Math.min(0.35, o.h * 0.15)} fill="#000" fillOpacity={0.18} />}
-        {tekst && <text x={cx} y={cy} transform={`rotate(${leesRot + (staand ? -90 : 0)} ${cx} ${cy})`} fontSize={fs} textAnchor="middle" dominantBaseline="middle" fill={o.kind === 'partner' ? '#fff' : '#010341'} fontFamily="Inter, sans-serif" fontWeight={600}>{tekst}</text>}
-        {toonMaten && view.s > 10 && o.kind === 'partner' && <text data-ui x={cx} y={cy + fs * 1.1} transform={`rotate(${leesRot + (staand ? -90 : 0)} ${cx} ${cy})`} fontSize={Math.min(fs * 0.7, 0.5)} textAnchor="middle" dominantBaseline="middle" fill="#fff" fillOpacity={0.8} fontFamily="Inter">{r2(o.w)} × {r2(o.h)}</text>}
-        {fout && <rect data-ui x={o.x} y={o.y} width={o.w} height={o.h} fill="none" stroke="#e53935" strokeWidth={2.5 * sw} strokeDasharray={`${5 * sw} ${3 * sw}`} />}
-        {isSel && <rect data-ui x={o.x} y={o.y} width={o.w} height={o.h} fill="none" stroke="#2b6cb0" strokeWidth={1.5 * sw} />}
+          ? <ellipse cx={cx} cy={cy} rx={o.w / 2} ry={o.h / 2} fill={c === 'none' ? 'none' : c} stroke={lijnVan(o, '#222')} strokeWidth={rand} strokeDasharray={o.streep ? `${rand * 4} ${rand * 3}` : undefined} />
+          : <rect x={o.x} y={o.y} width={o.w} height={o.h} fill={c === 'none' ? 'none' : c} fillOpacity={o.kind === 'rect' ? 0.8 : 1} stroke={lijnVan(o, '#222')} strokeWidth={rand} strokeDasharray={o.streep ? `${rand * 4} ${rand * 3}` : undefined} rx={o.hoek ?? 0} />}
+        {blokTekst(o, tekst, tk, leesRot)}
+        {toonMaten && isSel && o.kind === 'partner' && <text data-ui x={cx} y={o.y - 8 * sw} fontSize={11 * sw} textAnchor="middle" fill="#2b6cb0" fontFamily={FONT} fontWeight={700}>{r2(o.w)} × {r2(o.h)} m</text>}
+        {kaders}
       </g>
     )
   }
-  const nrStraal = doc.nrGrootte || 0.6
+  const nrStraal = T * 0.62
   const renderNummer = (o: Obj) => {
     if (!o.nr || !zichtbaar(o)) return null
     const b = bbox(hoeken(o))
@@ -1202,8 +1249,8 @@ export default function PlattegrondEditor({ adapter, flash }: { adapter: Adapter
     const x = b.x1, y = b.y1
     return (
       <g key={'nr' + o.id}>
-        <circle cx={x} cy={y} r={nrStraal} fill="#010341" stroke="#fff" strokeWidth={nrStraal * 0.12} />
-        <text x={x} y={y + nrStraal * 0.04} fontSize={nrStraal * (o.nr > 99 ? 0.85 : 1.1)} fill="#fff" textAnchor="middle" dominantBaseline="middle" fontFamily="Inter, sans-serif" fontWeight={700}>{o.nr}</text>
+        <circle cx={x} cy={y} r={nrStraal} fill="#5e35b1" stroke="#fff" strokeWidth={nrStraal * 0.14} />
+        <text x={x} y={y + nrStraal * 0.04} fontSize={nrStraal * (o.nr > 99 ? 0.85 : 1.15)} fill="#fff" textAnchor="middle" dominantBaseline="central" fontFamily={FONT} fontWeight={700}>{o.nr}</text>
       </g>
     )
   }
@@ -1372,7 +1419,7 @@ export default function PlattegrondEditor({ adapter, flash }: { adapter: Adapter
             <button style={klein} onClick={dupliceerPlattegrond}>Kopie</button>
             <button style={klein} onClick={() => { const n = prompt('Nieuwe naam', naam); if (n) { setNaam(n); setOpgeslagen('nee'); setLijst(l => l.map(x => x.id === huidigId ? { ...x, naam: n } : x)) } }}>Hernoem</button>
             <span style={{ width: 1, height: 20, background: '#e3dcc9' }} />
-            <button style={{ ...klein, background: 'var(--pg-inkt)', color: 'var(--pg-papier)', border: '1px solid var(--pg-inkt)' }} onClick={() => setExportDlg({ papier: 'A3', schaal: 'auto', titel: 'Situatietekening' })} title="Tekenblad op schaal met legenda, noordpijl en titelblok">Tekening voor gemeente (PDF)</button>
+            <button style={{ ...klein, background: 'var(--pg-inkt)', color: 'var(--pg-papier)', border: '1px solid var(--pg-inkt)' }} onClick={() => setExportDlg({ papier: 'A3', schaal: 'auto', titel: 'Situatietekening', vakken: true })} title="Tekenblad op schaal met legenda, noordpijl en titelblok">Tekening voor gemeente (PDF)</button>
             <button style={klein} onClick={() => setMetaDlg({ ...meta, evenement: meta.evenement || naam })}>Gegevens</button>
             <button style={klein} onClick={() => exporteer('svg')}>SVG (Illustrator)</button>
             <button style={klein} onClick={() => exporteer('png')}>PNG</button>
@@ -1544,6 +1591,7 @@ export default function PlattegrondEditor({ adapter, flash }: { adapter: Adapter
                         <select style={AS.input} value={exportDlg.schaal} onChange={e => setExportDlg({ ...exportDlg, schaal: e.target.value === 'auto' ? 'auto' : parseInt(e.target.value) })}>
                           <option value="auto">Passend (1:{auto})</option>{SCHALEN.filter(n => n <= 2500).map(n => <option key={n} value={n}>1:{n}{n < auto ? ' (uitsnede)' : ''}</option>)}</select></label>
                     </div>
+                    <label style={{ fontSize: 12, color: '#777162', display: 'flex', gap: 6, alignItems: 'center', marginTop: 10, cursor: 'pointer' }}><input type="checkbox" checked={!!exportDlg.vakken} onChange={e => setExportDlg({ ...exportDlg, vakken: e.target.checked })} /> Vakkenraster (A1, B2, …) zodat iedereen een plek kan aanwijzen</label>
                     <div style={{ fontSize: 11.5, color: N > 1000 ? '#9a5b00' : '#777162', background: N > 1000 ? '#fff4e0' : '#f6f2e8', borderRadius: 8, padding: '8px 10px', marginTop: 10, lineHeight: 1.5 }}>
                       {N > 1000 ? `Schaal 1:${N} is klein. Gemeentes vragen voor een situatietekening meestal 1:500 of 1:1000. Kies groter papier.` : N <= 200 ? `Schaal 1:${N}: geschikt als inrichtings- of tentindeling (gevraagd: 1:100 of 1:200).` : `Schaal 1:${N}: geschikt als situatietekening (gevraagd: 1:500 of 1:1000).`}
                       {checkActies > 0 && <><br />Let op: de gemeentecheck heeft nog {checkActies} {checkActies === 1 ? 'punt' : 'punten'} open.</>}
@@ -1671,7 +1719,8 @@ export default function PlattegrondEditor({ adapter, flash }: { adapter: Adapter
                 </div>
                 <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 6 }}>
                   <label style={{ fontSize: 11, color: '#777162', display: 'flex', alignItems: 'center', gap: 4 }}>Tekst en nummers
-                    <input style={{ ...mini, width: 56 }} type="number" step={0.1} min={0.2} value={r2(nrStraal * 2)} onChange={e => setDoc(d => ({ ...d, nrGrootte: Math.max(0.1, (parseFloat(e.target.value) || 1.2) / 2) }))} /> m</label>
+                    <input style={{ ...mini, width: 56 }} type="number" step={0.1} min={0.2} value={r2(T)} onChange={e => setDoc(d => ({ ...d, nrGrootte: Math.max(0.1, (parseFloat(e.target.value) || 1.2) / 2) }))} /> m</label>
+                  {doc.nrGrootte ? <button style={{ ...klein, border: 'none', color: '#a39d8c' }} onClick={() => setDoc(d => ({ ...d, nrGrootte: undefined }))}>auto</button> : <span style={{ fontSize: 10.5, color: '#a39d8c' }}>auto</span>}
                   <button style={{ ...klein, border: 'none', color: '#a39d8c' }} onClick={() => setToonHulp(v => !v)}>{toonHulp ? 'Verberg sneltoetsen' : 'Sneltoetsen'}</button>
                 </div>
                 <div style={{ fontSize: 10.5, color: '#a39d8c', marginTop: 4 }}>De legenda komt vanzelf op het tekenblad in de PDF.</div>
@@ -1737,7 +1786,7 @@ export default function PlattegrondEditor({ adapter, flash }: { adapter: Adapter
                             <div key={m.key} draggable={!isLijn(m)} onDragStart={e => e.dataTransfer.setData('materiaal', m.key)} onClick={() => plaatsMateriaal(m)}
                               title={`${m.label} · ${isLijn(m) ? (m.soort === 'route' ? 'teken de route als lijn' : `teken een lijn, ${String(m.stuk).replace('.', ',')} m per stuk`) : `${m.w} × ${m.h} m`}`}
                               style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 6px', borderRadius: 8, cursor: isLijn(m) ? 'crosshair' : 'grab', border: tool === 'hek' && hekMat === m.key ? '1.5px solid var(--navy)' : '1px solid #eee5d2', background: '#fff', position: 'relative' }}>
-                              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={m.kleur} strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, color: m.kleur }} dangerouslySetInnerHTML={{ __html: m.icoon }} />
+                              <svg width="24" height="24" viewBox="0 0 24 24" style={{ flexShrink: 0 }} dangerouslySetInnerHTML={{ __html: symboolSvg(m) }} />
                               <span style={{ fontSize: 11, color: 'var(--pg-inkt)', lineHeight: 1.2, overflow: 'hidden' }}>{m.label}<br /><span style={{ color: '#a39d8c', fontSize: 10 }}>{isLijn(m) ? (m.soort === 'route' ? `route · ${String(m.breedte).replace('.', ',')} m breed` : `lijn · ${String(m.stuk).replace('.', ',')} m/st`) : `${String(m.w).replace('.', ',')}×${String(m.h).replace('.', ',')}`}</span></span>
                               {n && <span style={{ position: 'absolute', top: 2, right: 4, fontSize: 9.5, fontWeight: 700, color: '#2e6b3a' }}>{n.stuks}</span>}
                             </div>
@@ -1852,7 +1901,7 @@ export default function PlattegrondEditor({ adapter, flash }: { adapter: Adapter
                       <div style={sectie}>{cat}</div>
                       {items.map(t => (
                         <div key={t.mat.key} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 0', fontSize: 12.5, color: 'var(--pg-inkt)', borderBottom: '1px solid #f3eee2' }}>
-                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={t.mat.kleur} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" style={{ color: t.mat.kleur }} dangerouslySetInnerHTML={{ __html: t.mat.icoon }} />
+                          <svg width="18" height="18" viewBox="0 0 24 24" dangerouslySetInnerHTML={{ __html: symboolSvg(t.mat) }} />
                           <span style={{ flex: 1 }}>{t.mat.label}</span>
                           {t.stuks > 0 && <span style={{ fontWeight: 700 }}>{t.stuks}×</span>}
                           {t.meter > 0 && <span style={{ fontSize: 11, color: '#8b8574', width: 48, textAlign: 'right' }}>{Math.round(t.meter)} m</span>}
