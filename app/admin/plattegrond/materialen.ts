@@ -19,6 +19,8 @@ export type Materiaal = {
   brand?: boolean   // brandrisico: hier hoort een blusser bij
   wc?: number       // aantal toiletplekken
   uitgang?: boolean // telt mee als (nood)uitgang, breedte = lange zijde
+  tent?: { kort: string; breedtes: number[]; stap: number } // tenttype: je kiest zelf de maat
+  oud?: boolean     // niet meer in de lijst, bestaat nog voor oude tekeningen
 }
 
 const I = {
@@ -115,12 +117,12 @@ export const MATERIALEN: Materiaal[] = [
   { key: 'beveiliging', label: 'Beveiligingspost', cat: 'Veiligheid', w: 2, h: 2, kleur: '#2d3748', icoon: I.beveiliging },
   { key: 'looproute', label: 'Looproute / vluchtrichting', cat: 'Veiligheid', w: 3, h: 1, kleur: '#2e8b3a', icoon: I.pijl },
   // Tenten
-  { key: 'tent3', label: 'Partytent 3x3', cat: 'Tenten', w: 3, h: 3, kleur: '#5b6b8c', icoon: I.partytent },
-  { key: 'tent3x6', label: 'Partytent 3x6', cat: 'Tenten', w: 6, h: 3, kleur: '#5b6b8c', icoon: I.partytent },
-  { key: 'tent5', label: 'Tent 5x5', cat: 'Tenten', w: 5, h: 5, kleur: '#5b6b8c', icoon: I.tent },
-  { key: 'tent6x12', label: 'Tent 6x12', cat: 'Tenten', w: 12, h: 6, kleur: '#5b6b8c', icoon: I.tent },
-  { key: 'tent10x20', label: 'Tent 10x20', cat: 'Tenten', w: 20, h: 10, kleur: '#5b6b8c', icoon: I.tent },
-  { key: 'stretchtent', label: 'Stretchtent 10x15', cat: 'Tenten', w: 15, h: 10, kleur: '#5b6b8c', icoon: I.stretchtent },
+  { oud: true, key: 'tent3', label: 'Partytent 3x3', cat: 'Tenten', w: 3, h: 3, kleur: '#5b6b8c', icoon: I.partytent },
+  { oud: true, key: 'tent3x6', label: 'Partytent 3x6', cat: 'Tenten', w: 6, h: 3, kleur: '#5b6b8c', icoon: I.partytent },
+  { oud: true, key: 'tent5', label: 'Tent 5x5', cat: 'Tenten', w: 5, h: 5, kleur: '#5b6b8c', icoon: I.tent },
+  { oud: true, key: 'tent6x12', label: 'Tent 6x12', cat: 'Tenten', w: 12, h: 6, kleur: '#5b6b8c', icoon: I.tent },
+  { oud: true, key: 'tent10x20', label: 'Tent 10x20', cat: 'Tenten', w: 20, h: 10, kleur: '#5b6b8c', icoon: I.tent },
+  { oud: true, key: 'stretchtent', label: 'Stretchtent 10x15', cat: 'Tenten', w: 15, h: 10, kleur: '#5b6b8c', icoon: I.stretchtent },
   // Horeca & meubilair
   { key: 'bar', label: 'Bar', cat: 'Horeca & meubilair', w: 4, h: 1, kleur: '#9b3737', icoon: I.bar },
   { key: 'buffet', label: 'Buffettafel', cat: 'Horeca & meubilair', w: 2, h: 0.8, kleur: '#9b3737', icoon: I.buffet },
@@ -146,6 +148,14 @@ export const MATERIALEN: Materiaal[] = [
 ]
 
 MATERIALEN.push(
+  // Tenten: kies het type, de maat vul je in bij het plaatsen
+  { key: 'pagode', label: 'Pagodetent', cat: 'Tenten', w: 5, h: 5, kleur: '#5b6b8c', icoon: I.tent, tent: { kort: 'PAGODE', breedtes: [3, 4, 5, 6], stap: 1 } },
+  { key: 'aluhal', label: 'Aluhal / frametent', cat: 'Tenten', w: 10, h: 20, kleur: '#5b6b8c', icoon: I.tent, tent: { kort: 'ALUHAL', breedtes: [6, 8, 10, 12, 15, 20, 25, 30], stap: 5 } },
+  { key: 'easyup', label: 'Partytent / easy-up', cat: 'Tenten', w: 3, h: 3, kleur: '#5b6b8c', icoon: I.partytent, tent: { kort: 'TENT', breedtes: [3, 4, 6], stap: 1.5 } },
+  { key: 'stretch', label: 'Stretchtent', cat: 'Tenten', w: 10, h: 15, kleur: '#5b6b8c', icoon: I.stretchtent, tent: { kort: 'STRETCH', breedtes: [6, 8, 10, 12, 15], stap: 1 } },
+  { key: 'stertent', label: 'Stertent', cat: 'Tenten', w: 12, h: 12, kleur: '#5b6b8c', icoon: I.tent, rond: true, tent: { kort: 'STERTENT', breedtes: [10, 12, 14, 17], stap: 1 } },
+  { key: 'tipi', label: 'Tipi', cat: 'Tenten', w: 10, h: 10, kleur: '#5b6b8c', icoon: I.tent, rond: true, tent: { kort: 'TIPI', breedtes: [8, 10], stap: 1 } },
+  { key: 'spiegeltent', label: 'Spiegeltent', cat: 'Tenten', w: 18, h: 18, kleur: '#5b6b8c', icoon: I.tent, rond: true, tent: { kort: 'SPIEGELTENT', breedtes: [12, 15, 18, 21, 24], stap: 1 } },
   // Routes: teken je als lijn, de band laat zien hoeveel ruimte vrij moet blijven
   { key: 'calamiteitenroute', label: 'Calamiteitenroute', cat: 'Veiligheid', w: 3.5, h: 3.5, kleur: '#e02424', icoon: I.pijl, soort: 'route', breedte: 3.5 },
   { key: 'vluchtroute', label: 'Vluchtroute publiek', cat: 'Veiligheid', w: 1.2, h: 1.2, kleur: '#2e8b3a', icoon: I.pijl, soort: 'route', breedte: 1.2 },
@@ -183,6 +193,8 @@ const STIJL: Record<string, Stijl> = {
   ehbo: { s: 'vorm', vul: GROEN, tekst: 'EHBO' },
   aggregaat: { s: 'vorm', vul: ROOD, tekst: 'AGG', icoon: true }, aggregaat_groot: { s: 'vorm', vul: ROOD, tekst: 'AGG', icoon: true },
   toilet: { s: 'vorm', vul: '#1f9e8f', tekst: 'WC' }, toiletwagen: { s: 'vorm', vul: '#1f9e8f', tekst: 'WC' }, urinoir: { s: 'vorm', vul: '#1f9e8f', tekst: 'URI' }, mivatoilet: { s: 'vorm', vul: BLAUW, tekst: 'MIVA' },
+  pagode: { s: 'vorm', vul: '#e4e4e4', patroon: 'kruis' }, aluhal: { s: 'vorm', vul: '#ececec', patroon: 'strepen' }, easyup: { s: 'vorm', vul: '#e4e4e4', patroon: 'kruis' }, stretch: { s: 'vorm', vul: '#efe6d2' },
+  stertent: { s: 'vorm', vul: '#efe6d2' }, tipi: { s: 'vorm', vul: '#e9dcc0' }, spiegeltent: { s: 'vorm', vul: '#e6c9a8' },
   tent3: { s: 'vorm', vul: '#e4e4e4', patroon: 'kruis' }, tent3x6: { s: 'vorm', vul: '#e4e4e4', patroon: 'kruis' }, tent5: { s: 'vorm', vul: '#e4e4e4', patroon: 'kruis' },
   tent6x12: { s: 'vorm', vul: '#e4e4e4', patroon: 'kruis', tekst: 'TENT' }, tent10x20: { s: 'vorm', vul: '#e4e4e4', patroon: 'kruis', tekst: 'TENT' }, stretchtent: { s: 'vorm', vul: '#efe6d2', tekst: 'STRETCHTENT' },
   bar: { s: 'vorm', vul: '#c4c4c4', tekst: 'BAR' }, glasbar: { s: 'vorm', vul: '#c4c4c4', tekst: 'GLAS' }, bakkraam: { s: 'vorm', vul: '#f48fb1', tekst: 'FOOD' },
@@ -216,6 +228,28 @@ export function symboolSvg(m: Materiaal): string {
   const pat = st.patroon === 'kruis' ? `<path d="M1 4l22 16M23 4L1 20" stroke="#888" stroke-width="0.8"/>` : st.patroon === 'strepen' ? `<path d="M6 4v16M12 4v16M18 4v16" stroke="#222" stroke-opacity="0.4" stroke-width="0.8"/>` : ''
   const tx = st.tekst && st.tekst.length <= 4 ? `<text x="12" y="${m.rond ? 14.6 : 14.8}" font-size="${st.tekst.length > 3 ? 6.2 : 7.5}" font-weight="700" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" fill="${tk}" stroke="none">${st.tekst}</text>` : ''
   return vorm + pat + tx
+}
+
+// ---- Lagen per vakgebied: elk materiaal komt vanzelf op de goede laag ----
+export const VAKLAGEN = [
+  { id: 'locatie', naam: 'Terrein', kleur: '#8b8574' },
+  { id: 'constructies', naam: 'Tenten & podia', kleur: '#5b6b8c' },
+  { id: 'afzetting', naam: 'Hekken & afzetting', kleur: '#111111' },
+  { id: 'stroom', naam: 'Stroom & techniek', kleur: '#e6a700' },
+  { id: 'facilitair', naam: 'Facilitair', kleur: '#1f9e8f' },
+  { id: 'horeca', naam: 'Horeca', kleur: '#9b3737' },
+  { id: 'publiek', naam: 'Publiek & organisatie', kleur: '#5e35b1' },
+  { id: 'veiligheid', naam: 'Veiligheid', kleur: '#d9221c' },
+  { id: 'partners', naam: 'Deelnemers', kleur: '#2e6b3a' },
+  { id: 'teksten', naam: 'Teksten & maten', kleur: '#333333' },
+]
+const NAAR_FACILITAIR = new Set(['afval', 'container', 'koeling', 'zeecontainer', 'productie', 'backstage', 'garderobe', 'fietsen', 'parkeren'])
+const NAAR_CONSTRUCTIE = new Set(['podium', 'tribune', 'foh', 'dj', 'rolstoelplatform'])
+export function laagVanMateriaal(m?: Materiaal): string {
+  if (!m) return 'publiek'
+  if (m.tent || NAAR_CONSTRUCTIE.has(m.key)) return 'constructies'
+  if (NAAR_FACILITAIR.has(m.key)) return 'facilitair'
+  return ({ 'Veiligheid': 'veiligheid', 'Afzetting & grond': 'afzetting', 'Sanitair': 'facilitair', 'Stroom & techniek': 'stroom', 'Tenten': 'constructies', 'Horeca & meubilair': 'horeca' } as Record<string, string>)[m.cat] || 'publiek'
 }
 
 export const isLijn = (m?: Materiaal) => m?.soort === 'lijn' || m?.soort === 'route'

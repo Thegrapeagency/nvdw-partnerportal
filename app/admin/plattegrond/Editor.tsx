@@ -12,37 +12,35 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type React from 'react'
 import { AS } from './stijl'
-import { MATERIALEN, MATERIAAL, CATEGORIEEN, OUDE_VOORZIENING, isLijn, stijlVan, symboolSvg, leesbaarOp, LIJNKLEUR, type Materiaal } from './materialen'
+import { MATERIALEN, MATERIAAL, CATEGORIEEN, OUDE_VOORZIENING, isLijn, stijlVan, symboolSvg, leesbaarOp, LIJNKLEUR, VAKLAGEN, laagVanMateriaal, type Materiaal } from './materialen'
 import type { Pt, Kind, Obj, Laag, Bg, Doc, Meta, PartnerRij, Maat, Adapter } from './types'
 import { STANDAARD_NORMEN } from './types'
 import { r2, fmt, isBlok, hoeken, bbox, overlapt, draaiPunt, lengte, hekStuks, oppervlak, puntInPoly, afstandTotLijn, haaks } from './geo'
 import { kaartTegels, zoekAdres, type Adres } from './kaart'
-import { controleer, OMHULLEND, type Check } from './controle'
+import { controleer, kengetallen, OMHULLEND, type Check } from './controle'
 import { maakBlad, kiesSchaal, PAPIER, SCHALEN, type Gebied } from './blad'
 
 type Tool = 'select' | 'direct' | 'rect' | 'ellipse' | 'line' | 'pen' | 'text' | 'measure' | 'calibrate' | 'hand' | 'zoom' | 'pipet' | 'nummer' | 'hek' | 'maat'
 
 const uid = () => Math.random().toString(36).slice(2, 10)
-const STANDAARD_LAGEN: Laag[] = [
-  { id: 'locatie', naam: 'Locatie', zichtbaar: true, vast: false },
-  { id: 'infra', naam: 'Infra (stroom, hekken, sanitair)', zichtbaar: true, vast: false },
-  { id: 'partners', naam: 'Deelnemers', zichtbaar: true, vast: false },
-  { id: 'teksten', naam: 'Teksten & maten', zichtbaar: true, vast: false },
-]
+const STANDAARD_LAGEN: Laag[] = VAKLAGEN.map(v => ({ id: v.id, naam: v.naam, zichtbaar: true, vast: false }))
 const leeg: Doc = { objs: [], bg: null, kaart: null, lagen: STANDAARD_LAGEN, gidsen: { x: [], y: [] }, meta: {} }
 const bnaam = (p: { naam: string; bedrijfsnaam: string | null }) => (p.bedrijfsnaam || '').trim() || p.naam
 const KLEUREN = ['#9b3737', '#c9a24b', '#2e6b3a', '#010341', '#5b6b8c', '#8b8574', '#d9cfb8', '#2b6cb0', '#c53030', '#d69e2e', '#4a5568', '#ffffff']
 
 // Oude documenten bijwerken naar het huidige formaat
 const migreer = (d: Doc): Doc => {
-  const lagen = d.lagen?.length ? d.lagen : STANDAARD_LAGEN
-  const objs = (d.objs || []).map(o => {
+  // tekeningen van voor de vakgebied-lagen: alles uit 'Infra' naar de juiste laag
+  const oudeIndeling = !!d.lagen?.some(l => l.id === 'infra') && !d.lagen.some(l => l.id === 'stroom')
+  const lagen = oudeIndeling ? [...STANDAARD_LAGEN, ...d.lagen!.filter(l => !['locatie', 'infra', 'partners', 'teksten'].includes(l.id))] : d.lagen?.length ? d.lagen : STANDAARD_LAGEN
+  const herlaag = (o: Obj): Obj => oudeIndeling && o.laag === 'infra' ? { ...o, laag: o.kind === 'materiaal' || o.kind === 'hek' ? laagVanMateriaal(MATERIAAL[o.mat || '']) : 'locatie' } : o
+  const objs = (d.objs || []).map(herlaag).map(o => {
     let n = o
     if (o.kind === 'voorziening') n = { ...o, kind: 'materiaal', mat: OUDE_VOORZIENING[o.voorziening || ''] || 'bord', toonLabel: true }
     if (!n.laag || !lagen.some(l => l.id === n.laag)) n = { ...n, laag: n.kind === 'partner' ? (lagen.find(l => l.id === 'partners')?.id || lagen[0].id) : n.kind === 'poly' || n.kind === 'line' ? lagen[0].id : (lagen.find(l => l.id === 'infra')?.id || lagen[0].id) }
     return n
   })
-  return { ...d, objs, lagen, gidsen: d.gidsen || { x: [], y: [] }, meta: d.meta || {} }
+  return { ...d, objs, lagen, versies: d.versies?.map(v => ({ ...v, objs: v.objs.map(herlaag) })), gidsen: d.gidsen || { x: [], y: [] }, meta: d.meta || {} }
 }
 
 export default function PlattegrondEditor({ adapter, flash }: { adapter: Adapter; flash: (m: string, ms?: number) => void }) {
@@ -81,13 +79,14 @@ export default function PlattegrondEditor({ adapter, flash }: { adapter: Adapter
   const [adresQ, setAdresQ] = useState('')
   const [adressen, setAdressen] = useState<Adres[] | null>(null)
   const [toonNormen, setToonNormen] = useState(false)
+  const [tentDlg, setTentDlg] = useState<{ key: string; w: string; h: string; op?: Pt; publiek: boolean } | null>(null)
   const [toonHulp, setToonHulp] = useState(false)
   const [maat, setMaatSvg] = useState({ w: 1000, h: 700 })
   // losse deelnemers uit de tekening tellen mee met die uit de app
   const partners = useMemo(() => [...basisPartners, ...(doc.deelnemers || [])], [basisPartners, doc.deelnemers])
   const normen = useMemo(() => ({ ...STANDAARD_NORMEN, ...(doc.normen || {}) }), [doc.normen])
   const meta = doc.meta || {}
-  const [actieveLaag, setActieveLaag] = useState('infra')
+  const [actieveLaag, setActieveLaag] = useState('locatie')
   const [tekstEdit, setTekstEdit] = useState<{ id: string; waarde: string } | null>(null)
   const [verplaatsDlg, setVerplaatsDlg] = useState<{ dx: string; dy: string } | null>(null)
   const [nrVolgende, setNrVolgende] = useState(1)
@@ -230,8 +229,11 @@ export default function PlattegrondEditor({ adapter, flash }: { adapter: Adapter
   }
   const voegDeelnemerToe = () => {
     const nm = prompt('Naam van de deelnemer of stand'); if (!nm) return
-    const mt = (prompt('Afmeting in meters, breedte x diepte', '3 x 3') || '3x3').replace(/,/g, '.').split(/[x×*]/i).map(v => parseFloat(v))
-    const p: PartnerRij = { id: 'x' + uid(), naam: nm, bedrijfsnaam: nm, pakket: 'los', type: 'los', stand_breedte_m: mt[0] || 3, stand_diepte_m: mt[1] || mt[0] || 3 }
+    // soort bepaalt de kleur, de standaardmaat en of hij meetelt als bar
+    let soort: Maat | undefined
+    if (maten.length) { const k = prompt('Wat voor soort?\n' + maten.map((m, i) => `${i + 1} = ${m.label}`).join('\n'), '1'); if (k === null) return; soort = maten[(parseInt(k) || 0) - 1] }
+    const mt = (prompt('Afmeting in meters, breedte x diepte', soort ? `${soort.breedte_m} x ${soort.diepte_m}` : '3 x 3') || '').replace(/,/g, '.').split(/[x×*]/i).map(v => parseFloat(v))
+    const p: PartnerRij = { id: 'x' + uid(), naam: nm, bedrijfsnaam: nm, pakket: soort?.pakket || 'los', type: soort?.pakket || 'los', stand_breedte_m: mt[0] || soort?.breedte_m || 3, stand_diepte_m: mt[1] || mt[0] || soort?.diepte_m || 3 }
     setDoc(d => ({ ...d, deelnemers: [...(d.deelnemers || []), p] }))
   }
 
@@ -283,13 +285,17 @@ export default function PlattegrondEditor({ adapter, flash }: { adapter: Adapter
   const gesel = doc.objs.filter(o => sel.includes(o.id))
 
   // ---- objecten toevoegen ----
-  const laagVoor = (kind: Kind) => {
+  const laagVoor = (kind: Kind, mat?: string) => {
+    const heeft = (id: string) => lagen.some(l => l.id === id)
     const actief = lagen.find(l => l.id === actieveLaag && !l.vast)
-    if (kind === 'partner' && lagen.some(l => l.id === 'partners')) return 'partners'
-    if ((kind === 'legenda' || kind === 'maat' || kind === 'text') && lagen.some(l => l.id === 'teksten')) return 'teksten'
+    if (kind === 'partner' && heeft('partners')) return 'partners'
+    if ((kind === 'legenda' || kind === 'maat' || kind === 'text') && heeft('teksten')) return 'teksten'
+    // materiaal komt vanzelf op de laag van zijn vakgebied
+    if ((kind === 'materiaal' || kind === 'hek') && mat) { const l = laagVanMateriaal(MATERIAAL[mat]); if (heeft(l)) return l }
     return actief?.id || lagen.find(l => !l.vast)?.id || lagen[0].id
   }
-  const voegToe = (objs: Obj[]) => { setDoc(d => ({ ...d, objs: [...d.objs, ...objs] })); setSel(objs.map(o => o.id)) }
+  // wat je toevoegt moet je ook zien: de laag gaat aan als die uit stond
+  const voegToe = (objs: Obj[]) => { const ls = new Set(objs.map(o => o.laag)); setDoc(d => ({ ...d, objs: [...d.objs, ...objs], lagen: (d.lagen || STANDAARD_LAGEN).some(l => ls.has(l.id) && !l.zichtbaar) ? (d.lagen || STANDAARD_LAGEN).map(l => ls.has(l.id) ? { ...l, zichtbaar: true } : l) : d.lagen })); setSel(objs.map(o => o.id)) }
   const vrijePlek = (o: Obj): Obj => {
     const blokken = doc.objs.filter(q => (q.kind === 'partner' || q.kind === 'materiaal') && !OMHULLEND.has(q.mat || '') && !(q.kind === 'materiaal' && stijlVan(MATERIAAL[q.mat || '']).s === 'bord')).map(hoeken)
     for (let i = 0; i < 80; i++) {
@@ -305,10 +311,19 @@ export default function PlattegrondEditor({ adapter, flash }: { adapter: Adapter
     const basis: Obj = { id: uid(), kind: 'partner', partnerId: p.id, x: rs(c[0] - m.w / 2), y: rs(c[1] - m.h / 2), w: m.w, h: m.h, rot: 0, laag: laagVoor('partner') }
     voegToe([op ? basis : vrijePlek(basis)]); setTool('select')
   }
+  const plaatsTent = () => {
+    if (!tentDlg) return
+    const m = MATERIAAL[tentDlg.key]; if (!m) return
+    const g = (v: string, std: number) => Math.max(1, parseFloat(v.replace(',', '.')) || std)
+    const w = g(tentDlg.w, m.w), h = m.rond ? w : g(tentDlg.h, m.h), c = tentDlg.op || midden()
+    const basis: Obj = { id: uid(), kind: 'materiaal', mat: m.key, x: rs(c[0] - Math.max(w, h) / 2), y: rs(c[1] - Math.min(w, h) / 2), w: Math.max(w, h), h: Math.min(w, h), rot: 0, laag: laagVoor('materiaal', m.key), publiek: tentDlg.publiek || undefined }
+    voegToe([tentDlg.op ? basis : vrijePlek(basis)]); setTentDlg(null); setTool('select')
+  }
   const plaatsMateriaal = (m: Materiaal, op?: Pt) => {
+    if (m.tent) { setTentDlg({ key: m.key, w: String(m.w), h: String(m.h), op, publiek: false }); return }
     if (isLijn(m)) { setHekMat(m.key); setTool('hek'); flash(m.soort === 'route' ? `Klik de ${m.label.toLowerCase()} aan, punt voor punt. De band laat zien wat vrij moet blijven.` : `Teken de lijn waar de ${m.label.toLowerCase()} moeten komen. De tool telt de stuks.`, 5000); return }
     const c = op || midden()
-    const basis: Obj = { id: uid(), kind: 'materiaal', mat: m.key, x: rs(c[0] - m.w / 2), y: rs(c[1] - m.h / 2), w: m.w, h: m.h, rot: 0, laag: laagVoor('materiaal'), ...(m.uitgang ? { toonLabel: true } : {}) }
+    const basis: Obj = { id: uid(), kind: 'materiaal', mat: m.key, x: rs(c[0] - m.w / 2), y: rs(c[1] - m.h / 2), w: m.w, h: m.h, rot: 0, laag: laagVoor('materiaal', m.key), ...(m.uitgang ? { toonLabel: true } : {}) }
     voegToe([op ? basis : vrijePlek(basis)]); setTool('select')
   }
   const plaatsLegenda = () => {
@@ -461,7 +476,7 @@ export default function PlattegrondEditor({ adapter, flash }: { adapter: Adapter
     const k = (e: KeyboardEvent) => {
       setAlt(e.altKey)
       const t = e.target as HTMLElement
-      if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || tekstEdit || verplaatsDlg || metaDlg || exportDlg) return
+      if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || tekstEdit || verplaatsDlg || metaDlg || exportDlg || tentDlg) return
       const cmd = e.metaKey || e.ctrlKey, key = e.key.toLowerCase(), code = e.code
       if (e.key === ' ') { spatie.current = true; e.preventDefault(); return }
       if (cmd) {
@@ -812,7 +827,7 @@ export default function PlattegrondEditor({ adapter, flash }: { adapter: Adapter
     const pts = concept.slice(0, -1).filter((p, i, a) => i === 0 || Math.hypot(p[0] - a[i - 1][0], p[1] - a[i - 1][1]) > 0.01)
     if (pts.length >= 2) {
       const o: Obj = tool === 'hek'
-        ? { id: uid(), kind: 'hek', mat: hekMat, x: 0, y: 0, w: 0, h: 0, rot: 0, pts, laag: laagVoor('hek') }
+        ? { id: uid(), kind: 'hek', mat: hekMat, x: 0, y: 0, w: 0, h: 0, rot: 0, pts, laag: laagVoor('hek', hekMat) }
         : { id: uid(), kind: 'line', x: 0, y: 0, w: 0, h: 0, rot: 0, pts, color: '#010341', dik: tool === 'line' ? 0.2 : 0.1, laag: laagVoor('line') }
       voegToe([o])
       if (tool === 'hek') flash(MATERIAAL[hekMat]?.soort === 'route' ? `${MATERIAAL[hekMat]!.label}: ${fmt(lengte(pts))}` : `${hekStuks(o)}× ${MATERIAAL[hekMat]?.label.toLowerCase()} (${fmt(lengte(pts))})`)
@@ -896,6 +911,26 @@ export default function PlattegrondEditor({ adapter, flash }: { adapter: Adapter
   }, [doc.objs, partnerById, maten])
   const genummerd = useMemo(() => doc.objs.filter(o => o.nr).sort((a, b) => a.nr! - b.nr!), [doc.objs])
   const checks = useMemo(() => controleer(doc, partnerById), [doc, partnerById])
+  const kg = useMemo(() => kengetallen(doc, partnerById), [doc, partnerById])
+  // ---- versies van de indeling ----
+  const versies = doc.versies || []
+  const wisselVersie = (id: string) => { if (id === doc.versie) return; setSel([]); setDoc(d => { const vs = (d.versies || []).map(v => v.id === d.versie ? { ...v, objs: d.objs } : v); const doel = vs.find(v => v.id === id); return doel ? { ...d, versies: vs, versie: id, objs: doel.objs } : d }) }
+  const nieuweVersie = () => {
+    const nm = prompt('Naam van de nieuwe versie. Je begint met een kopie van wat er nu staat.', `Versie ${String.fromCharCode(65 + Math.max(1, versies.length))}`); if (!nm) return
+    setSel([])
+    setDoc(d => {
+      const eerste = uid()
+      const huidig = d.versies?.length ? d.versies.map(v => v.id === d.versie ? { ...v, objs: d.objs } : v) : [{ id: eerste, naam: 'Versie A', objs: d.objs }]
+      const id = uid(), kopie: Obj[] = JSON.parse(JSON.stringify(d.objs))
+      return { ...d, versies: [...huidig, { id, naam: nm, objs: kopie }], versie: id, objs: kopie }
+    })
+    flash(`${nm} is een kopie van de vorige. Wissel bovenin om ze te vergelijken.`, 5000)
+  }
+  const hernoemVersie = (id: string) => { const v = versies.find(x => x.id === id); const nm = v && prompt('Naam van deze versie', v.naam); if (nm) setDoc(d => ({ ...d, versies: (d.versies || []).map(x => x.id === id ? { ...x, naam: nm } : x) })) }
+  const verwijderVersie = () => {
+    const v = versies.find(x => x.id === doc.versie); if (!v || versies.length < 2 || !confirm(`${v.naam} verwijderen? De andere versies blijven staan.`)) return
+    setSel([]); setDoc(d => { const rest = (d.versies || []).filter(x => x.id !== d.versie); return { ...d, versies: rest.length > 1 ? rest : undefined, versie: rest.length > 1 ? rest[0].id : undefined, objs: rest[0].objs } })
+  }
   const checkActies = checks.filter(c => c.status === 'actie').length
   const tegels = useMemo(() => doc.kaart && doc.kaart.zichtbaar
     ? kaartTegels(doc.kaart, { x1: view.x, y1: view.y, x2: view.x + maat.w / view.s, y2: view.y + maat.h / view.s }, view.s * 1.5)
@@ -983,7 +1018,7 @@ export default function PlattegrondEditor({ adapter, flash }: { adapter: Adapter
     try {
       const blad = await maakBlad({
         inhoud: tekeningInhoud, bbox: b, papier: inst.papier, schaal: inst.schaal, titel: inst.titel, vakken: inst.vakken,
-        meta: { ...meta, evenement: meta.evenement || naam }, merk: adapter.merk,
+        meta: { ...meta, evenement: meta.evenement || naam, versie: [meta.versie, versies.find(v => v.id === doc.versie)?.naam].filter(Boolean).join(' · ') || undefined }, merk: adapter.merk,
         noordHoek: doc.kaart ? 0 : (meta.noordHoek ?? 0),
         bron: doc.kaart?.zichtbaar ? `Ondergrond: PDOK ${doc.kaart.type === 'luchtfoto' ? 'Luchtfoto' : 'BGT'} (CC BY 4.0)` : '',
         legenda: { vlakken: pakketTelling.map(p => ({ kleur: p.maat.kleur, label: p.maat.label, aantal: p.n })), symbolen: telling, nummers: genummerd.map(o => ({ nr: o.nr!, naam: naamVan(o) })) },
@@ -1209,8 +1244,9 @@ export default function PlattegrondEditor({ adapter, flash }: { adapter: Adapter
           {kaders}
         </g>
       )
-      const tekst = (o.label || st.tekst || (o.toonLabel ? m?.label : '') || '') + (m?.uitgang ? ` ${fmt(Math.max(o.w, o.h))}` : '')
-      const stap = Math.max(0.5, (o.w > o.h ? o.w : o.h) / Math.max(3, Math.round((o.w > o.h ? o.w : o.h) / 1.5)))
+      const nlm = (v: number) => String(r2(v)).replace('.', ',')
+      const tekst = (o.label || (m?.tent ? `${m.tent.kort} ${m.rond ? 'Ø' + nlm(o.w) : nlm(o.w) + '×' + nlm(o.h)}` : st.tekst) || (o.toonLabel ? m?.label : '') || '') + (m?.uitgang ? ` ${fmt(Math.max(o.w, o.h))}` : '')
+      const stap = m?.tent ? m.tent.stap : Math.max(0.5, (o.w > o.h ? o.w : o.h) / Math.max(3, Math.round((o.w > o.h ? o.w : o.h) / 1.5)))
       return (
         <g key={o.id} opacity={dek}>
           <g transform={tr}>
@@ -1353,7 +1389,7 @@ export default function PlattegrondEditor({ adapter, flash }: { adapter: Adapter
   const gefilterd = relevante.filter(p => !zoek || (p.naam + ' ' + (p.bedrijfsnaam || '')).toLowerCase().includes(zoek.toLowerCase()))
   const groepen = maten.filter(m => m.pakket !== 'personeel').map(m => ({ m, ps: gefilterd.filter(p => p.pakket === m.pakket) })).filter(g => g.ps.length)
   const zonderGroep = gefilterd.filter(p => !maten.some(m => m.pakket === p.pakket))
-  const matGefilterd = MATERIALEN.filter(m => !matZoek || (m.label + ' ' + m.cat).toLowerCase().includes(matZoek.toLowerCase()))
+  const matGefilterd = MATERIALEN.filter(m => !m.oud).filter(m => !matZoek || (m.label + ' ' + m.cat).toLowerCase().includes(matZoek.toLowerCase()))
 
   const uiterlijk = (objs: Obj[]) => {
     const o = objs[0]; const ids = objs.map(x => x.id)
@@ -1403,11 +1439,11 @@ export default function PlattegrondEditor({ adapter, flash }: { adapter: Adapter
   const tekstObj = tekstEdit ? doc.objs.find(o => o.id === tekstEdit.id) : null
 
   return (
-    <div style={{ '--pg-inkt': adapter.thema.inkt, '--pg-papier': adapter.thema.papier, '--pg-kaart': adapter.thema.kaart, '--pg-accent': adapter.thema.accent, '--pg-serif': adapter.thema.serif, '--pg-sans': adapter.thema.sans, fontFamily: adapter.thema.sans } as React.CSSProperties}>
-      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 12 }}>
+    <div style={{ '--pg-inkt': adapter.thema.inkt, '--pg-papier': adapter.thema.papier, '--pg-kaart': adapter.thema.kaart, '--pg-accent': adapter.thema.accent, '--pg-serif': adapter.thema.serif, '--pg-sans': adapter.thema.sans, fontFamily: adapter.thema.sans, ...(adapter.volledig ? { height: '100vh', display: 'flex', flexDirection: 'column', padding: '10px 14px', boxSizing: 'border-box', background: adapter.thema.papier, overflow: 'hidden' } : {}) } as React.CSSProperties}>
+      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: adapter.volledig ? 8 : 12 }}>
         <div>
-          <div style={AS.title}>Plattegrond</div>
-          <div style={{ ...AS.sub, marginBottom: 0 }}>Technische tekening op ware schaal, klaar om in te dienen bij de gemeente.</div>
+          <div style={{ ...AS.title, ...(adapter.volledig ? { fontSize: 19, marginBottom: 0 } : {}) }}>{adapter.titel || 'Plattegrond'}</div>
+          {!adapter.volledig && <div style={{ ...AS.sub, marginBottom: 0 }}>Technische tekening op ware schaal, klaar om in te dienen bij de gemeente.</div>}
         </div>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
           <select style={{ ...mini, width: 'auto', minWidth: 210 }} value={huidigId || ''} onChange={e => open(e.target.value)}>
@@ -1449,6 +1485,86 @@ export default function PlattegrondEditor({ adapter, flash }: { adapter: Adapter
                 </div>
               </div>
             )}
+      {tentDlg && (() => {
+        const m = MATERIAAL[tentDlg.key]!, t = m.tent!
+        const g = (v: string) => parseFloat(v.replace(',', '.')) || 0
+        const w = g(tentDlg.w), h = m.rond ? w : g(tentDlg.h), opp = m.rond ? Math.PI * w * w / 4 : w * h
+        return (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60 }} onPointerDown={e => { if (e.target === e.currentTarget) setTentDlg(null) }}>
+            <div style={{ ...AS.card, width: 420, margin: 0 }}>
+              <div style={{ ...AS.cardTitle, fontSize: 16, marginBottom: 10 }}>Tent plaatsen</div>
+              <label style={{ fontSize: 12, color: '#777162', display: 'block', marginBottom: 10 }}>Type tent
+                <select style={AS.input} value={tentDlg.key} onChange={e => { const n = MATERIAAL[e.target.value]!; setTentDlg({ ...tentDlg, key: n.key, w: String(n.w), h: String(n.h) }) }}>
+                  {MATERIALEN.filter(x => x.tent).map(x => <option key={x.key} value={x.key}>{x.label}</option>)}
+                </select></label>
+              <div style={{ fontSize: 12, color: '#777162', marginBottom: 4 }}>{m.rond ? 'Doorsnede' : 'Breedte'} (m)</div>
+              <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', alignItems: 'center', marginBottom: 10 }}>
+                {t.breedtes.map(b => <button key={b} onClick={() => setTentDlg({ ...tentDlg, w: String(b), ...(tentDlg.key === 'pagode' ? { h: String(b) } : {}) })} style={{ ...AS.btnSm, ...(g(tentDlg.w) === b ? { background: 'var(--pg-inkt)', color: 'var(--pg-papier)', border: '1px solid var(--pg-inkt)' } : {}) }}>{b}</button>)}
+                <input style={{ ...AS.input, width: 76 }} value={tentDlg.w} onKeyDown={e => { e.stopPropagation(); if (e.key === 'Enter') plaatsTent() }} onChange={e => setTentDlg({ ...tentDlg, w: e.target.value })} />
+              </div>
+              {!m.rond && <label style={{ fontSize: 12, color: '#777162', display: 'block', marginBottom: 10 }}>Lengte (m){t.stap > 1 ? `, per ${String(t.stap).replace('.', ',')} m` : ''}
+                <input autoFocus style={AS.input} type="number" step={t.stap} min={1} value={tentDlg.h} onKeyDown={e => { e.stopPropagation(); if (e.key === 'Enter') plaatsTent() }} onChange={e => setTentDlg({ ...tentDlg, h: e.target.value })} /></label>}
+              <div style={{ fontSize: 12, color: 'var(--pg-inkt)', background: '#f6f2e8', borderRadius: 8, padding: '8px 10px', lineHeight: 1.6 }}>
+                <b>{Math.round(opp).toLocaleString('nl-NL')} m²</b> · staand ± {Math.floor(opp * normen.dichtheid).toLocaleString('nl-NL')} personen · zittend aan tafels ± {Math.floor(opp).toLocaleString('nl-NL')}
+                {opp > 25 && <><br /><span style={{ color: '#9a5b00' }}>Groter dan 25 m²: tentboek en brandcertificaat meesturen.</span></>}
+              </div>
+              <label style={{ fontSize: 12, color: '#777162', display: 'flex', gap: 6, alignItems: 'center', marginTop: 10, cursor: 'pointer' }}><input type="checkbox" checked={tentDlg.publiek} onChange={e => setTentDlg({ ...tentDlg, publiek: e.target.checked })} /> Telt mee als publieksruimte (voor de capaciteit)</label>
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 14 }}>
+                <button style={AS.btnSm} onClick={() => setTentDlg(null)}>Annuleer</button>
+                <button style={{ ...AS.btnSm, background: 'var(--pg-inkt)', color: 'var(--pg-papier)', border: '1px solid var(--pg-inkt)' }} onClick={plaatsTent}>Plaats tent</button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+      {huidigId && <>
+        {/* kengetallen: wat heb je, wat heb je nodig bij dit aantal bezoekers */}
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginBottom: 7 }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 700, color: 'var(--pg-inkt)', background: 'var(--pg-kaart)', border: '1px solid rgba(0,0,0,0.1)', borderRadius: 9, padding: '4px 8px 4px 10px' }}>Bezoekers tegelijk
+            <input type="number" min={0} step={50} value={meta.bezoekers ?? ''} placeholder="aantal" onChange={e => setDoc(d => ({ ...d, meta: { ...(d.meta || {}), bezoekers: e.target.value === '' ? undefined : Math.max(0, parseInt(e.target.value) || 0) } }))}
+              style={{ width: 78, border: '1px solid #e3dcc9', borderRadius: 6, padding: '3px 6px', fontSize: 13, fontWeight: 700, fontFamily: 'var(--pg-sans)', color: 'var(--pg-inkt)' }} /></label>
+          {(() => {
+            const nl = (v: number, d = 0) => v.toLocaleString('nl-NL', { maximumFractionDigits: d })
+            const chip = (label: string, waarde: string, staat: 'ok' | 'tekort' | 'leeg', titel: string) => (
+              <button key={label} title={titel} onClick={() => setZijTab('check')} style={{ display: 'flex', alignItems: 'baseline', gap: 6, fontSize: 12, fontFamily: 'var(--pg-sans)', cursor: 'pointer', borderRadius: 9, padding: '6px 10px', border: '1px solid ' + (staat === 'ok' ? '#b9d8bf' : staat === 'tekort' ? '#f0b8b3' : 'rgba(0,0,0,0.1)'), background: staat === 'ok' ? '#e8f3ea' : staat === 'tekort' ? '#fdecea' : 'var(--pg-kaart)', color: staat === 'ok' ? '#22592e' : staat === 'tekort' ? '#a3241b' : '#777162' }}>
+                <span style={{ fontWeight: 600 }}>{label}</span><span style={{ fontWeight: 700 }}>{waarde}</span>
+              </button>
+            )
+            const st = (heb: number, nodig: number): 'ok' | 'tekort' | 'leeg' => !kg.bez ? 'leeg' : heb + 1e-6 >= nodig ? 'ok' : 'tekort'
+            return [
+              kg.capaciteit == null
+                ? chip('Capaciteit', 'teken publieksruimte', 'leeg', 'Teken het vlak waar publiek staat (pen) of plaats een tent, en vink Publieksruimte aan. Dan zie je hier hoeveel personen erop passen.')
+                : chip('Capaciteit', `${nl(kg.capaciteit)} pers.`, st(kg.capaciteit, kg.bez), `Zoveel personen passen op de publieksruimte bij ${String(normen.dichtheid).replace('.', ',')} per m².`),
+              chip('Nooduitgang', kg.bez ? `${nl(kg.uitgangM, 1)} / ${nl(kg.uitgangNodig, 1)} m` : `${nl(kg.uitgangM, 1)} m`, kg.uitgangen < 2 && kg.bez ? 'tekort' : st(kg.uitgangM, kg.uitgangNodig), `Breedte van alle (nood)uitgangen samen, tegenover wat nodig is bij ${normen.uitgangPm} personen per meter. Minimaal twee uitgangen.`),
+              chip('Toiletten', kg.bez ? `${kg.wc} / ${kg.wcNodig}` : `${kg.wc}`, st(kg.wc, kg.wcNodig), `Eén toilet per ${normen.toiletPer} bezoekers, minimaal twee. Een toiletwagen telt voor 8, een urinoir voor 4.`),
+              chip('Bar', kg.bez ? `${nl(kg.barM, 1)} / ${nl(kg.barNodig, 1)} m` : `${nl(kg.barM, 1)} m`, st(kg.barM, kg.barNodig), `Strekkende meter bar, tegenover de vuistregel van één meter per ${normen.barPer} bezoekers.`),
+              chip('EHBO', kg.ehbo ? (kg.bez ? `post · ${kg.hulpverleners} hulpverleners` : 'post') : 'geen post', kg.ehbo ? (kg.bez ? 'ok' : 'leeg') : (kg.bez ? 'tekort' : 'leeg'), `Eén hulpverlener per ${normen.ehboPer} bezoekers, minimaal twee.`),
+            ]
+          })()}
+          {!kg.bez && <span style={{ fontSize: 11.5, color: '#a39d8c' }}>Vul het aantal bezoekers in, dan zie je direct of het genoeg is.</span>}
+        </div>
+        {/* lagen per vakgebied aan en uit, en wisselen tussen versies van de indeling */}
+        <div style={{ display: 'flex', gap: 5, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
+          <span style={{ fontSize: 11, fontWeight: 700, color: '#a39d8c', letterSpacing: 0.4, textTransform: 'uppercase', marginRight: 2 }}>Lagen</span>
+          {lagen.map(l => {
+            const n = doc.objs.filter(o => o.laag === l.id).length, kl = VAKLAGEN.find(v => v.id === l.id)?.kleur || '#777'
+            return <button key={l.id} title={l.zichtbaar ? 'Klik om te verbergen' : 'Klik om te tonen'} onClick={() => setDoc(d => ({ ...d, lagen: (d.lagen || STANDAARD_LAGEN).map(x => x.id === l.id ? { ...x, zichtbaar: !x.zichtbaar } : x) }))}
+              style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 600, fontFamily: 'var(--pg-sans)', cursor: 'pointer', borderRadius: 20, padding: '3px 9px 3px 7px', border: '1px solid ' + (l.zichtbaar ? 'rgba(0,0,0,0.14)' : 'rgba(0,0,0,0.07)'), background: l.zichtbaar ? 'var(--pg-kaart)' : 'transparent', color: l.zichtbaar ? 'var(--pg-inkt)' : '#b5ae9c', textDecoration: l.zichtbaar ? 'none' : 'line-through' }}>
+              <span style={{ width: 9, height: 9, borderRadius: 5, background: l.zichtbaar ? kl : 'transparent', border: '1.5px solid ' + kl }} />{l.naam}{n > 0 && <span style={{ fontWeight: 400, opacity: 0.6 }}>{n}</span>}
+            </button>
+          })}
+          <button onClick={() => setDoc(d => ({ ...d, lagen: (d.lagen || STANDAARD_LAGEN).map(x => ({ ...x, zichtbaar: true })) }))} style={{ fontSize: 11.5, border: 'none', background: 'none', color: '#a39d8c', cursor: 'pointer', fontFamily: 'var(--pg-sans)' }}>alles aan</button>
+          <span style={{ flex: 1 }} />
+          <span style={{ fontSize: 11, fontWeight: 700, color: '#a39d8c', letterSpacing: 0.4, textTransform: 'uppercase', marginRight: 2 }}>Versie</span>
+          {(versies.length ? versies : [{ id: '', naam: 'Versie A', objs: [] }]).map(v => {
+            const actief = !versies.length || v.id === doc.versie
+            return <button key={v.id} onClick={() => v.id && wisselVersie(v.id)} onDoubleClick={() => v.id && hernoemVersie(v.id)} title={versies.length ? 'Klik om te wisselen, dubbelklik om te hernoemen' : 'Maak een tweede versie om indelingen te vergelijken'}
+              style={{ fontSize: 11.5, fontWeight: 700, fontFamily: 'var(--pg-sans)', cursor: 'pointer', borderRadius: 8, padding: '4px 10px', border: '1px solid ' + (actief ? 'var(--pg-inkt)' : 'rgba(0,0,0,0.14)'), background: actief ? 'var(--pg-inkt)' : 'var(--pg-kaart)', color: actief ? 'var(--pg-papier)' : 'var(--pg-inkt)' }}>{v.naam}</button>
+          })}
+          <button onClick={nieuweVersie} title="Kopie van de huidige indeling als nieuwe versie" style={{ fontSize: 11.5, fontWeight: 700, fontFamily: 'var(--pg-sans)', cursor: 'pointer', borderRadius: 8, padding: '4px 9px', border: '1px dashed rgba(0,0,0,0.25)', background: 'transparent', color: 'var(--pg-inkt)' }}>+ versie</button>
+          {versies.length > 1 && <button onClick={verwijderVersie} title="Deze versie verwijderen" style={{ fontSize: 13, border: 'none', background: 'none', color: '#b5ae9c', cursor: 'pointer' }}>×</button>}
+        </div>
+      </>}
       {!huidigId ? (
         <div style={{ ...AS.card, textAlign: 'center', padding: 60 }}>
           <div style={{ fontFamily: 'var(--pg-serif)', fontSize: 20, color: 'var(--pg-inkt)', marginBottom: 8 }}>Begin een nieuwe tekening</div>
@@ -1456,7 +1572,7 @@ export default function PlattegrondEditor({ adapter, flash }: { adapter: Adapter
           <button style={AS.btn} onClick={nieuw}>Nieuwe plattegrond</button>
         </div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: '46px 1fr 336px', gap: 10, height: 'calc(100vh - 180px)', minHeight: 600 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '46px 1fr 336px', gap: 10, ...(adapter.volledig ? { flex: 1, minHeight: 0 } : { height: 'calc(100vh - 250px)', minHeight: 600 }) }}>
           {/* gereedschap */}
           <div style={{ ...AS.card, padding: 4, margin: 0, display: 'flex', flexDirection: 'column', gap: 2, alignItems: 'center', overflowY: 'auto' }}>
             {knop('select', svgIcon('<path d="M5 3l14 8-6 2-3 6z" fill="currentColor"/>'), 'Selecteren', 'V')}
@@ -1666,7 +1782,7 @@ export default function PlattegrondEditor({ adapter, flash }: { adapter: Adapter
                     {MATERIALEN.filter(m => m.soort === MATERIAAL[enkel.mat || '']?.soort).map(m => <option key={m.key} value={m.key}>{m.label}</option>)}
                   </select></div>}
                 {enkel.kind === 'partner' && <div style={{ fontSize: 10.5, color: '#8b8574', marginTop: 5 }}>Maat komt van de partner. Aanpassen kan in de partnerlijst.</div>}
-                {(enkel.kind === 'poly' || enkel.kind === 'rect') && <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 6 }}>
+                {(enkel.kind === 'poly' || enkel.kind === 'rect' || !!MATERIAAL[enkel.mat || '']?.tent) && <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 6 }}>
                   <label style={{ fontSize: 11, color: '#777162', display: 'flex', gap: 5, alignItems: 'center', cursor: 'pointer' }}><input type="checkbox" checked={!!enkel.publiek} onChange={e => wijzig([enkel.id], o => ({ ...o, publiek: e.target.checked }))} /> Publieksruimte</label>
                   {enkel.publiek && <label style={{ fontSize: 11, color: '#777162', display: 'flex', gap: 4, alignItems: 'center' }}><input style={{ ...mini, width: 52 }} type="number" step={0.5} min={0.5} value={enkel.dichtheid ?? normen.dichtheid} onChange={e => wijzig([enkel.id], o => ({ ...o, dichtheid: Math.max(0.1, parseFloat(e.target.value) || 2.5) }))} /> pers/m²</label>}
                 </div>}
@@ -1888,7 +2004,7 @@ export default function PlattegrondEditor({ adapter, flash }: { adapter: Adapter
                   })}
                   <button style={{ ...klein, border: 'none', color: '#a39d8c', paddingLeft: 0 }} onClick={() => setToonNormen(v => !v)}>{toonNormen ? 'Verberg normen' : 'Normen aanpassen (per gemeente verschillend)'}</button>
                   {toonNormen && <div style={{ display: 'grid', gridTemplateColumns: '1fr 70px', gap: 5, alignItems: 'center', fontSize: 11.5, color: '#777162', marginTop: 4 }}>
-                    {([['calBreedte', 'Calamiteitenroute, breedte in m'], ['uitgangPm', 'Personen per meter uitgang'], ['uitgangMin', 'Nooduitgang minimaal, m'], ['toiletPer', 'Bezoekers per toilet'], ['ehboPer', 'Bezoekers per hulpverlener'], ['blusAfstand', 'Blusser binnen, m'], ['dichtheid', 'Personen per m² publieksruimte']] as const).map(([k, l]) => (
+                    {([['calBreedte', 'Calamiteitenroute, breedte in m'], ['uitgangPm', 'Personen per meter uitgang'], ['uitgangMin', 'Nooduitgang minimaal, m'], ['toiletPer', 'Bezoekers per toilet'], ['ehboPer', 'Bezoekers per hulpverlener'], ['blusAfstand', 'Blusser binnen, m'], ['dichtheid', 'Personen per m² publieksruimte'], ['barPer', 'Bezoekers per meter bar']] as const).map(([k, l]) => (
                       <label key={k} style={{ display: 'contents' }}><span>{l}</span><input style={mini} type="number" step={k === 'uitgangMin' || k === 'calBreedte' || k === 'dichtheid' ? 0.05 : 1} value={normen[k]} onChange={e => { const v = parseFloat(e.target.value); if (v > 0) setDoc(d => ({ ...d, normen: { ...(d.normen || {}), [k]: v } })) }} /></label>
                     ))}
                     <span style={{ gridColumn: '1 / -1', fontSize: 10.5, color: '#a39d8c', lineHeight: 1.5 }}>Er is geen landelijke norm. Dit zijn de gangbare vuistregels; sommige gemeentes vragen bijvoorbeeld 4,5 m voor de calamiteitenroute. De gemeente heeft het laatste woord.</span>

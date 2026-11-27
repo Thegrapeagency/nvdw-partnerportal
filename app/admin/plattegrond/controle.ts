@@ -8,7 +8,28 @@ import { MATERIAAL, stijlVan } from './materialen'
 import { hoeken, overlapt, lengte, oppervlak, afstandSegPoly, middenVan, fmt, r2 } from './geo'
 
 export type Check = { id: string; status: 'ok' | 'actie' | 'tip'; titel: string; uitleg: string; ids?: string[]; naar?: 'gegevens' | 'locatie' | 'materialen' | 'normen' }
-export const OMHULLEND = new Set(['tent3', 'tent3x6', 'tent5', 'tent6x12', 'tent10x20', 'stretchtent', 'terras', 'verzamel', 'podium', 'backstage', 'parkeren', 'fietsen', 'tribune'])
+export const OMHULLEND = new Set(['pagode', 'aluhal', 'easyup', 'stretch', 'stertent', 'tipi', 'spiegeltent', 'tent3', 'tent3x6', 'tent5', 'tent6x12', 'tent10x20', 'stretchtent', 'terras', 'verzamel', 'podium', 'backstage', 'parkeren', 'fietsen', 'tribune'])
+
+// De kengetallen bovenin: wat heb je, en wat heb je nodig bij dit aantal bezoekers
+export type Kengetallen = { bez: number; capaciteit: number | null; uitgangM: number; uitgangNodig: number; uitgangen: number; wc: number; wcNodig: number; barM: number; barNodig: number; ehbo: boolean; hulpverleners: number }
+export function kengetallen(doc: Doc, partnerById: Record<string, PartnerRij>): Kengetallen {
+  const n = { ...STANDAARD_NORMEN, ...(doc.normen || {}) }
+  const bez = doc.meta?.bezoekers || 0
+  const objs = doc.objs.filter(o => !o.verborgen), mats = objs.filter(o => o.kind === 'materiaal')
+  const zones = objs.filter(o => o.publiek)
+  const uitg = mats.filter(o => MATERIAAL[o.mat || '']?.uitgang)
+  // bar: de lange zijde van elke bar, plus deelnemers die een bar zijn (alles behalve food)
+  const barM = mats.filter(o => o.mat === 'bar').reduce((s, o) => s + Math.max(o.w, o.h), 0)
+    + objs.filter(o => o.kind === 'partner' && !['food', 'los', 'stand', 'restaurant'].includes(partnerById[o.partnerId || '']?.type || 'los')).reduce((s, o) => s + Math.max(o.w, o.h), 0)
+  return {
+    bez,
+    capaciteit: zones.length ? Math.floor(zones.reduce((s, o) => s + oppervlak(o) * (o.dichtheid || n.dichtheid), 0)) : null,
+    uitgangen: uitg.length, uitgangM: uitg.reduce((s, o) => s + Math.max(o.w, o.h), 0), uitgangNodig: bez / n.uitgangPm,
+    wc: mats.reduce((s, o) => s + (MATERIAAL[o.mat || '']?.wc || 0), 0), wcNodig: bez ? Math.max(2, Math.ceil(bez / n.toiletPer)) : 0,
+    barM, barNodig: bez / n.barPer,
+    ehbo: mats.some(o => o.mat === 'ehbo'), hulpverleners: bez ? Math.max(2, Math.ceil(bez / n.ehboPer)) : 0,
+  }
+}
 
 export function controleer(doc: Doc, partnerById: Record<string, PartnerRij>): Check[] {
   const n = { ...STANDAARD_NORMEN, ...(doc.normen || {}) }
@@ -90,6 +111,12 @@ export function controleer(doc: Doc, partnerById: Record<string, PartnerRij>): C
   else if (!miva) uit.push({ id: 'toilet', status: 'tip', titel: `Toiletten: ${wcs} (${nodig} nodig)`, uitleg: 'Aantal is in orde. Er staat nog geen toilet voor mindervaliden op de tekening.', naar: 'materialen' })
   else uit.push({ id: 'toilet', status: 'ok', titel: `Toiletten: ${wcs} (${nodig} nodig)`, uitleg: 'Inclusief toilet voor mindervaliden.' })
 
+  // 6b. bar
+  const kg = kengetallen(doc, partnerById)
+  if (bez && kg.barM > 0) uit.push(kg.barM + 1e-6 < kg.barNodig
+    ? { id: 'bar', status: 'tip', titel: `Bar: ${fmt(kg.barM)} van ${fmt(kg.barNodig)}`, uitleg: `Vuistregel: één strekkende meter bar per ${n.barPer} bezoekers. Te weinig bar geeft rijen. Dit is geen eis van de gemeente.` }
+    : { id: 'bar', status: 'ok', titel: `Bar: ${fmt(kg.barM)} strekkende meter`, uitleg: `Genoeg voor ${nl(Math.floor(kg.barM * n.barPer))} bezoekers bij één meter per ${n.barPer}.` })
+
   // 7. EHBO
   const ehbo = van('ehbo')
   uit.push(ehbo.length
@@ -111,7 +138,7 @@ export function controleer(doc: Doc, partnerById: Record<string, PartnerRij>): C
   if (ov.size) uit.push({ id: 'overlap', status: 'actie', titel: `${ov.size} objecten staan over elkaar`, uitleg: 'Twee dingen kunnen niet op dezelfde plek staan. Klik om ze te zien.', ids: [...ov] })
 
   // 10. tenten
-  const tenten = mats.filter(o => (o.mat || '').includes('tent'))
+  const tenten = mats.filter(o => MATERIAAL[o.mat || '']?.tent || (o.mat || '').includes('tent'))
   const groot = tenten.filter(o => o.w * o.h > 25)
   if (groot.length) uit.push({ id: 'tent', status: 'tip', titel: `${groot.length} ${groot.length === 1 ? 'tent' : 'tenten'} groter dan 25 m²`, uitleg: 'Stuur het tentboek en het brandcertificaat van het doek mee. Bij meer dan 150 personen in één tent wil de brandweer ook een indeling van de tent op schaal 1:100 of 1:200 zien: maak daarvoor een kopie van deze tekening en exporteer alleen de tent.', ids: groot.map(o => o.id) })
 

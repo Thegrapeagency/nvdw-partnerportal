@@ -35,8 +35,8 @@ export type Meta = {
   tekenaar?: string; versie?: string
   noordHoek?: number | null // graden, alleen zonder kaartondergrond
 }
-export type Normen = { calBreedte: number; uitgangPm: number; uitgangMin: number; toiletPer: number; ehboPer: number; blusAfstand: number; dichtheid: number }
-export const STANDAARD_NORMEN: Normen = { calBreedte: 3.5, uitgangPm: 90, uitgangMin: 0.85, toiletPer: 150, ehboPer: 1000, blusAfstand: 5, dichtheid: 2.5 }
+export type Normen = { calBreedte: number; uitgangPm: number; uitgangMin: number; toiletPer: number; ehboPer: number; blusAfstand: number; dichtheid: number; barPer: number }
+export const STANDAARD_NORMEN: Normen = { calBreedte: 3.5, uitgangPm: 90, uitgangMin: 0.85, toiletPer: 150, ehboPer: 1000, blusAfstand: 5, dichtheid: 2.5, barPer: 100 }
 export type PartnerRij = { id: string; naam: string; bedrijfsnaam: string | null; pakket: string; type: string; stand_breedte_m: number | null; stand_diepte_m: number | null; barlocatie?: string | null }
 export type Maat = { pakket: string; label: string; breedte_m: number; diepte_m: number; kleur: string }
 export type Doc = {
@@ -44,6 +44,8 @@ export type Doc = {
   lagen?: Laag[]; gidsen?: { x: number[]; y: number[] }; nrGrootte?: number
   meta?: Meta; normen?: Partial<Normen>
   deelnemers?: PartnerRij[] // los toegevoegd in deze tekening
+  // Versies van de indeling: de actieve staat in objs, de andere wachten hier.
+  versies?: { id: string; naam: string; objs: Obj[] }[]; versie?: string
 }
 
 export type Adapter = {
@@ -51,6 +53,8 @@ export type Adapter = {
   merk: string                          // naam in het titelblok
   deelnemerLabel: string                // 'Partners' of 'Standhouders'
   pdfWorker: string                     // pad naar pdf.worker.min.js
+  volledig?: boolean                    // zelfstandige app: vult het hele scherm
+  titel?: string                        // naam bovenin (standaard 'Plattegrond')
   thema: { inkt: string; papier: string; kaart: string; accent: string; serif: string; sans: string }
   lijst(): Promise<{ id: string; naam: string; updated_at: string }[]>
   open(id: string): Promise<{ naam: string; data: unknown } | null>
