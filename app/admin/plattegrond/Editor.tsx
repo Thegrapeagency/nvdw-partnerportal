@@ -79,6 +79,8 @@ export default function PlattegrondEditor({ adapter, flash }: { adapter: Adapter
   const [adresQ, setAdresQ] = useState('')
   const [adressen, setAdressen] = useState<Adres[] | null>(null)
   const [toonNormen, setToonNormen] = useState(false)
+  const [groepHoek, setGroepHoek] = useState<number | null>(null) // tijdens het draaien van een groep
+  const [draaiInvoer, setDraaiInvoer] = useState('45')
   const [tentDlg, setTentDlg] = useState<{ key: string; w: string; h: string; op?: Pt; publiek: boolean } | null>(null)
   const [toonHulp, setToonHulp] = useState(false)
   const [maat, setMaatSvg] = useState({ w: 1000, h: 700 })
@@ -669,7 +671,8 @@ export default function PlattegrondEditor({ adapter, flash }: { adapter: Adapter
     // selecteren
     const h = doelEl.getAttribute('data-handle')
     if (h && gesel.length >= 1) {
-      begin(h === 'rot' ? 'rot' : h.startsWith('pt') ? 'pt' : 'resize', p, gesel.length === 1 ? [...gesel] : [...gesel], { handle: h }); return
+      if (h === 'rotg') { const c = middenSel(); begin('rotg', p, gesel.filter(o => !o.locked), { extra: { c, a0: Math.atan2(p[1] - c[1], p[0] - c[0]) } }); setGroepHoek(0); return }
+      begin(h === 'rot' ? 'rot' : h.startsWith('pt') ? 'pt' : 'resize', p, [...gesel], { handle: h }); return
     }
     const gidsAttr = doelEl.getAttribute('data-gids')
     if (gidsAttr) { const [as, i] = gidsAttr.split(':'); begin('gids', p, [], { extra: { as, i: parseInt(i) } }); return }
@@ -736,6 +739,18 @@ export default function PlattegrondEditor({ adapter, flash }: { adapter: Adapter
       a = e.shiftKey ? Math.round(a / 45) * 45 : Math.round(a)
       wijzig([o.id], q => ({ ...q, rot: ((a % 360) + 360) % 360 }), false); return
     }
+    if (d.type === 'rotg') {
+      // hele selectie als één geheel om het midden draaien
+      const { c, a0 } = d.extra as { c: Pt; a0: number }
+      let g = ((Math.atan2(p[1] - c[1], p[0] - c[0]) - a0) * 180) / Math.PI
+      g = e.shiftKey ? Math.round(g / 15) * 15 : Math.round(g)
+      const origById = Object.fromEntries(d.orig.map(o => [o.id, o]))
+      setDoc(x => ({ ...x, objs: x.objs.map(q => { const o = origById[q.id]; if (!o) return q
+        if (o.pts) return { ...o, pts: o.pts.map(pt => draaiPunt(pt, c, g)) }
+        const [nx, ny] = draaiPunt([o.x + o.w / 2, o.y + o.h / 2], c, g)
+        return { ...o, x: nx - o.w / 2, y: ny - o.h / 2, rot: (((o.rot + g) % 360) + 360) % 360 } }) }), false)
+      setGroepHoek(((g % 360) + 360) % 360); return
+    }
     if (d.type === 'pt') {
       const o = d.orig[0], i = parseInt(d.handle!.slice(2)), sp = rsp(p)
       const buur = o.pts![i - 1] || o.pts![i + 1]
@@ -766,7 +781,7 @@ export default function PlattegrondEditor({ adapter, flash }: { adapter: Adapter
     }
   }
   const onUp = (e: React.PointerEvent) => {
-    const d = drag.current; drag.current = null; setGidsen({})
+    const d = drag.current; drag.current = null; setGidsen({}); setGroepHoek(null)
     if (!d) return
     const r = svgRef.current!.getBoundingClientRect()
     const sx = e.clientX - r.left, sy = e.clientY - r.top
@@ -802,7 +817,7 @@ export default function PlattegrondEditor({ adapter, flash }: { adapter: Adapter
       return
     }
     if (d.type === 'move' && d.extra) { const t = d.extra as { dx: number; dy: number }; laatsteTransform.current = { dx: t.dx, dy: t.dy, kopie: !!d.kopie } }
-    if (['move', 'rot', 'resize', 'pt', 'bg', 'gids'].includes(d.type) && docRef.current !== d.pre) {
+    if (['move', 'rot', 'rotg', 'resize', 'pt', 'bg', 'gids'].includes(d.type) && docRef.current !== d.pre) {
       hist.current.past.push(d.pre); hist.current.future = []; setOpgeslagen('nee')
     }
   }
@@ -1298,7 +1313,12 @@ export default function PlattegrondEditor({ adapter, flash }: { adapter: Adapter
       const b = bbox(gesel.flatMap(hoeken))
       return <g data-ui>
         <rect x={b.x1} y={b.y1} width={b.x2 - b.x1} height={b.y2 - b.y1} fill="none" stroke="#2b6cb0" strokeWidth={sw} strokeDasharray={`${4 * sw} ${3 * sw}`} />
-        {toonMaten && <text x={(b.x1 + b.x2) / 2} y={b.y2 + 16 * sw} fontSize={11 * sw} textAnchor="middle" fill="#2b6cb0" fontFamily="Inter" fontWeight={600}>{fmt(b.x2 - b.x1)} × {fmt(b.y2 - b.y1)}</text>}
+        {toonMaten && groepHoek === null && <text x={(b.x1 + b.x2) / 2} y={b.y2 + 16 * sw} fontSize={11 * sw} textAnchor="middle" fill="#2b6cb0" fontFamily="Inter" fontWeight={600}>{fmt(b.x2 - b.x1)} × {fmt(b.y2 - b.y1)}</text>}
+        {groepHoek === null && <>
+          <line x1={(b.x1 + b.x2) / 2} y1={b.y1} x2={(b.x1 + b.x2) / 2} y2={b.y1 - 24 * sw} stroke="#2b6cb0" strokeWidth={sw} />
+          <circle data-handle="rotg" cx={(b.x1 + b.x2) / 2} cy={b.y1 - 24 * sw} r={6 * sw} fill="#fff" stroke="#2b6cb0" strokeWidth={1.5 * sw} style={{ cursor: 'grab' }}><title>Sleep om de hele selectie te draaien. Shift = stappen van 15 graden.</title></circle>
+        </>}
+        {groepHoek !== null && <text x={(b.x1 + b.x2) / 2} y={b.y1 - 12 * sw} fontSize={13 * sw} textAnchor="middle" fill="#2b6cb0" fontFamily="Inter" fontWeight={700} stroke="#fff" strokeWidth={3 * sw} paintOrder="stroke">{Math.round(groepHoek)}°</text>}
       </g>
     }
     const o = gesel[0]; if (o.locked) return null
@@ -1806,6 +1826,14 @@ export default function PlattegrondEditor({ adapter, flash }: { adapter: Adapter
                   <button style={klein} onClick={() => verdeelMetTussenruimte('x')}>Tussenruimte ↔</button>
                   <button style={klein} onClick={() => verdeelMetTussenruimte('y')}>Tussenruimte ↕</button>
                 </div>
+                <div style={sectie}>Als geheel draaien</div>
+                <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <button style={klein} onClick={() => draai(-90)}>⟲ 90°</button>
+                  <button style={klein} onClick={() => draai(90)}>⟳ 90°</button>
+                  <input style={{ ...mini, width: 54 }} type="number" step={5} value={draaiInvoer} onChange={e => setDraaiInvoer(e.target.value)} onKeyDown={e => { e.stopPropagation(); if (e.key === 'Enter') draai(parseFloat(draaiInvoer) || 0) }} />
+                  <button style={klein} onClick={() => draai(parseFloat(draaiInvoer) || 0)}>° draaien</button>
+                </div>
+                <div style={{ fontSize: 10.5, color: '#a39d8c', marginTop: 3 }}>Of sleep het rondje boven de selectie. Shift = stappen van 15°.</div>
                 <div style={{ display: 'flex', gap: 4, marginTop: 8 }}>
                   <button style={klein} title="⌘G" onClick={groepeer}>Groepeer</button>
                   <button style={klein} title="⇧⌘G" onClick={degroepeer}>Groep opheffen</button>
