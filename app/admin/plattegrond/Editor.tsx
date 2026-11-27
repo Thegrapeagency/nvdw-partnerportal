@@ -81,6 +81,7 @@ export default function PlattegrondEditor({ adapter, flash }: { adapter: Adapter
   const [toonNormen, setToonNormen] = useState(false)
   const [groepHoek, setGroepHoek] = useState<number | null>(null) // tijdens het draaien van een groep
   const [draaiInvoer, setDraaiInvoer] = useState('45')
+  const [meerOpen, setMeerOpen] = useState(false)
   const [tentDlg, setTentDlg] = useState<{ key: string; w: string; h: string; op?: Pt; publiek: boolean } | null>(null)
   const [toonHulp, setToonHulp] = useState(false)
   const [maat, setMaatSvg] = useState({ w: 1000, h: 700 })
@@ -1396,7 +1397,7 @@ export default function PlattegrondEditor({ adapter, flash }: { adapter: Adapter
   const svgIcon = (d: string) => `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`
   const knop = (t: Tool, icoon: string, titel: string, sneltoets: string) => (
     <button key={t} title={`${titel} (${sneltoets})`} onClick={() => setTool(t)}
-      style={{ width: 36, height: 34, border: 'none', borderRadius: 8, cursor: 'pointer', background: tool === t ? 'var(--pg-inkt)' : 'transparent', color: tool === t ? 'var(--pg-papier)' : 'var(--pg-inkt)', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+      style={{ width: 38, height: 36, border: 'none', borderRadius: 10, cursor: 'pointer', background: tool === t ? 'var(--pg-inkt)' : 'transparent', color: tool === t ? 'var(--pg-papier)' : 'var(--pg-inkt)', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', boxShadow: tool === t ? '0 2px 6px rgba(0,0,0,0.18)' : undefined }}>
       <span dangerouslySetInnerHTML={{ __html: icoon }} />
       <span style={{ position: 'absolute', right: 2, bottom: 0, fontSize: 8, opacity: 0.5, fontFamily: 'var(--pg-sans)' }}>{sneltoets}</span>
     </button>
@@ -1404,7 +1405,29 @@ export default function PlattegrondEditor({ adapter, flash }: { adapter: Adapter
   const mini: React.CSSProperties = { ...AS.input, padding: '4px 7px', fontSize: 12 }
   const klein: React.CSSProperties = { ...AS.btnSm, padding: '4px 8px', fontSize: 11.5 }
   const sectie: React.CSSProperties = { fontSize: 10.5, fontWeight: 700, color: '#a39d8c', letterSpacing: 0.4, textTransform: 'uppercase', margin: '12px 0 5px' }
-  const scheiding = <div style={{ height: 1, width: 24, background: '#e3dcc9', margin: '2px 0' }} />
+  const scheiding = <div style={{ height: 1, width: 24, background: 'rgba(0,0,0,0.09)', margin: '3px 0' }} />
+  const ik = (d: string, s = 14) => <span style={{ display: 'inline-flex' }} dangerouslySetInnerHTML={{ __html: `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${d}</svg>` }} />
+  const OOG = '<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>'
+  const OOG_UIT = '<path d="M3 3l18 18M10.6 5.1A10.6 10.6 0 0112 5c6.4 0 10 7 10 7a17 17 0 01-3.2 4M6.5 6.6A16.6 16.6 0 002 12s3.6 7 10 7a10 10 0 004.3-1"/>'
+  const SLOT = '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/>'
+  const SLOT_OPEN = '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 017.5-2"/>'
+  const schakel = (label: string, aan: boolean, zet: (v: boolean) => void, titel?: string) => (
+    <button key={label} title={titel} onClick={() => zet(!aan)} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 600, fontFamily: 'var(--pg-sans)', cursor: 'pointer', borderRadius: 7, padding: '4px 8px', border: 'none', background: aan ? 'color-mix(in srgb, var(--pg-inkt) 10%, transparent)' : 'transparent', color: aan ? 'var(--pg-inkt)' : '#a39d8c' }}>
+      <span style={{ width: 7, height: 7, borderRadius: 4, background: aan ? 'var(--pg-accent)' : 'transparent', border: '1.5px solid ' + (aan ? 'var(--pg-accent)' : '#c9c1ab') }} />{label}
+    </button>
+  )
+  const CSS = `.pg button{transition:background .12s,border-color .12s,box-shadow .12s,color .12s,opacity .12s}
+.pg button:not(:disabled):hover{box-shadow:inset 0 0 0 99px rgba(0,0,0,.05)}
+.pg button:not(:disabled):active{box-shadow:inset 0 0 0 99px rgba(0,0,0,.1)}
+.pg button:disabled{opacity:.45;cursor:default}
+.pg button:focus-visible{outline:2px solid var(--pg-accent);outline-offset:1px}
+.pg input:not([type=checkbox]):not([type=range]):not([type=color]):focus,.pg select:focus{outline:none;border-color:var(--pg-accent)!important;box-shadow:0 0 0 3px color-mix(in srgb,var(--pg-accent) 18%,transparent)}
+.pg input[type=checkbox],.pg input[type=range]{accent-color:var(--pg-inkt)}
+.pg .pg-rij{transition:background .12s}.pg .pg-rij:hover{background:color-mix(in srgb,var(--pg-inkt) 5%,transparent)!important}
+.pg .pg-tegel{transition:border-color .12s,box-shadow .12s,transform .12s}.pg .pg-tegel:hover{border-color:color-mix(in srgb,var(--pg-inkt) 35%,transparent)!important;box-shadow:0 3px 10px rgba(0,0,0,.07);transform:translateY(-1px)}
+.pg .pg-menu button{display:block;width:100%;text-align:left;padding:8px 12px;border:none;background:none;font-size:12.5px;font-family:var(--pg-sans);color:var(--pg-inkt);border-radius:7px;cursor:pointer}
+.pg ::-webkit-scrollbar{width:9px;height:9px}.pg ::-webkit-scrollbar-thumb{background:rgba(0,0,0,.13);border-radius:9px;border:2px solid transparent;background-clip:content-box}.pg ::-webkit-scrollbar-thumb:hover{background:rgba(0,0,0,.25);background-clip:content-box}
+@keyframes pg-in{from{opacity:0;transform:translateY(6px) scale(.985)}to{opacity:1;transform:none}}.pg .pg-dlg{animation:pg-in .16s ease-out}`
 
   const gefilterd = relevante.filter(p => !zoek || (p.naam + ' ' + (p.bedrijfsnaam || '')).toLowerCase().includes(zoek.toLowerCase()))
   const groepen = maten.filter(m => m.pakket !== 'personeel').map(m => ({ m, ps: gefilterd.filter(p => p.pakket === m.pakket) })).filter(g => g.ps.length)
@@ -1459,37 +1482,50 @@ export default function PlattegrondEditor({ adapter, flash }: { adapter: Adapter
   const tekstObj = tekstEdit ? doc.objs.find(o => o.id === tekstEdit.id) : null
 
   return (
-    <div style={{ '--pg-inkt': adapter.thema.inkt, '--pg-papier': adapter.thema.papier, '--pg-kaart': adapter.thema.kaart, '--pg-accent': adapter.thema.accent, '--pg-serif': adapter.thema.serif, '--pg-sans': adapter.thema.sans, fontFamily: adapter.thema.sans, ...(adapter.volledig ? { height: '100vh', display: 'flex', flexDirection: 'column', padding: '10px 14px', boxSizing: 'border-box', background: adapter.thema.papier, overflow: 'hidden' } : {}) } as React.CSSProperties}>
-      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: adapter.volledig ? 8 : 12 }}>
-        <div>
-          <div style={{ ...AS.title, ...(adapter.volledig ? { fontSize: 19, marginBottom: 0 } : {}) }}>{adapter.titel || 'Plattegrond'}</div>
-          {!adapter.volledig && <div style={{ ...AS.sub, marginBottom: 0 }}>Technische tekening op ware schaal, klaar om in te dienen bij de gemeente.</div>}
-        </div>
-        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-          <select style={{ ...mini, width: 'auto', minWidth: 210 }} value={huidigId || ''} onChange={e => open(e.target.value)}>
+    <div style={{ '--pg-inkt': adapter.thema.inkt, '--pg-papier': adapter.thema.papier, '--pg-kaart': adapter.thema.kaart, '--pg-accent': adapter.thema.accent, '--pg-serif': adapter.thema.serif, '--pg-sans': adapter.thema.sans, fontFamily: adapter.thema.sans, ...(adapter.volledig ? { height: '100vh', display: 'flex', flexDirection: 'column', padding: '0 14px 12px', boxSizing: 'border-box', background: adapter.thema.papier, overflow: 'hidden' } : {}) } as React.CSSProperties} className="pg">
+      <style>{CSS}</style>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap', ...(adapter.volledig ? { margin: '0 -14px 10px', padding: '9px 16px', background: 'var(--pg-kaart)', borderBottom: '1px solid rgba(0,0,0,0.08)', boxShadow: '0 1px 8px rgba(0,0,0,0.03)' } : { marginBottom: 12 }) }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', minWidth: 0 }}>
+          <div>
+            <div style={{ ...AS.title, ...(adapter.volledig ? { fontSize: 18, marginBottom: 0 } : {}) }}>{adapter.titel || 'Plattegrond'}</div>
+            {!adapter.volledig && <div style={{ ...AS.sub, marginBottom: 0 }}>Technische tekening op ware schaal, klaar om in te dienen bij de gemeente.</div>}
+          </div>
+          <span style={{ width: 1, height: 22, background: 'rgba(0,0,0,0.1)' }} />
+          <select title="Wissel van tekening" style={{ ...AS.input, width: 'auto', minWidth: 200, maxWidth: 300, padding: '7px 10px', fontWeight: 600, cursor: 'pointer' }} value={huidigId || ''} onChange={e => open(e.target.value)}>
             {!lijst.length && <option value="">Nog geen plattegrond</option>}
             {lijst.map(l => <option key={l.id} value={l.id}>{l.naam}</option>)}
           </select>
-          <button style={{ ...AS.btn, marginTop: 0, padding: '7px 14px' }} onClick={nieuw}>Nieuw</button>
+          <button style={{ ...AS.btnSm, padding: '7px 12px' }} onClick={nieuw} title="Nieuwe tekening">+ Nieuw</button>
+        </div>
+        <div style={{ display: 'flex', gap: 7, alignItems: 'center', flexWrap: 'wrap' }}>
+          {huidigId && (opgeslagen === 'ja'
+            ? <span style={{ fontSize: 11.5, color: '#2e6b3a', display: 'flex', alignItems: 'center', gap: 5, marginRight: 4 }}><span style={{ width: 7, height: 7, borderRadius: 4, background: '#3d9a50' }} />Opgeslagen</span>
+            : <button style={{ ...AS.btnSm, padding: '7px 12px', color: '#9a5b00', border: '1px solid #e8c98a', background: '#fff8e8' }} onClick={() => opslaan()} title="⌘S">{opgeslagen === 'bezig' ? 'Opslaan…' : 'Opslaan'}</button>)}
           {huidigId && <>
-            <button style={klein} onClick={dupliceerPlattegrond}>Kopie</button>
-            <button style={klein} onClick={() => { const n = prompt('Nieuwe naam', naam); if (n) { setNaam(n); setOpgeslagen('nee'); setLijst(l => l.map(x => x.id === huidigId ? { ...x, naam: n } : x)) } }}>Hernoem</button>
-            <span style={{ width: 1, height: 20, background: '#e3dcc9' }} />
-            <button style={{ ...klein, background: 'var(--pg-inkt)', color: 'var(--pg-papier)', border: '1px solid var(--pg-inkt)' }} onClick={() => setExportDlg({ papier: 'A3', schaal: 'auto', titel: 'Situatietekening', vakken: true })} title="Tekenblad op schaal met legenda, noordpijl en titelblok">Tekening voor gemeente (PDF)</button>
-            <button style={klein} onClick={() => setMetaDlg({ ...meta, evenement: meta.evenement || naam })}>Gegevens</button>
-            <button style={klein} onClick={() => exporteer('svg')}>SVG (Illustrator)</button>
-            <button style={klein} onClick={() => exporteer('png')}>PNG</button>
-            <button style={{ ...klein, color: '#999', border: '1px solid #ddd' }} onClick={verwijderPlattegrond}>Verwijder</button>
+            <button style={{ ...AS.btnSm, padding: '7px 12px' }} onClick={() => setMetaDlg({ ...meta, evenement: meta.evenement || naam })} title="Naam, locatie, datum en bezoekers van het evenement">Gegevens</button>
+            <button style={{ ...AS.btn, marginTop: 0, padding: '8px 15px', display: 'flex', alignItems: 'center', gap: 7 }} onClick={() => setExportDlg({ papier: 'A3', schaal: 'auto', titel: 'Situatietekening', vakken: true })} title="Tekenblad op schaal met legenda, noordpijl en titelblok">{ik('<path d="M12 3v12M7 10l5 5 5-5M4 21h16"/>')}PDF voor gemeente</button>
+            <div style={{ position: 'relative' }}>
+              <button style={{ ...AS.btnSm, padding: '7px 11px' }} onClick={() => setMeerOpen(v => !v)} title="Meer: kopie, hernoemen, exporteren, verwijderen">Meer ▾</button>
+              {meerOpen && <>
+                <div style={{ position: 'fixed', inset: 0, zIndex: 70 }} onPointerDown={() => setMeerOpen(false)} />
+                <div className="pg-menu pg-dlg" style={{ position: 'absolute', right: 0, top: 'calc(100% + 6px)', zIndex: 71, width: 230, background: 'var(--pg-kaart)', borderRadius: 12, padding: 5, border: '1px solid rgba(0,0,0,0.09)', boxShadow: '0 12px 36px rgba(0,0,0,0.16)' }} onClick={() => setMeerOpen(false)}>
+                  <button onClick={dupliceerPlattegrond}>Kopie van deze tekening</button>
+                  <button onClick={() => { const n = prompt('Nieuwe naam', naam); if (n) { setNaam(n); setOpgeslagen('nee'); setLijst(l => l.map(x => x.id === huidigId ? { ...x, naam: n } : x)) } }}>Naam wijzigen</button>
+                  <div style={{ height: 1, background: 'rgba(0,0,0,0.08)', margin: '4px 6px' }} />
+                  <button onClick={() => exporteer('svg')}>Exporteer als SVG (Illustrator)</button>
+                  <button onClick={() => exporteer('png')}>Exporteer als PNG</button>
+                  <div style={{ height: 1, background: 'rgba(0,0,0,0.08)', margin: '4px 6px' }} />
+                  <button style={{ color: '#b3261e' }} onClick={verwijderPlattegrond}>Tekening verwijderen</button>
+                </div>
+              </>}
+            </div>
           </>}
-          {opgeslagen === 'ja'
-            ? <span style={{ fontSize: 11.5, color: '#2e6b3a', minWidth: 78 }}>✓ Opgeslagen</span>
-            : <button style={{ ...klein, color: '#9a5b00', border: '1px solid #e8c98a' }} onClick={() => opslaan()} title="⌘S">{opgeslagen === 'bezig' ? 'Opslaan…' : 'Opslaan'}</button>}
         </div>
       </div>
 
             {metaDlg && (
-              <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60 }} onPointerDown={e => { if (e.target === e.currentTarget && !metaDlg.nieuw) setMetaDlg(null) }}>
-                <div style={{ ...AS.card, width: 420, margin: 0, maxHeight: '92%', overflowY: 'auto' }}>
+              <div style={{ position: 'fixed', inset: 0, background: 'rgba(20,24,20,0.32)', backdropFilter: 'blur(2px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60 }} onPointerDown={e => { if (e.target === e.currentTarget && !metaDlg.nieuw) setMetaDlg(null) }}>
+                <div className="pg-dlg" style={{ ...AS.card, width: 420, margin: 0, maxHeight: '92%', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.22)' }}>
                   <div style={{ ...AS.cardTitle, fontSize: 16, marginBottom: 4 }}>{metaDlg.nieuw ? 'Nieuwe tekening' : 'Gegevens van het evenement'}</div>
                   <div style={{ fontSize: 12, color: '#8b8574', marginBottom: 10 }}>Dit komt in het titelblok van de tekening. Met het aantal bezoekers reken ik uitgangen, toiletten en EHBO na.</div>
                   {([['evenement', 'Naam evenement', 'text', 'APÉRO Festival 2027'], ['locatie', 'Locatie', 'text', 'Naam en adres van het terrein'], ['datum', 'Datum (eerste dag)', 'date', ''], ['bezoekers', 'Bezoekers tegelijk aanwezig (piek)', 'number', '1500'], ['organisator', 'Organisator', 'text', ''], ['tekenaar', 'Getekend door', 'text', ''], ['versie', 'Versie', 'text', '1']] as const).map(([k, l, type, ph], i) => (
@@ -1510,8 +1546,8 @@ export default function PlattegrondEditor({ adapter, flash }: { adapter: Adapter
         const g = (v: string) => parseFloat(v.replace(',', '.')) || 0
         const w = g(tentDlg.w), h = m.rond ? w : g(tentDlg.h), opp = m.rond ? Math.PI * w * w / 4 : w * h
         return (
-          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60 }} onPointerDown={e => { if (e.target === e.currentTarget) setTentDlg(null) }}>
-            <div style={{ ...AS.card, width: 420, margin: 0 }}>
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(20,24,20,0.32)', backdropFilter: 'blur(2px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60 }} onPointerDown={e => { if (e.target === e.currentTarget) setTentDlg(null) }}>
+            <div className="pg-dlg" style={{ ...AS.card, width: 420, margin: 0, boxShadow: '0 20px 60px rgba(0,0,0,0.22)' }}>
               <div style={{ ...AS.cardTitle, fontSize: 16, marginBottom: 10 }}>Tent plaatsen</div>
               <label style={{ fontSize: 12, color: '#777162', display: 'block', marginBottom: 10 }}>Type tent
                 <select style={AS.input} value={tentDlg.key} onChange={e => { const n = MATERIAAL[e.target.value]!; setTentDlg({ ...tentDlg, key: n.key, w: String(n.w), h: String(n.h) }) }}>
@@ -1539,43 +1575,53 @@ export default function PlattegrondEditor({ adapter, flash }: { adapter: Adapter
       })()}
       {huidigId && <>
         {/* kengetallen: wat heb je, wat heb je nodig bij dit aantal bezoekers */}
-        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginBottom: 7 }}>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 700, color: 'var(--pg-inkt)', background: 'var(--pg-kaart)', border: '1px solid rgba(0,0,0,0.1)', borderRadius: 9, padding: '4px 8px 4px 10px' }}>Bezoekers tegelijk
+        <div style={{ display: 'flex', gap: 8, alignItems: 'stretch', flexWrap: 'wrap', marginBottom: 9 }}>
+          <label className="pg-tegel" style={{ flex: '0 0 auto', width: 172, background: 'var(--pg-inkt)', color: 'var(--pg-papier)', borderRadius: 13, padding: '8px 12px 9px', border: '1px solid var(--pg-inkt)', boxSizing: 'border-box' }} title="Het hoogste aantal bezoekers dat tegelijk op het terrein is. Hier reken ik alles mee na.">
+            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', opacity: 0.75, whiteSpace: 'nowrap' }}>Bezoekers tegelijk</div>
             <input type="number" min={0} step={50} value={meta.bezoekers ?? ''} placeholder="aantal" onChange={e => setDoc(d => ({ ...d, meta: { ...(d.meta || {}), bezoekers: e.target.value === '' ? undefined : Math.max(0, parseInt(e.target.value) || 0) } }))}
-              style={{ width: 78, border: '1px solid #e3dcc9', borderRadius: 6, padding: '3px 6px', fontSize: 13, fontWeight: 700, fontFamily: 'var(--pg-sans)', color: 'var(--pg-inkt)' }} /></label>
+              style={{ width: '100%', marginTop: 3, border: '1px solid rgba(255,255,255,0.25)', background: 'rgba(255,255,255,0.12)', borderRadius: 7, padding: '2px 7px', fontSize: 15, fontWeight: 700, fontFamily: 'var(--pg-sans)', color: 'inherit', boxSizing: 'border-box' }} /></label>
           {(() => {
             const nl = (v: number, d = 0) => v.toLocaleString('nl-NL', { maximumFractionDigits: d })
-            const chip = (label: string, waarde: string, staat: 'ok' | 'tekort' | 'leeg', titel: string) => (
-              <button key={label} title={titel} onClick={() => setZijTab('check')} style={{ display: 'flex', alignItems: 'baseline', gap: 6, fontSize: 12, fontFamily: 'var(--pg-sans)', cursor: 'pointer', borderRadius: 9, padding: '6px 10px', border: '1px solid ' + (staat === 'ok' ? '#b9d8bf' : staat === 'tekort' ? '#f0b8b3' : 'rgba(0,0,0,0.1)'), background: staat === 'ok' ? '#e8f3ea' : staat === 'tekort' ? '#fdecea' : 'var(--pg-kaart)', color: staat === 'ok' ? '#22592e' : staat === 'tekort' ? '#a3241b' : '#777162' }}>
-                <span style={{ fontWeight: 600 }}>{label}</span><span style={{ fontWeight: 700 }}>{waarde}</span>
-              </button>
-            )
+            const chip = (label: string, heb: string, nodig: string | null, staat: 'ok' | 'tekort' | 'leeg', titel: string, deel: number | null) => {
+              const kl = staat === 'ok' ? '#2e8b47' : staat === 'tekort' ? '#c9392e' : '#b5ae9c'
+              return (
+                <button key={label} className="pg-tegel" title={titel} onClick={() => setZijTab('check')} style={{ flex: '1 1 128px', minWidth: 124, textAlign: 'left', fontFamily: 'var(--pg-sans)', cursor: 'pointer', borderRadius: 13, padding: '8px 12px 9px', border: '1px solid ' + (staat === 'tekort' ? '#f0c4bf' : 'rgba(0,0,0,0.08)'), background: staat === 'tekort' ? '#fff7f6' : 'var(--pg-kaart)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', color: '#8b8574' }}>
+                    <span style={{ width: 7, height: 7, borderRadius: 4, background: kl }} />{label}
+                    {staat !== 'leeg' && <span style={{ marginLeft: 'auto', color: kl, letterSpacing: 0, textTransform: 'none', fontSize: 10.5 }}>{staat === 'ok' ? 'genoeg' : 'te weinig'}</span>}
+                  </div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--pg-inkt)', marginTop: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{heb}{nodig && <span style={{ fontSize: 11.5, fontWeight: 500, color: '#8b8574' }}> van {nodig}</span>}</div>
+                  <div style={{ height: 4, background: 'rgba(0,0,0,0.07)', borderRadius: 2, overflow: 'hidden', marginTop: 6 }}><div style={{ height: '100%', width: `${Math.round(Math.max(0, Math.min(1, deel ?? 0)) * 100)}%`, background: kl, borderRadius: 2, transition: 'width .3s' }} /></div>
+                </button>
+              )
+            }
             const st = (heb: number, nodig: number): 'ok' | 'tekort' | 'leeg' => !kg.bez ? 'leeg' : heb + 1e-6 >= nodig ? 'ok' : 'tekort'
+            const dl = (heb: number, nodig: number) => kg.bez && nodig > 0 ? heb / nodig : null
             return [
               kg.capaciteit == null
-                ? chip('Capaciteit', 'teken publieksruimte', 'leeg', 'Teken het vlak waar publiek staat (pen) of plaats een tent, en vink Publieksruimte aan. Dan zie je hier hoeveel personen erop passen.')
-                : chip('Capaciteit', `${nl(kg.capaciteit)} pers.`, st(kg.capaciteit, kg.bez), `Zoveel personen passen op de publieksruimte bij ${String(normen.dichtheid).replace('.', ',')} per m².`),
-              chip('Nooduitgang', kg.bez ? `${nl(kg.uitgangM, 1)} / ${nl(kg.uitgangNodig, 1)} m` : `${nl(kg.uitgangM, 1)} m`, kg.uitgangen < 2 && kg.bez ? 'tekort' : st(kg.uitgangM, kg.uitgangNodig), `Breedte van alle (nood)uitgangen samen, tegenover wat nodig is bij ${normen.uitgangPm} personen per meter. Minimaal twee uitgangen.`),
-              chip('Toiletten', kg.bez ? `${kg.wc} / ${kg.wcNodig}` : `${kg.wc}`, st(kg.wc, kg.wcNodig), `Eén toilet per ${normen.toiletPer} bezoekers, minimaal twee. Een toiletwagen telt voor 8, een urinoir voor 4.`),
-              chip('Bar', kg.bez ? `${nl(kg.barM, 1)} / ${nl(kg.barNodig, 1)} m` : `${nl(kg.barM, 1)} m`, st(kg.barM, kg.barNodig), `Strekkende meter bar, tegenover de vuistregel van één meter per ${normen.barPer} bezoekers.`),
-              chip('EHBO', kg.ehbo ? (kg.bez ? `post · ${kg.hulpverleners} hulpverleners` : 'post') : 'geen post', kg.ehbo ? (kg.bez ? 'ok' : 'leeg') : (kg.bez ? 'tekort' : 'leeg'), `Eén hulpverlener per ${normen.ehboPer} bezoekers, minimaal twee.`),
+                ? chip('Capaciteit', 'nog niet getekend', null, 'leeg', 'Teken het vlak waar publiek staat (pen) of plaats een tent, en vink Publieksruimte aan. Dan zie je hier hoeveel personen erop passen.', null)
+                : chip('Capaciteit', `${nl(kg.capaciteit)} pers.`, null, st(kg.capaciteit, kg.bez), `Zoveel personen passen op de publieksruimte bij ${String(normen.dichtheid).replace('.', ',')} per m².`, dl(kg.capaciteit, kg.bez)),
+              chip('Nooduitgang', `${nl(kg.uitgangM, 1)} m`, kg.bez ? `${nl(kg.uitgangNodig, 1)} m` : null, kg.uitgangen < 2 && kg.bez ? 'tekort' : st(kg.uitgangM, kg.uitgangNodig), `Breedte van alle (nood)uitgangen samen, tegenover wat nodig is bij ${normen.uitgangPm} personen per meter. Minimaal twee uitgangen.`, dl(kg.uitgangM, kg.uitgangNodig)),
+              chip('Toiletten', `${kg.wc}`, kg.bez ? `${kg.wcNodig}` : null, st(kg.wc, kg.wcNodig), `Eén toilet per ${normen.toiletPer} bezoekers, minimaal twee. Een toiletwagen telt voor 8, een urinoir voor 4.`, dl(kg.wc, kg.wcNodig)),
+              chip('Bar', `${nl(kg.barM, 1)} m`, kg.bez ? `${nl(kg.barNodig, 1)} m` : null, st(kg.barM, kg.barNodig), `Strekkende meter bar, tegenover de vuistregel van één meter per ${normen.barPer} bezoekers.`, dl(kg.barM, kg.barNodig)),
+              chip('EHBO', kg.ehbo ? 'post staat erop' : 'geen post', kg.ehbo && kg.bez ? null : null, kg.ehbo ? (kg.bez ? 'ok' : 'leeg') : (kg.bez ? 'tekort' : 'leeg'), `Eén hulpverlener per ${normen.ehboPer} bezoekers, minimaal twee.${kg.bez ? ` Bij dit aantal: ${kg.hulpverleners} hulpverleners.` : ''}`, kg.ehbo ? 1 : 0),
             ]
           })()}
-          {!kg.bez && <span style={{ fontSize: 11.5, color: '#a39d8c' }}>Vul het aantal bezoekers in, dan zie je direct of het genoeg is.</span>}
         </div>
+        {!kg.bez && <div style={{ fontSize: 11.5, color: '#a39d8c', margin: '-3px 0 8px 2px' }}>Vul het aantal bezoekers in, dan zie je direct of het genoeg is.</div>}
         {/* lagen per vakgebied aan en uit, en wisselen tussen versies van de indeling */}
-        <div style={{ display: 'flex', gap: 5, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
-          <span style={{ fontSize: 11, fontWeight: 700, color: '#a39d8c', letterSpacing: 0.4, textTransform: 'uppercase', marginRight: 2 }}>Lagen</span>
+        <div style={{ display: 'flex', gap: 5, alignItems: 'center', flexWrap: 'wrap', marginBottom: 9, background: 'var(--pg-kaart)', border: '1px solid rgba(0,0,0,0.07)', borderRadius: 12, padding: '6px 10px' }}>
+          <span style={{ fontSize: 10, fontWeight: 700, color: '#a39d8c', letterSpacing: 0.5, textTransform: 'uppercase', marginRight: 4 }}>Lagen</span>
           {lagen.map(l => {
             const n = doc.objs.filter(o => o.laag === l.id).length, kl = VAKLAGEN.find(v => v.id === l.id)?.kleur || '#777'
             return <button key={l.id} title={l.zichtbaar ? 'Klik om te verbergen' : 'Klik om te tonen'} onClick={() => setDoc(d => ({ ...d, lagen: (d.lagen || STANDAARD_LAGEN).map(x => x.id === l.id ? { ...x, zichtbaar: !x.zichtbaar } : x) }))}
-              style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 600, fontFamily: 'var(--pg-sans)', cursor: 'pointer', borderRadius: 20, padding: '3px 9px 3px 7px', border: '1px solid ' + (l.zichtbaar ? 'rgba(0,0,0,0.14)' : 'rgba(0,0,0,0.07)'), background: l.zichtbaar ? 'var(--pg-kaart)' : 'transparent', color: l.zichtbaar ? 'var(--pg-inkt)' : '#b5ae9c', textDecoration: l.zichtbaar ? 'none' : 'line-through' }}>
+              style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 600, fontFamily: 'var(--pg-sans)', cursor: 'pointer', borderRadius: 20, padding: '3px 9px 3px 7px', border: '1px solid ' + (l.zichtbaar ? 'rgba(0,0,0,0.12)' : 'transparent'), background: l.zichtbaar ? 'color-mix(in srgb, var(--pg-papier) 60%, #fff)' : 'transparent', color: l.zichtbaar ? 'var(--pg-inkt)' : '#b5ae9c', textDecoration: l.zichtbaar ? 'none' : 'line-through' }}>
               <span style={{ width: 9, height: 9, borderRadius: 5, background: l.zichtbaar ? kl : 'transparent', border: '1.5px solid ' + kl }} />{l.naam}{n > 0 && <span style={{ fontWeight: 400, opacity: 0.6 }}>{n}</span>}
             </button>
           })}
           <button onClick={() => setDoc(d => ({ ...d, lagen: (d.lagen || STANDAARD_LAGEN).map(x => ({ ...x, zichtbaar: true })) }))} style={{ fontSize: 11.5, border: 'none', background: 'none', color: '#a39d8c', cursor: 'pointer', fontFamily: 'var(--pg-sans)' }}>alles aan</button>
           <span style={{ flex: 1 }} />
-          <span style={{ fontSize: 11, fontWeight: 700, color: '#a39d8c', letterSpacing: 0.4, textTransform: 'uppercase', marginRight: 2 }}>Versie</span>
+          <span style={{ width: 1, height: 18, background: 'rgba(0,0,0,0.1)', marginRight: 6 }} /><span style={{ fontSize: 10, fontWeight: 700, color: '#a39d8c', letterSpacing: 0.5, textTransform: 'uppercase', marginRight: 4 }}>Versie</span>
           {(versies.length ? versies : [{ id: '', naam: 'Versie A', objs: [] }]).map(v => {
             const actief = !versies.length || v.id === doc.versie
             return <button key={v.id} onClick={() => v.id && wisselVersie(v.id)} onDoubleClick={() => v.id && hernoemVersie(v.id)} title={versies.length ? 'Klik om te wisselen, dubbelklik om te hernoemen' : 'Maak een tweede versie om indelingen te vergelijken'}
@@ -1586,15 +1632,24 @@ export default function PlattegrondEditor({ adapter, flash }: { adapter: Adapter
         </div>
       </>}
       {!huidigId ? (
-        <div style={{ ...AS.card, textAlign: 'center', padding: 60 }}>
-          <div style={{ fontFamily: 'var(--pg-serif)', fontSize: 20, color: 'var(--pg-inkt)', marginBottom: 8 }}>Begin een nieuwe tekening</div>
-          <div style={{ fontSize: 13, color: '#8b8574', marginBottom: 4 }}>Vul de gegevens van je evenement in, zoek het adres op voor een kaart op schaal en zet alles erop. De gemeentecheck vertelt je wat er nog mist.</div>
-          <button style={AS.btn} onClick={nieuw}>Nieuwe plattegrond</button>
+        <div style={{ ...AS.card, textAlign: 'center', padding: '56px 30px 46px', maxWidth: 820, margin: '6vh auto 0', width: '100%', boxSizing: 'border-box' }}>
+          <div style={{ fontFamily: 'var(--pg-serif)', fontSize: 26, color: 'var(--pg-inkt)', marginBottom: 8 }}>Begin een nieuwe tekening</div>
+          <div style={{ fontSize: 13.5, color: '#8b8574', marginBottom: 26, lineHeight: 1.55 }}>Een technische tekening op ware schaal, klaar voor gemeente en leveranciers.</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12, textAlign: 'left', marginBottom: 26 }}>
+            {([['1', 'Gegevens en locatie', 'Vul je evenement in en zoek het adres op. De kaart staat direct op schaal.'], ['2', 'Tekenen', 'Zet hekken, tenten, bars, toiletten en stroom erop. Alles op ware grootte.'], ['3', 'Controleren en indienen', 'Zie of uitgangen, toiletten en bar genoeg zijn en download de PDF.']] as const).map(([n, t, u]) => (
+              <div key={n} style={{ background: 'color-mix(in srgb, var(--pg-papier) 55%, #fff)', borderRadius: 13, padding: '14px 16px', border: '1px solid rgba(0,0,0,0.06)' }}>
+                <div style={{ width: 24, height: 24, borderRadius: 12, background: 'var(--pg-inkt)', color: 'var(--pg-papier)', fontSize: 12, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 9 }}>{n}</div>
+                <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--pg-inkt)', marginBottom: 3 }}>{t}</div>
+                <div style={{ fontSize: 12, color: '#8b8574', lineHeight: 1.5 }}>{u}</div>
+              </div>
+            ))}
+          </div>
+          <button style={{ ...AS.btn, marginTop: 0, padding: '11px 24px', fontSize: 14 }} onClick={nieuw}>Nieuwe plattegrond</button>
         </div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: '46px 1fr 336px', gap: 10, ...(adapter.volledig ? { flex: 1, minHeight: 0 } : { height: 'calc(100vh - 250px)', minHeight: 600 }) }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '48px 1fr 340px', gap: 10, ...(adapter.volledig ? { flex: 1, minHeight: 0 } : { height: 'calc(100vh - 250px)', minHeight: 600 }) }}>
           {/* gereedschap */}
-          <div style={{ ...AS.card, padding: 4, margin: 0, display: 'flex', flexDirection: 'column', gap: 2, alignItems: 'center', overflowY: 'auto' }}>
+          <div style={{ ...AS.card, padding: 5, margin: 0, display: 'flex', flexDirection: 'column', gap: 2, alignItems: 'center', overflowY: 'auto', borderRadius: 14 }}>
             {knop('select', svgIcon('<path d="M5 3l14 8-6 2-3 6z" fill="currentColor"/>'), 'Selecteren', 'V')}
             {knop('direct', svgIcon('<path d="M5 3l14 8-6 2-3 6z"/>'), 'Direct selecteren: punten en losse objecten in een groep', 'A')}
             {scheiding}
@@ -1618,7 +1673,7 @@ export default function PlattegrondEditor({ adapter, flash }: { adapter: Adapter
           </div>
 
           {/* canvas */}
-          <div style={{ position: 'relative', borderRadius: 16, overflow: 'hidden', border: '1px solid rgba(1,3,65,0.08)', background: '#fbf8f1' }}>
+          <div style={{ position: 'relative', borderRadius: 16, overflow: 'hidden', border: '1px solid rgba(0,0,0,0.09)', background: '#fff', boxShadow: '0 1px 2px rgba(0,0,0,0.04), 0 6px 20px rgba(0,0,0,0.03)' }}>
             <svg ref={svgRef} width="100%" height="100%" style={{ display: 'block', cursor, touchAction: 'none', userSelect: 'none' }}
               onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onDoubleClick={onDouble}
               onDragOver={e => e.preventDefault()}
@@ -1633,10 +1688,10 @@ export default function PlattegrondEditor({ adapter, flash }: { adapter: Adapter
               }}>
               <defs>
                 <pattern id="r-klein" width={rasterStap * view.s} height={rasterStap * view.s} patternUnits="userSpaceOnUse" x={-view.x * view.s} y={-view.y * view.s}>
-                  <path d={`M ${rasterStap * view.s} 0 L 0 0 0 ${rasterStap * view.s}`} fill="none" stroke="rgba(1,3,65,0.05)" strokeWidth="1" />
+                  <path d={`M ${rasterStap * view.s} 0 L 0 0 0 ${rasterStap * view.s}`} fill="none" stroke="rgba(20,30,50,0.045)" strokeWidth="1" />
                 </pattern>
                 <pattern id="r-groot" width={grootStap * view.s} height={grootStap * view.s} patternUnits="userSpaceOnUse" x={-view.x * view.s} y={-view.y * view.s}>
-                  <path d={`M ${grootStap * view.s} 0 L 0 0 0 ${grootStap * view.s}`} fill="none" stroke="rgba(1,3,65,0.12)" strokeWidth="1" />
+                  <path d={`M ${grootStap * view.s} 0 L 0 0 0 ${grootStap * view.s}`} fill="none" stroke="rgba(20,30,50,0.1)" strokeWidth="1" />
                 </pattern>
               </defs>
               <rect width="100%" height="100%" fill="url(#r-klein)" />
@@ -1692,7 +1747,7 @@ export default function PlattegrondEditor({ adapter, flash }: { adapter: Adapter
             {/* verplaatsen-dialoog (Enter) */}
             {verplaatsDlg && (
               <div style={{ position: 'absolute', inset: 0, background: 'rgba(1,3,65,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 5 }} onPointerDown={e => { if (e.target === e.currentTarget) setVerplaatsDlg(null) }}>
-                <div style={{ ...AS.card, width: 280, margin: 0 }}>
+                <div className="pg-dlg" style={{ ...AS.card, width: 280, margin: 0, boxShadow: '0 20px 60px rgba(0,0,0,0.22)' }}>
                   <div style={AS.cardTitle}>Verplaatsen</div>
                   {(['dx', 'dy'] as const).map((k, i) => (
                     <label key={k} style={{ fontSize: 12, color: '#777162', display: 'block', marginBottom: 8 }}>{k === 'dx' ? 'Horizontaal (m)' : 'Verticaal (m)'}
@@ -1714,7 +1769,7 @@ export default function PlattegrondEditor({ adapter, flash }: { adapter: Adapter
               const N = exportDlg.schaal === 'auto' ? auto : exportDlg.schaal
               return (
                 <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 6 }} onPointerDown={e => { if (e.target === e.currentTarget && !exportDlg.bezig) setExportDlg(null) }}>
-                  <div style={{ ...AS.card, width: 440, margin: 0 }}>
+                  <div className="pg-dlg" style={{ ...AS.card, width: 440, margin: 0, boxShadow: '0 20px 60px rgba(0,0,0,0.22)' }}>
                     <div style={{ ...AS.cardTitle, fontSize: 16, marginBottom: 4 }}>Tekening voor gemeente en leveranciers</div>
                     <div style={{ fontSize: 12, color: '#8b8574', marginBottom: 12, lineHeight: 1.5 }}>Je krijgt een tekenblad op een echte schaal, met legenda, noordpijl, schaalbalk en titelblok.</div>
                     <label style={{ fontSize: 12, color: '#777162', display: 'block', marginBottom: 8 }}>Soort tekening
@@ -1744,30 +1799,30 @@ export default function PlattegrondEditor({ adapter, flash }: { adapter: Adapter
             {/* schaalbalk en coördinaten */}
             <div style={{ position: 'absolute', left: linialen ? 28 : 12, bottom: 10, display: 'flex', alignItems: 'center', gap: 10, fontSize: 11, color: '#777162', fontFamily: 'var(--pg-sans)', pointerEvents: 'none' }}>
               <div>
-                <div style={{ width: grootStap * view.s, height: 6, borderLeft: '2px solid #010341', borderRight: '2px solid #010341', borderBottom: '2px solid #010341' }} />
+                <div style={{ width: grootStap * view.s, height: 6, borderLeft: '2px solid var(--pg-inkt)', borderRight: '2px solid var(--pg-inkt)', borderBottom: '2px solid var(--pg-inkt)' }} />
                 <div style={{ textAlign: 'center', marginTop: 2 }}>{String(grootStap).replace('.', ',')} m</div>
               </div>
               <span style={{ background: 'rgba(255,255,255,0.85)', padding: '2px 6px', borderRadius: 5 }}>x {r2(muis[0])} · y {r2(muis[1])} m</span>
             </div>
-            <div style={{ position: 'absolute', right: 10, bottom: 10, display: 'flex', gap: 3, background: 'rgba(255,255,255,0.94)', borderRadius: 10, padding: 4, boxShadow: '0 2px 10px rgba(1,3,65,0.08)', alignItems: 'center' }}>
+            <div style={{ position: 'absolute', right: 10, bottom: 10, display: 'flex', gap: 3, background: 'rgba(255,255,255,0.96)', borderRadius: 11, padding: 4, border: '1px solid rgba(0,0,0,0.07)', boxShadow: '0 3px 12px rgba(0,0,0,0.08)', alignItems: 'center' }}>
               <button style={{ ...klein, border: 'none' }} onClick={() => zoomOp(1 / 1.3)} title="⌘-">−</button>
               <span style={{ fontSize: 11, color: '#777162', minWidth: 62, textAlign: 'center' }}>1 m = {Math.round(view.s)} px</span>
               <button style={{ ...klein, border: 'none' }} onClick={() => zoomOp(1.3)} title="⌘+">+</button>
               <button style={{ ...klein, border: 'none' }} onClick={passend} title="⌘0">Passend</button>
             </div>
-            <div style={{ position: 'absolute', left: linialen ? 26 : 10, top: linialen ? 26 : 10, display: 'flex', gap: 10, background: 'rgba(255,255,255,0.94)', borderRadius: 10, padding: '5px 10px', fontSize: 11.5, color: 'var(--pg-inkt)', boxShadow: '0 2px 10px rgba(1,3,65,0.08)', alignItems: 'center', flexWrap: 'wrap', maxWidth: 'calc(100% - 60px)' }}>
-              <label style={{ display: 'flex', gap: 4, alignItems: 'center', cursor: 'pointer' }}><input type="checkbox" checked={snap} onChange={e => setSnap(e.target.checked)} /> Magnetisch</label>
-              <label style={{ display: 'flex', gap: 4, alignItems: 'center', cursor: 'pointer' }} title="⌘U"><input type="checkbox" checked={slim} onChange={e => setSlim(e.target.checked)} /> Slimme hulplijnen</label>
-              <label style={{ display: 'flex', gap: 4, alignItems: 'center' }}>raster
-                <select value={raster} onChange={e => setRaster(parseFloat(e.target.value))} style={{ fontSize: 11.5, border: '1px solid #e3dcc9', borderRadius: 6, padding: '1px 3px' }}>
+            <div style={{ position: 'absolute', left: linialen ? 26 : 10, top: linialen ? 26 : 10, display: 'flex', gap: 3, background: 'rgba(255,255,255,0.96)', borderRadius: 11, padding: '4px 8px 4px 4px', fontSize: 11.5, color: 'var(--pg-inkt)', border: '1px solid rgba(0,0,0,0.07)', boxShadow: '0 3px 12px rgba(0,0,0,0.08)', alignItems: 'center', flexWrap: 'wrap', maxWidth: 'calc(100% - 60px)' }}>
+              {schakel('Magnetisch', snap, setSnap, 'Objecten klikken vast op het raster en op elkaar')}
+              {schakel('Hulplijnen', slim, setSlim, 'Slimme hulplijnen bij uitlijnen (⌘U)')}
+              {schakel('Maten', toonMaten, setToonMaten, 'Maten van objecten tonen')}
+              {schakel('Linialen', linialen, setLinialen, 'Linialen langs de rand, sleep er hulplijnen uit (⌘R)')}
+              <label style={{ display: 'flex', gap: 5, alignItems: 'center', color: '#8b8574', paddingLeft: 6, borderLeft: '1px solid rgba(0,0,0,0.1)' }}>Raster
+                <select value={raster} onChange={e => setRaster(parseFloat(e.target.value))} style={{ fontSize: 11.5, border: '1px solid #e3dcc9', borderRadius: 6, padding: '2px 3px', fontFamily: 'var(--pg-sans)', color: 'var(--pg-inkt)', background: '#fff' }}>
                   {[0.1, 0.25, 0.5, 1, 2, 5].map(v => <option key={v} value={v}>{String(v).replace('.', ',')} m</option>)}
                 </select></label>
-              <label style={{ display: 'flex', gap: 4, alignItems: 'center', cursor: 'pointer' }}><input type="checkbox" checked={toonMaten} onChange={e => setToonMaten(e.target.checked)} /> Maten</label>
-              <label style={{ display: 'flex', gap: 4, alignItems: 'center', cursor: 'pointer' }} title="⌘R"><input type="checkbox" checked={linialen} onChange={e => setLinialen(e.target.checked)} /> Linialen</label>
-              {overlappers.size > 0 && <span style={{ color: '#e53935', fontWeight: 600 }}>⚠ {overlappers.size} blokken overlappen</span>}
+              {overlappers.size > 0 && <span style={{ color: '#c9392e', fontWeight: 600, background: '#fff0ee', borderRadius: 7, padding: '3px 8px', marginLeft: 4 }}>{overlappers.size} blokken overlappen</span>}
             </div>
             {(tool !== 'select' && tool !== 'hand' && tool !== 'direct') && (
-              <div style={{ position: 'absolute', left: '50%', top: linialen ? 62 : 48, transform: 'translateX(-50%)', background: 'var(--pg-inkt)', color: 'var(--pg-papier)', fontSize: 12, padding: '6px 12px', borderRadius: 8, pointerEvents: 'none', whiteSpace: 'nowrap' }}>
+              <div style={{ position: 'absolute', left: '50%', top: linialen ? 62 : 48, transform: 'translateX(-50%)', background: 'var(--pg-inkt)', color: 'var(--pg-papier)', fontSize: 12, padding: '6px 12px', borderRadius: 8, pointerEvents: 'none', whiteSpace: 'nowrap', boxShadow: '0 4px 14px rgba(0,0,0,0.18)' }}>
                 {({ rect: 'Sleep een rechthoek. Shift = vierkant, alt = vanuit het midden.', ellipse: 'Sleep een ellips. Shift = cirkel.', line: 'Klik punten voor een muur. Shift = haaks. Dubbelklik, Enter of Esc = klaar.', pen: 'Klik punten. Klik op het beginpunt voor een gesloten vlak, Enter voor een open pad.', text: 'Klik waar de tekst moet komen.', measure: 'Klik twee punten om te meten. Esc = stoppen.', calibrate: 'Trek een lijn over een maat die je kent, bijvoorbeeld een muur.', zoom: 'Klik om in te zoomen, alt-klik om uit te zoomen.', pipet: 'Klik op een object om de opmaak over te nemen op je selectie.', nummer: `Klik objecten op volgorde. Volgende nummer: ${nrVolgende}. Alt-klik = nummer weg.`, hek: `${MATERIAAL[hekMat]?.label}: klik de route. Shift = haaks, dubbelklik of Enter = klaar.`, maat: 'Maatlijn: klik begin en eind. Klikt vast op hoeken van objecten. Blijft op de tekening staan.', hand: '', select: '', direct: '' } as Record<Tool, string>)[tool]}
               </div>
             )}
@@ -1877,9 +1932,9 @@ export default function PlattegrondEditor({ adapter, flash }: { adapter: Adapter
 
             {/* tabbladen */}
             <div style={{ ...AS.card, margin: 0, padding: 0, flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-              <div style={{ display: 'flex', borderBottom: '1px solid rgba(1,3,65,0.07)' }}>
-                {([['locatie', '1 Locatie'], ['partners', `2 ${adapter.deelnemerLabel}`], ['materialen', '3 Materiaal'], ['check', `4 Check${checkActies ? ` (${checkActies})` : ' ✓'}`], ['lagen', 'Lagen']] as const).map(([k, l]) => (
-                  <button key={k} onClick={() => setZijTab(k)} style={{ flex: 1, padding: '9px 2px', border: 'none', background: 'none', fontSize: 11, fontWeight: 600, cursor: 'pointer', color: zijTab === k ? 'var(--pg-inkt)' : '#a39d8c', borderBottom: zijTab === k ? '2px solid var(--bordeaux)' : '2px solid transparent', whiteSpace: 'nowrap' }}>{l}</button>
+              <div style={{ display: 'flex', gap: 3, padding: 5, borderBottom: '1px solid rgba(0,0,0,0.07)' }}>
+                {([['locatie', 'Locatie'], ['partners', adapter.deelnemerLabel], ['materialen', 'Materiaal'], ['check', 'Check'], ['lagen', 'Lagen']] as const).map(([k, l]) => (
+                  <button key={k} onClick={() => setZijTab(k)} style={{ flex: '1 1 auto', padding: '7px 4px', border: 'none', borderRadius: 8, fontFamily: 'var(--pg-sans)', background: zijTab === k ? 'var(--pg-inkt)' : 'transparent', fontSize: 11.5, fontWeight: 600, cursor: 'pointer', color: zijTab === k ? 'var(--pg-papier)' : '#8b8574', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>{l}{k === 'check' && <span style={{ fontSize: 10, fontWeight: 700, minWidth: 15, height: 15, lineHeight: '15px', borderRadius: 8, padding: '0 3px', boxSizing: 'border-box', background: checkActies ? '#c9392e' : '#2e8b47', color: '#fff' }}>{checkActies || '✓'}</span>}</button>
                 ))}
               </div>
               <div style={{ overflowY: 'auto', padding: '10px 12px', flex: 1 }}>
@@ -1929,7 +1984,7 @@ export default function PlattegrondEditor({ adapter, flash }: { adapter: Adapter
                           return (
                             <div key={m.key} draggable={!isLijn(m)} onDragStart={e => e.dataTransfer.setData('materiaal', m.key)} onClick={() => plaatsMateriaal(m)}
                               title={`${m.label} · ${isLijn(m) ? (m.soort === 'route' ? 'teken de route als lijn' : `teken een lijn, ${String(m.stuk).replace('.', ',')} m per stuk`) : `${m.w} × ${m.h} m`}`}
-                              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 6px', borderRadius: 8, cursor: isLijn(m) ? 'crosshair' : 'grab', border: tool === 'hek' && hekMat === m.key ? '1.5px solid var(--navy)' : '1px solid #eee5d2', background: '#fff', position: 'relative' }}>
+                              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 6px', borderRadius: 8, cursor: isLijn(m) ? 'crosshair' : 'grab', border: tool === 'hek' && hekMat === m.key ? '1.5px solid var(--pg-inkt)' : '1px solid rgba(0,0,0,0.08)', background: '#fff', position: 'relative' }} className="pg-tegel">
                               <svg width="24" height="24" viewBox="0 0 24 24" style={{ flexShrink: 0 }} dangerouslySetInnerHTML={{ __html: symboolSvg(m) }} />
                               <span style={{ fontSize: 11, color: 'var(--pg-inkt)', lineHeight: 1.2, overflow: 'hidden' }}>{m.label}<br /><span style={{ color: '#a39d8c', fontSize: 10 }}>{isLijn(m) ? (m.soort === 'route' ? `route · ${String(m.breedte).replace('.', ',')} m breed` : `lijn · ${String(m.stuk).replace('.', ',')} m/st`) : `${String(m.w).replace('.', ',')}×${String(m.h).replace('.', ',')}`}</span></span>
                               {n && <span style={{ position: 'absolute', top: 2, right: 4, fontSize: 9.5, fontWeight: 700, color: '#2e6b3a' }}>{n.stuks}</span>}
@@ -1947,9 +2002,9 @@ export default function PlattegrondEditor({ adapter, flash }: { adapter: Adapter
                     const objs = gesorteerd.filter(o => o.laag === l.id).reverse()
                     const zetLaag = (p: Partial<Laag>) => setDoc(d => ({ ...d, lagen: (d.lagen || STANDAARD_LAGEN).map(x => x.id === l.id ? { ...x, ...p } : x) }))
                     return <div key={l.id} style={{ marginBottom: 6 }}>
-                      <div onClick={() => setActieveLaag(l.id)} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '5px 6px', borderRadius: 7, background: actieveLaag === l.id ? 'rgba(1,3,65,0.06)' : 'transparent', cursor: 'pointer' }}>
-                        <button title="Zichtbaar" onClick={e => { e.stopPropagation(); zetLaag({ zichtbaar: !l.zichtbaar }) }} style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 13, opacity: l.zichtbaar ? 1 : 0.25, width: 18 }}>👁</button>
-                        <button title="Vergrendelen" onClick={e => { e.stopPropagation(); zetLaag({ vast: !l.vast }) }} style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 11, opacity: l.vast ? 1 : 0.25, width: 18 }}>🔒</button>
+                      <div onClick={() => setActieveLaag(l.id)} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '5px 6px', borderRadius: 7, background: actieveLaag === l.id ? 'color-mix(in srgb, var(--pg-inkt) 8%, transparent)' : 'transparent', cursor: 'pointer' }}>
+                        <button title="Zichtbaar" onClick={e => { e.stopPropagation(); zetLaag({ zichtbaar: !l.zichtbaar }) }} style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--pg-inkt)', opacity: l.zichtbaar ? 0.85 : 0.3, width: 22, height: 20, padding: 0, borderRadius: 5 }}>{ik(l.zichtbaar ? OOG : OOG_UIT)}</button>
+                        <button title="Vergrendelen" onClick={e => { e.stopPropagation(); zetLaag({ vast: !l.vast }) }} style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--pg-inkt)', opacity: l.vast ? 0.85 : 0.25, width: 22, height: 20, padding: 0, borderRadius: 5 }}>{ik(l.vast ? SLOT : SLOT_OPEN, 13)}</button>
                         <span onDoubleClick={() => { const n = prompt('Naam van de laag', l.naam); if (n) zetLaag({ naam: n }) }} style={{ flex: 1, fontSize: 12.5, fontWeight: 600, color: 'var(--pg-inkt)' }}>{l.naam}</span>
                         <span style={{ fontSize: 10.5, color: '#a39d8c' }}>{objs.length}</span>
                         <button title="Omhoog" disabled={i === lagen.length - 1} onClick={e => { e.stopPropagation(); setDoc(d => { const ls = [...(d.lagen || [])];[ls[i], ls[i + 1]] = [ls[i + 1], ls[i]]; return { ...d, lagen: ls } }) }} style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 10, opacity: 0.5 }}>▲</button>
@@ -1962,8 +2017,8 @@ export default function PlattegrondEditor({ adapter, flash }: { adapter: Adapter
                           <span style={{ width: 8, height: 8, borderRadius: 2, background: kleurVan(o) === 'none' ? '#fff' : kleurVan(o), border: '1px solid rgba(0,0,0,0.1)' }} />
                           {o.nr && <span style={{ fontSize: 9.5, fontWeight: 700, color: '#fff', background: '#010341', borderRadius: 8, padding: '0 4px' }}>{o.nr}</span>}
                           <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{naamVan(o)}{o.groep ? ' ⧉' : ''}</span>
-                          <button onClick={e => { e.stopPropagation(); wijzig([o.id], q => ({ ...q, verborgen: !q.verborgen })) }} style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 10, opacity: o.verborgen ? 1 : 0.25 }} title="Verbergen">👁</button>
-                          <button onClick={e => { e.stopPropagation(); wijzig([o.id], q => ({ ...q, locked: !q.locked })); setSel(s => s.filter(i => i !== o.id)) }} style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 10, opacity: o.locked ? 1 : 0.25 }} title="Vergrendelen">🔒</button>
+                          <button onClick={e => { e.stopPropagation(); wijzig([o.id], q => ({ ...q, verborgen: !q.verborgen })) }} style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--pg-inkt)', opacity: o.verborgen ? 0.85 : 0.22, padding: 0, width: 18, height: 16, borderRadius: 4 }} title="Verbergen">{ik(o.verborgen ? OOG_UIT : OOG, 12)}</button>
+                          <button onClick={e => { e.stopPropagation(); wijzig([o.id], q => ({ ...q, locked: !q.locked })); setSel(s => s.filter(i => i !== o.id)) }} style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--pg-inkt)', opacity: o.locked ? 0.85 : 0.22, padding: 0, width: 18, height: 16, borderRadius: 4 }} title="Vergrendelen">{ik(o.locked ? SLOT : SLOT_OPEN, 11)}</button>
                         </div>
                       ))}
                     </div>
@@ -2024,7 +2079,7 @@ export default function PlattegrondEditor({ adapter, flash }: { adapter: Adapter
                     const kl = c.status === 'actie' ? '#c53030' : c.status === 'tip' ? '#b7791f' : '#2e6b3a'
                     return (
                       <div key={c.id} onClick={() => { if (c.ids?.length) zoomNaar(c.ids); else if (c.naar === 'gegevens') setMetaDlg({ ...meta, evenement: meta.evenement || naam }); else if (c.naar === 'locatie') setZijTab('locatie'); else if (c.naar === 'materialen') { setZijTab('materialen'); setMatZoek('') } }}
-                        style={{ display: 'flex', gap: 8, padding: '8px 8px', borderRadius: 9, cursor: 'pointer', marginBottom: 4, background: c.status === 'actie' ? '#fdf1f0' : c.status === 'tip' ? '#fff9ec' : 'transparent', border: c.status === 'ok' ? '1px solid #eef3ea' : '1px solid transparent' }}>
+                        className="pg-tegel" style={{ display: 'flex', gap: 9, padding: '9px 10px', borderRadius: 10, cursor: 'pointer', marginBottom: 5, background: c.status === 'actie' ? '#fdf1f0' : c.status === 'tip' ? '#fff9ec' : 'transparent', border: '1px solid ' + (c.status === 'ok' ? '#e6efe2' : c.status === 'actie' ? '#f6d5d1' : '#f3e3bd') }}>
                         <span style={{ width: 18, height: 18, borderRadius: 9, flexShrink: 0, background: kl, color: '#fff', fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: 1 }}>{c.status === 'actie' ? '!' : c.status === 'tip' ? 'i' : '✓'}</span>
                         <span><span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--pg-inkt)', display: 'block' }}>{c.titel}</span><span style={{ fontSize: 11.5, color: '#777162', lineHeight: 1.45, display: 'block' }}>{c.uitleg}</span></span>
                       </div>
